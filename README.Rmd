@@ -1,0 +1,44 @@
+---
+title: "Placental Cell DNA Methylation"
+author: "Victor Yuan"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---
+
+# README
+
+For NIH EPIC cells project
+
+## Directory structure
+
+```
+Placental Cell DNA Methylation
+|   README.html
+│   README.md                   
+|   README.Rmd 
+│   
+└───data
+│   └───external                  <- Data from third party sources (e.g. annotations)
+│   └───main
+|           └───raw               <- The original, immutable data (e.g. DNAme, pData)          
+|           └───interim           <- Intermediate data that has been transformed
+│           └───processed         <- The final, canonical data sets for analysis/sharing
+|
+└───R
+|   └───00_data                   <- Downloading & loading data into R
+|   └───10_qc_preprocess          <- Quality control and preprocessing data
+|   └───20_analysis               <- Analyzing processed data
+|   └───functions                 
+|
+└───outs                          <- Figures, tables, reports
+```
+
+## Data
+
+## Analysis
+
+## References
+
+
