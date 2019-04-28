@@ -1,0 +1,48 @@
+---
+title: "01_Load_IDATs"
+author: "Victor Yuan"
+date: "April 27, 2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+Load week 1 samples (n=96, 12 chips)
+
+# 1.0 Libraries
+
+```{r}
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(minfi)
+library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+library(IlluminaHumanMethylationEPICmanifest)
+```
+
+# 2.0 Data
+
+```{r}
+ss <- read.csv('../../data/main/raw/NIH EPIC Batch 2 week 1 sample sheet.csv', skip = 7)
+
+rgset <- read.metharray.exp('Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/IDATs - Week 1/', 
+                            recursive = T, verbose = T, extended = T)
+rgset
+```
+
+```{r, eval = F}
+saveRDS(rgset, '../../data/main/interim/01_rgset_raw.rds')
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
