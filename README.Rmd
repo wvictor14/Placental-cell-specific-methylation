@@ -37,6 +37,15 @@ Placental Cell DNA Methylation
 
 ## Data
 
+Main - raw
+
+* NIH EPIC Batch 2 week 1 sample sheet.csv - sample sheet used for loading idat files into R / GS
+
+Main - interim
+
+* 00_rgset.rds - generated from 01_load_data, raw unprocessed rg channelset object of first week 
+samples
+
 ## Analysis
 
 ## References

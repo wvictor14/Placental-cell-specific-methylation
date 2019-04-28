@@ -73,7 +73,7 @@ code > span.ot { color: #007020; }
 │           └───processed         &lt;- The final, canonical data sets for analysis/sharing
 |
 └───R
-|   └───00_Data                   &lt;- Downloading &amp; loading data into R
+|   └───00_data                   &lt;- Downloading &amp; loading data into R
 |   └───10_qc_preprocess          &lt;- Quality control and preprocessing data
 |   └───20_analysis               &lt;- Analyzing processed data
 |   └───functions                 
@@ -82,6 +82,14 @@ code > span.ot { color: #007020; }
 </div>
 <div id="data" class="section level2">
 <h2>Data</h2>
+<p>Main - raw</p>
+<ul>
+<li>NIH EPIC Batch 2 week 1 sample sheet.csv - sample sheet used for loading idat files into R / GS</li>
+</ul>
+<p>Main - interim</p>
+<ul>
+<li>00_rgset.rds - generated from 01_load_data, raw unprocessed rg channelset object of first week samples</li>
+</ul>
 </div>
 <div id="analysis" class="section level2">
 <h2>Analysis</h2>
