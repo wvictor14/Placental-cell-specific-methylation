@@ -6,3 +6,4 @@ Microarray Prep
 *.Rproj
 Thumbs.db
 data
+*.html
