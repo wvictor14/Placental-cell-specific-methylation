@@ -14,7 +14,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-Load week 1 samples (n=96, 12 chips)
+Load week 1&2 samples (n=192, 24 chips)
 
 # 1.0 Libraries
 
@@ -25,16 +25,41 @@ library(dplyr)
 library(minfi)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 library(IlluminaHumanMethylationEPICmanifest)
+library(readxl)
 ```
 
 # 2.0 Data
 
 ```{r}
-ss <- read.csv('../../data/main/raw/NIH EPIC Batch 2 week 1 sample sheet.csv', skip = 7)
+#sample phenodata 
+ss <- read_xlsx('../../data/main/raw/NIH EPIC Batch 2 sample sheet.xlsx', skip = 7)
+ss
 
-rgset <- read.metharray.exp('Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/IDATs - Week 1/', 
+# load idats
+rgset <- read.metharray.exp('Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/', 
                             recursive = T, verbose = T, extended = T)
 rgset
+
+# create sentrix column which matches column names of rgset
+ss <- ss %>% 
+  mutate(Sentrix = paste0(Sentrix_ID, '_', Sentrix_Position)) %>%
+  dplyr::rename(Chip_number = `Chip Number`,
+                Scratches = `Scratches on beadchip`,
+                DNA_conc_BSC_adjusted = `BSC sample adjustedconcentration`,
+                DNA_conc_before_load = `DNA concentration after speed vac and dilution (ng/ul)`,
+                DNA_loaded = `Amount of DNA loaded (ng)`) %>%
+  arrange(Sentrix)
+
+sum(ss$Sentrix %in% colnames(rgset)) #192
+
+#rearrange argset based on ss
+rgset <- rgset[,ss$Sentrix]
+
+# add pData to rgset
+ss <- ss %>% as.data.frame()
+rownames(ss) <- ss$Sentrix
+pData(rgset) <- DataFrame(ss)
+pData(rgset)
 ```
 
 ```{r, eval = F}
