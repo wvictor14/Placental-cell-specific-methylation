@@ -26,19 +26,15 @@ library(minfi)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 library(IlluminaHumanMethylationEPICmanifest)
 library(readxl)
+library(ewastools)
 ```
 
-# 2.0 Data
+# 2.0 RGSET
 
 ```{r}
 #sample phenodata 
 ss <- read_xlsx('../../data/main/raw/NIH EPIC Batch 2 sample sheet.xlsx', skip = 7)
 ss
-
-# load idats
-rgset <- read.metharray.exp('Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/', 
-                            recursive = T, verbose = T, extended = T)
-rgset
 
 # create sentrix column which matches column names of rgset
 ss <- ss %>% 
@@ -49,6 +45,13 @@ ss <- ss %>%
                 DNA_conc_before_load = `DNA concentration after speed vac and dilution (ng/ul)`,
                 DNA_loaded = `Amount of DNA loaded (ng)`) %>%
   arrange(Sentrix)
+```
+
+```{r}
+# load idats
+rgset <- read.metharray.exp('Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/', 
+                            recursive = T, verbose = T, extended = T)
+rgset
 
 sum(ss$Sentrix %in% colnames(rgset)) #192
 
@@ -56,15 +59,49 @@ sum(ss$Sentrix %in% colnames(rgset)) #192
 rgset <- rgset[,ss$Sentrix]
 
 # add pData to rgset
-ss <- ss %>% as.data.frame()
-rownames(ss) <- ss$Sentrix
-pData(rgset) <- DataFrame(ss)
+ss1 <- ss %>% as.data.frame()
+rownames(ss1) <- ss1$Sentrix
+pData(rgset) <- DataFrame(ss1)
 pData(rgset)
 ```
 
 ```{r, eval = F}
 saveRDS(rgset, '../../data/main/interim/01_rgset_raw.rds')
 ```
+
+# 3.0 ewastools
+
+Here I construct a ewastools -loaded object to use their functions
+
+```{r}
+# construct filepaths
+Base <- 'Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/'
+week1 <- 'IDATs - Week 1/'
+week2 <- 'IDATs - Week 2/'
+  
+ss <- ss %>% 
+  mutate(filenames = ifelse(Week == 1, 
+                            paste0(Base, week1, Sentrix_ID, '/', Sentrix),
+                            paste0(Base, week2, Sentrix_ID, '/', Sentrix)))
+
+et_meth <- read_idats(ss$filenames) # `quiet=TRUE` supresses the progress bar, 5.5 Gb
+```
+
+Note that et_meth is a list containing the following elements:
+
+manifest
+M - methylated matrix
+U - unmethylated matrix
+N - number of beads for M
+V - number of beads for U
+ctrlG - intensities for control probes in green
+ctrlR - intensities for ctrl probes in red
+meta - metadata for samples
+
+
+Do not ever try to print the object to screen. (way to large).
+
+saveRDS(et_meth, '../../data/main/interim/01_ewastools_loaded_idats.rds')
 
 # Session Info
 
