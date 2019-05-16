@@ -48,72 +48,12 @@ colnames(cn_noob) <- pDat$Sample_Name
 cn_noob[1:6,1:6]
 ```
 
-# cn450kanalysis
-
-We are doing the Z-transformation workflow
-
-https://academic.oup.com/bioinformatics/article/33/15/2266/3096425
-https://rdrr.io/github/mknoll/cnAnalysis450k/f/vignettes/completeWorkflow.Rmd
-
-First we define controls, samples with no known aneuploidys.
-
-We don't really know if any sample has any CNVs or not. But we can assume most of the term 
-samples
-
-
-## Define controls
-
-```{r}
-# controls
-control_ind <- pDat %>% 
-  filter(Sex == 'M', Trimester == 'Third', Tissue == 'Villi') %>% pull(Sample_Name)
-cn_noob_ctrls <- cn_noob[,control_ind]
-
-# query samples
-cn_noob_samples <- cn_noob[,-which(colnames(cn_noob) %in% control_ind)]
-
-# Z transform
-cn_noob_ctrls <- scale(cn_noob_ctrls)
-cn_noob_ctrls_med <- apply(cn_noob_ctrls, 1, 'median')
-
-cn_noob_samples <- scale(cn_noob_samples)
-```
-
-## Find segments
-
-```{r}
-segments <- findSegments(data = cn_noob_samples[,1:5], 
-                         ctrlAll = cn_noob_ctrls, ctrl = cn_noob_ctrls_med)
-```
-
-## Create CN matrix
-
-```{r}
-ctrlAll <- cn_noob_ctrls
-segments_matrix <- createSegmentMatrix(segments, p.select = 0.05, arrayType = 'EPIC')
-```
-
-# extra stuff
-
-
-```{r}
-ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, 
-                 fill = Prob_SNP_outlier)) +
-  geom_point(aes(shape = Sex), size = 2.5, alpha = 0.95) +
-  scale_shape_manual(values = c('M' = 21, 'F' = 22)) +
-  theme_bw() +
-  scale_fill_viridis_c(option = 'inferno')
-
-```
-
-
 # Conumee
 
 ## Setup
 
 Conumee produces an annotation that does not match the probes of current EPIC arrays. Be sure to
 run subsetbyoverlaps with the data after running CNV.load
-
 
 ```{r}
 # define controls
@@ -369,4 +309,16 @@ CNV_segments %>% filter(ID %in% Third[86:126]) %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         panel.grid.minor = element_blank()) +
   coord_flip() 
+```
+
+# extra stuff
+
+```{r}
+ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, 
+                 fill = Prob_SNP_outlier)) +
+  geom_point(aes(shape = Sex), size = 2.5, alpha = 0.95) +
+  scale_shape_manual(values = c('M' = 21, 'F' = 22)) +
+  theme_bw() +
+  scale_fill_viridis_c(option = 'inferno')
+
 ```
