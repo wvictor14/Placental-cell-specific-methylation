@@ -1,0 +1,372 @@
+---
+title: "12_CNVs"
+author: "Victor Yuan"
+date: "May 13, 2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+For calling CNVs
+
+# Setup
+
+## Libraries and Data
+
+```{r}
+library(minfi)
+library(cnAnalysis450k)
+library(ggplot2)
+library(dplyr)
+library(GenVisR)
+library(tidyr)
+
+rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
+pDat <- readRDS('../../data/main/interim/11_pDat.rds')
+probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+
+all(pDat$Sentrix == colnames(rgset)) # T
+```
+
+## Normalize
+
+We use noob normalization 
+
+```{r}
+mset_noob <- preprocessNoob(rgset)
+
+#get copy number data
+cn_noob <- getCN(mset_noob)
+colnames(cn_noob) <- pDat$Sample_Name
+cn_noob[1:6,1:6]
+```
+
+# cn450kanalysis
+
+We are doing the Z-transformation workflow
+
+https://academic.oup.com/bioinformatics/article/33/15/2266/3096425
+https://rdrr.io/github/mknoll/cnAnalysis450k/f/vignettes/completeWorkflow.Rmd
+
+First we define controls, samples with no known aneuploidys.
+
+We don't really know if any sample has any CNVs or not. But we can assume most of the term 
+samples
+
+
+## Define controls
+
+```{r}
+# controls
+control_ind <- pDat %>% 
+  filter(Sex == 'M', Trimester == 'Third', Tissue == 'Villi') %>% pull(Sample_Name)
+cn_noob_ctrls <- cn_noob[,control_ind]
+
+# query samples
+cn_noob_samples <- cn_noob[,-which(colnames(cn_noob) %in% control_ind)]
+
+# Z transform
+cn_noob_ctrls <- scale(cn_noob_ctrls)
+cn_noob_ctrls_med <- apply(cn_noob_ctrls, 1, 'median')
+
+cn_noob_samples <- scale(cn_noob_samples)
+```
+
+## Find segments
+
+```{r}
+segments <- findSegments(data = cn_noob_samples[,1:5], 
+                         ctrlAll = cn_noob_ctrls, ctrl = cn_noob_ctrls_med)
+```
+
+## Create CN matrix
+
+```{r}
+ctrlAll <- cn_noob_ctrls
+segments_matrix <- createSegmentMatrix(segments, p.select = 0.05, arrayType = 'EPIC')
+```
+
+# extra stuff
+
+
+```{r}
+ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, 
+                 fill = Prob_SNP_outlier)) +
+  geom_point(aes(shape = Sex), size = 2.5, alpha = 0.95) +
+  scale_shape_manual(values = c('M' = 21, 'F' = 22)) +
+  theme_bw() +
+  scale_fill_viridis_c(option = 'inferno')
+
+```
+
+
+# Conumee
+
+## Setup
+
+Conumee produces an annotation that does not match the probes of current EPIC arrays. Be sure to
+run subsetbyoverlaps with the data after running CNV.load
+
+
+```{r}
+# define controls
+CNV_controls <- pDat %>% 
+  filter(Trimester == 'Third' & Sex == 'M') %>% 
+  pull(Sample_Name) %>% as.character()
+
+# exclude cross hyb probes
+# load annotation
+zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
+
+# subset zhou anno to filtered probes
+zhou_anno <- zhou_anno[intersect(rownames(mset_noob), names(zhou_anno)),]
+
+exclude <- zhou_anno[zhou_anno$MASK_general == T,]
+exclude <- exclude[!seqnames(exclude) %in% c('chrM','*'),]
+
+# create annotation
+CNV_anno <- CNV.create_anno(array_type="EPIC", chrXY=TRUE, 
+                            exclude_regions = granges(exclude))
+
+# subset annotation to those present in mset
+CNV_anno@probes <- subsetByOverlaps(CNV_anno@probes, granges(zhou_anno))
+
+# load into cnv calling format
+CNV <- CNV.load(mset_noob[intersect(rownames(mset_noob), names(zhou_anno)),])
+
+#test
+#x <- CNV.fit(CNV[2], ref = CNV[setdiff(CNV_controls, names(CNV[2]))], anno = CNV_anno)
+#x <- CNV.bin(x)
+#x <- CNV.detail(x)
+#x <- CNV.segment(x)
+#CNV.genomeplot(x)
+#CNV.genomeplot(x, chr = 'chr6')
+#y2 <- CNV.write(x, what = 'bins')
+#head(y2)
+```
+
+## Call CNVs
+
+```{r}
+# initilize cluster
+cl <- makeCluster(24)
+registerDoParallel(cl)
+
+# parallel cnv fit
+CNV_calls <- foreach (i =  1:ncol(mset_raw),
+                          .export = c("CNV.fit", "CNV.bin", 
+                                      "CNV.segment", "CNV.detail")) %dopar%
+  CNV.segment(
+    CNV.detail(
+      CNV.bin(
+        CNV.fit(
+          CNV[i], ref = CNV[setdiff(CNV_controls, names(CNV[i]))], anno = CNV_anno))))
+
+# kill cluster
+stopCluster(cl)
+
+# name the output list
+names(CNV_calls) <- pDat$Sample_Name
+CNV.genomeplot(CNV_calls[[1]])
+
+# visualize 
+#organize by case
+Cases <- levels(as.factor(as.character(pDat$Case_ID)))
+```
+
+## Output genomeplots
+
+```{r eval = F}
+pdf(file='../../outs/11_CNV_conumee.pdf')  
+for (i in 1:length(Cases)) {
+  Case_i <- Cases[i]
+  pDat_i <- pDat %>% filter(Case_ID == Case_i)
+  name_i <- as.character(pDat_i$Sample_Name)
+  sex_i <- as.character(pDat_i$Sex)
+  
+  
+  # set number of plots per page
+  if (length(name_i) == 1) {
+    par(mfrow = c(1,1))
+  }
+  
+  if (length(name_i) == 2) {
+    par(mfrow = c(2, 1)) # two plots on two rows, better than two plots in two columns
+  }
+  
+  if (length(name_i) > 2) {
+    par(mfrow = c(ceiling(length(name_i)/2), 2)) # set two columns and enough rows to hold all plots
+  }
+  
+  
+  for (j in 1:length(name_i)){
+    CNV.genomeplot(CNV_calls[[name_i[j]]],
+                   main = paste0(name_i[j], ' (', sex_i[j], ')' ), set_par = F)
+  }
+}
+dev.off()
+```
+
+## Output data matrix
+
+probes
+bins
+segments
+
+```{r}
+#segments
+CNV_segments <- CNV.write(CNV_calls[[1]], what = 'segments')
+CNV_segments <- lapply(CNV_calls, function(x) CNV.write(x, what = 'segments')) %>% bind_rows
+head(CNV_segments)
+
+#bins
+CNV_bins <- lapply(CNV_calls, function(x) CNV.write(x, what = 'bins')[,5])
+names(CNV_bins) <- names(CNV_calls)
+CNV_bins <- bind_cols(CNV.write(CNV_calls[[1]], what = 'bins')[,1:4],
+                      CNV_bins) %>% as_tibble()
+CNV_bins 
+
+```
+
+
+## Visualize
+
+Need to format so that I can plot as heatmap
+
+Y axis will be position in genome
+
+I need a continuous position along the entire genome, not just the chromosome.
+
+So chromosome 2 positions need to have the maximum chromosome 1 length to them, etc.
+
+```{r}
+# create plotting data
+plot_data <- CNV_bins %>% 
+  mutate(Chromosome = factor(as.character(Chromosome), levels = 
+                               paste0('chr', c(1:22, 'X', 'Y'))))
+
+# calculate chromosome lengths
+chrom_lengths <- plot_data %>% group_by(Chromosome) %>% 
+  dplyr::summarize(max = max(End)) %>%
+  mutate(toadd = cumsum(as.numeric(max)) - max) # subtract current chromosome length
+
+plot_data <- chrom_lengths %>% inner_join(plot_data) %>% mutate(position_genome = Start + toadd) %>%
+  select(Chromosome, Start, End, Feature, position_genome, everything())
+
+plot_data_melt <- plot_data %>%
+  select(-Start, -End, -Feature, -toadd) %>%
+  tidyr::gather(key = 'Sample', value = 'Intensity', -Chromosome, -position_genome, -max) %>%
+  mutate(State = factor(case_when(
+    Intensity < -0.2 ~ 'Loss',
+    Intensity > 0.2 ~ 'Gain',
+    TRUE ~ 'Neutral'
+  ), levels = c('Loss', 'Gain', 'Neutral')))
+
+
+ggplot(plot_data_melt[1:900000,], 
+       aes(x = Sample, y = position_genome, color = State)) +
+  geom_point(shape = 15, size = 0.75) +
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(breaks = chrom_lengths$toadd, labels = chrom_lengths$Chromosome) +
+  theme_classic()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+Too sensitive
+TRy with segments
+
+```{r}
+CNV_segments <- CNV_segments %>% as_tibble() %>%
+  mutate(chrom = factor(as.character(chrom), levels = 
+                               paste0('chr', c(1:22, 'X', 'Y')))) %>%
+  left_join(chrom_lengths, by = c('chrom' = 'Chromosome')) %>%
+  mutate(start_genome = loc.start + toadd, 
+         end_genome = loc.end + toadd,
+         state = case_when(
+           seg.median > 0.1 ~ 'Gain',
+           seg.median < -0.1 ~ 'Loss',
+           TRUE ~ 'Neutral'
+         )) %>%
+  arrange(ID, chrom, loc.start) %>%
+  filter(!chrom %in% c('chrX', 'chrY'))
+
+#sample index
+Second <- pDat %>% filter(Trimester == 'Second') %>% pull(Sample_Name)
+First <- pDat %>% filter(Trimester == 'First') %>% arrange(Case_ID) %>% pull(Sample_Name)
+Third <- pDat %>% filter(Trimester == 'Third') %>% arrange(Case_ID) %>% pull(Sample_Name)
+
+
+#second trim
+CNV_segments %>% filter(ID %in% Second) %>%
+  ggplot(aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+
+#First trimester
+CNV_segments %>% filter(ID %in% First[1:25]) %>%
+  ggplot(aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+
+CNV_segments %>% filter(ID %in% First[26:50]) %>%
+  ggplot(aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+
+#Third trimester
+CNV_segments %>% filter(ID %in% Third[1:42]) %>%
+  ggplot(aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+CNV_segments %>% filter(ID %in% Third[43:85]) %>%
+  ggplot(aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+
+CNV_segments %>% filter(ID %in% Third[86:126]) %>%
+  ggplot(aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+```
