@@ -6,15 +6,16 @@ output:
   html_document:
     keep_md: true
     toc: true
-    toc_depth: 4
+    toc_depth: 3
     toc_float:
       collapsed: false
     theme: spacelab
+  pdf_document: default
 editor_options: 
   chunk_output_type: console
 ---
 
-QC week 1 samples (n=96, 12 chips)
+QC week 24 chips, 192 samples
 
 # 1.0 Libraries & data
 
@@ -34,63 +35,106 @@ library(dplyr)
 library(kableExtra)
 library(conumee)
 library(doParallel)
+library(ewastools)
+library(stringr)
+library(cowplot)
+library(dendextend)
+library(ggdendro)
+library(pheatmap)
+library(GGally)
+library(grid)
+library(yahew) # wvictor14/yahew github
+library(umap)
 ```
 
 ```{r}
 rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
+et_meth <- readRDS('../../data/main/interim/01_ewastools_loaded_idats.rds')
 pDat <- pData(rgset) %>% as_tibble()
 ```
 
-
-I tried to load in annotation information and notice that there are more probes in our data than 
-what is described in the b4 annotation (the latest version on Illumina's product files webpage). 
-
-So right now I am in contact with Illumina trying to get a more updated annotation.
-
-
-```{r eval = F}
-minfi_anno <- getAnnotation(rgset)
-
-#why probes don't match from rgset and anno?
-minfi_anno
-x <- rownames(detp)[which(!rownames(detp) %in% rownames(minfi_anno))]
-y <- rownames(detp)[which(!rownames(detp) %in% names(ranges(anno)))]
-intersect(x, y)
-
-b4 <- read.csv('Z:/Victor/Data/DNAm annotations/MethylationEPIC_v-1-0_B4.csv', skip = 7)
-sum(b4$IlmnID %in% rownames(betas_raw)) 
-sum(rownames(betas_raw) %in% b4$IlmnID) #865859 / 866091 probes are in b4 annotation
-
-unique_in_ours <- setdiff(rownames(betas_raw), b4$IlmnID)
-unique_in_b4 <- setdiff(b4$IlmnID, rownames(betas_raw))
-
-length(unique_in_ours) #232
-length(unique_in_b4) #695
-```
-
-# 2.0 Probe QC
+# 2.0 QC
 
 We start with probe qc to remove any failed measurements before going into sample qc
 
 ## 2.1 Detection p-value
 
-```{r}
+Here I test out EWAS tools. It estimates much more probes failing detection p.
+
+In the end I use Minfi's detection p the conventional way.
+
+```{r ewastools, eval = F}
+#call detection p values using empirical negative control probes
+et_meth <- ewastools::detectionP(et_meth)
+
+# evaluate the effectiveness of this strategy
+eval_detP_cutoffs(et_meth, males = which(pDat$Sex == 'M'), females = which(pDat$Sex == 'F'))
+
+# set failed probes as NA
+et_meth <- mask(et_meth, threshold = 0.5)
+
+# get betas
+et_beta <- dont_normalize(et_meth)
+sum(is.na(et_beta))
+
+pDat <- pDat %>% 
+  mutate(detP_01_ewastools = colSums(is.na(et_beta)))
+
+ggplot(pDat, aes(x = Tissue, y = detP_01_ewastools)) +
+  geom_boxplot() + geom_point() +coord_flip() + theme_bw() +
+  labs(x = '', y = '# of probes with detection p > 0.01')  +
+  geom_hline(yintercept = 0.05*nrow(et_beta), linetype ='dashed', color = 'blue') +
+  geom_text(aes(x = 0, y = 0.05*nrow(et_beta), label = '5%', vjust = -0.5, hjust = -0.5),
+            color = 'blue') +
+  geom_hline(yintercept = 0.10*nrow(et_beta), linetype = 'dashed', color = 'red') +
+  geom_text(aes(x = 0, y = 0.10*nrow(et_beta), label = '10%', vjust = -0.5, hjust = -0.5),
+            color = 'red')  +
+  geom_label_repel(data = pDat %>% filter(detP_01_ewastools > 6e+05), 
+                  aes(x = Tissue, y = detP_01_ewastools, label = Sample_Name))
+
+ggplot(pDat %>% filter(detP_01_ewastools < 6e+05), 
+       aes(x = Tissue, y = detP_01_ewastools)) +
+  geom_boxplot() + geom_point() +coord_flip() + theme_bw() +
+  labs(x = '', y = 'Number of probes with detection p > 0.01') +
+  geom_hline(yintercept = 0.05*nrow(et_beta), linetype ='dashed', color = 'blue') +
+  geom_text(aes(x = 0, y = 0.05*nrow(et_beta), label = '5%', vjust = -0.5, hjust = -0.5),
+            color = 'blue') +
+  geom_hline(yintercept = 0.10*nrow(et_beta), linetype = 'dashed', color = 'red') +
+  geom_text(aes(x = 0, y = 0.10*nrow(et_beta), label = '10%', vjust = -0.5, hjust = -0.5),
+            color = 'red')  +
+  geom_label_repel(data = pDat %>% filter(detP_01_ewastools > 0.05*nrow(et_beta) &
+                                         detP_01_ewastools < 6e+05),
+                   force = 150, size = 3.5,
+                  aes(x = Tissue, y = detP_01_ewastools, label = Sample_Name))
+```
+
+```{r eval = T}
 #get detp matrix
-detp <- detectionP(rgset)
+detp <- minfi::detectionP(rgset)
 
 # detp p > 0.01
 x <- colSums(detp > 0.01)
 identical(names(x), pDat$Sentrix) #T
 
-pDat$detP_01 <- x
+pDat$detP_01_minfi <- x
 
 # plot
-ggplot(pDat, aes(x = Tissue, y = detP_01)) +
-  geom_boxplot() + geom_point() + 
-  theme_bw() +
-  labs(x = '', y = '', title = 'Number of probes with detection p > 0.01') +
-  geom_hline(yintercept = round(median(pDat$detP_01), 0), linetype ='dashed', color = 'blue') +
-  geom_hline(yintercept = 0.01*nrow(detp), linetype = 'dashed', color = 'red') +coord_flip()
+pDat %>% 
+  arrange(Tissue, detP_01_minfi) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = detP_01_minfi, fill = Tissue))+
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  labs(x = 'Samples', y ='',  title = '# of probes with detection p > 0.01')+
+  geom_hline(yintercept = 0.005*nrow(detp), linetype ='dashed', color = 'blue') +
+  geom_text(aes(x = 0, y = 0.005*nrow(detp)),
+            label = '0.5%', vjust = -0.5, hjust = -0.5, color = 'blue') +
+  geom_label_repel(data = pDat %>% filter(detP_01_minfi > 0.005*nrow(detp)),
+                   aes(x = Sample_Name, y = detP_01_minfi, label = Sample_Name),
+                   show.legend = F) +
+  scale_y_continuous(limits = c(0, 7000), breaks = seq(0,7000, 1000)) +
+  scale_fill_brewer(palette = 'Set1') +
+  theme_classic()+
+  theme(axis.text.x = element_blank()) 
 ```
 
 No samples have > 8500 (1%) of their probes failing detection p
@@ -104,13 +148,22 @@ colnames(bc) <- gsub('X', '', colnames(bc))
 
 pDat <- pDat %>% mutate(beadcount = colSums(is.na(bc)))
 
-ggplot(pDat, aes(x = Tissue, y = beadcount)) +
-  geom_boxplot() + geom_point() +
-  theme_bw() +
-  labs(x = '', y = '', 
-        title = '# probes with bead count < 3') +
-  geom_hline(yintercept = round(median(pDat$detP_01), 0), linetype ='dashed', color = 'blue') +
-  geom_hline(yintercept = 0.01*nrow(bc), linetype = 'dashed', color = 'red') +coord_flip()
+pDat %>% 
+  arrange(Tissue, beadcount) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = beadcount, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_hline(yintercept = 0.01*nrow(bc), linetype = 'dashed', color = 'red') +
+  geom_text(aes(x = 0, y = 0.01*nrow(bc)), 
+            label = '1%', vjust = -0.5, hjust = -0.5, color = 'red')+
+  geom_label_repel(data = pDat %>% filter(beadcount > 0.01*nrow(detp)),
+                   aes(x = Sample_Name, y = beadcount, label = Sample_Name),
+                   nudge_y = 1000, force = 15, show.legend = F)+
+  scale_fill_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0, 12500), breaks = seq(0, 12500, 2500)) +
+  labs(x = 'Samples', y = '', title = '# probes with bead count < 3') +
+  theme_classic() +
+  theme(axis.text.x = element_blank()) 
 ```
 
 ## 2.3 Detp and bead count
@@ -128,35 +181,52 @@ failed_probes[detp > 0.01] <- T
 # now calculate the number of failed probes
 pDat <- pDat %>% mutate(failed_probes = colSums(failed_probes))
 
-ggplot(pDat, aes(x = Tissue, y = failed_probes)) +
-  geom_boxplot() + geom_point() +
-  theme_bw() +
-  labs(x = '', y = '', 
-        title = '# probes with bead count < 3 or detection p > 0.01') +
-  geom_hline(yintercept = round(median(pDat$failed_probes), 0), linetype ='dashed', color = 'blue') +
-  geom_hline(yintercept = 0.01*nrow(failed_probes), linetype = 'dashed', color = 'red') +coord_flip()
+pDat %>% 
+  arrange(Tissue, failed_probes) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = failed_probes, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) +
+  scale_fill_brewer(palette = 'Set1') +
+  labs(x = 'Samples', y = '# probes with bead count < 3 or detection p > 0.01') +
+  geom_hline(yintercept = 0.01*nrow(failed_probes), linetype = 'dashed', color = 'red') +
+  geom_text(aes(x = 0, y = 0.01*nrow(bc)), 
+            label = '1%', vjust = -0.5, hjust = -0.5, color = 'red')+
+  geom_label_repel(data = pDat %>% filter(failed_probes > 0.01*nrow(detp)),
+                   aes(x = Sample_Name, y = failed_probes, label = Sample_Name),
+                   force = 100, show.legend = F)+
+  theme_classic()+
+  theme(axis.text.x = element_blank()) 
 ```
 
 Number of probes that had a significant amount of failures:
 
 ```{r}
+n <- ncol(rgset)
 failed_probes_count <- rowSums(failed_probes)
-sum(failed_probes_count > 0.025*96) # > 2.5%, 41087
-sum(failed_probes_count > 0.05*96) # > 5%, 20527
-sum(failed_probes_count > 0.10*96) # > 10%, 5578
-sum(failed_probes_count > 0.15*96) # > 15%, 2663
-sum(failed_probes_count > 0.20*96) # > 20%, 1637
-sum(failed_probes_count > 0.25*96) # > 25%, 1198
+sum(failed_probes_count > 0.025*n) # > 2.5%, 40844
+sum(failed_probes_count > 0.05*n) # > 5%, 15249
+sum(failed_probes_count > 0.10*n) # > 10%, 3982
+sum(failed_probes_count > 0.15*n) # > 15%, 2095
+sum(failed_probes_count > 0.20*n) # > 20%, 1376
+sum(failed_probes_count > 0.25*n) # > 25%, 1022
 
-fp_plot <- tibble(Percent_failing = seq(0.025, 1, 0.025)) %>% 
-  mutate(Number_of_probes_failing = 
-           sapply(Percent_failing*96, FUN = function(x) sum(failed_probes_count > x)))
+fp_plot <- tibble(Percent_probes_failing = seq(0.025, 1, 0.025)) %>% 
+  mutate(Number_probes_remove = 
+           sapply(Percent_probes_failing*n, FUN = function(x) sum(failed_probes_count > x)))
 
 
-ggplot(fp_plot, aes(x = Percent_failing, y = Number_of_probes_failing)) +
-  geom_line() + theme_bw()
+ggplot(fp_plot, aes(x = Percent_probes_failing, y = Number_probes_remove)) +
+  geom_line() + theme_bw() + scale_x_continuous(breaks = seq(0, 1, 0.05))+
+  geom_hline(yintercept = 0.01*nrow(failed_probes), linetype = 'dashed') +
+  geom_text(aes(x = 0, y = 0.01*nrow(bc)), 
+            label = '1%', vjust = -0.5, hjust = 1) +
+  geom_hline(yintercept = 0.025*nrow(failed_probes), linetype = 'dashed') +
+  geom_text(aes(x = 0, y = 0.025*nrow(bc)), 
+            label = '2.5%', vjust = -0.5, hjust = 0.5) +
+  labs(x = 'Threshold of how many (%) observations can fail before removal',
+       y = 'Resulting # of probes that will be removed')
 
-sum(failed_probes_count > 0.125*96) # > 12.5%, 3405
+sum(failed_probes_count > 0.125*n) # > 12.5%, 2690
 
 # add this info to probe annotation
 probe_anno <- tibble(probe_ID = rownames(detp)) %>%
@@ -179,16 +249,7 @@ ggplot(pDat, aes(x = log2_median_meth, y = log2_median_unmeth)) +
   xlim(7.5, 15) + ylim(7.5, 15) + theme_bw()
 ```
 
-## 2.5 Control probes
-
-```{r}
-controls <- c("BISULFITE CONVERSION I", "BISULFITE CONVERSION II", "EXTENSION", "HYBRIDIZATION",
-              "NON-POLYMORPHIC","SPECIFICITY I", "SPECIFICITY II", "TARGET REMOVAL")
-
-controlStripPlot(rgset, controls = controls)
-```
-
-## 2.6 Average intensity
+## 2.5 Average intensity
 
 Average intensity over green and red
 
@@ -201,20 +262,97 @@ green_red <- green + red
 pDat <- pDat %>% mutate(Average_intensity = colMeans(green_red))
 
 pDat %>% 
-  arrange(Tissue) %>% 
+  arrange(Tissue, Average_intensity) %>% 
   mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
   ggplot(aes(x = Sample_Name, y = Average_intensity, fill = Tissue)) +
-  geom_point(shape = 21, col = 'black', size = 2.5) + theme_bw() +
+  geom_point(shape = 21, col = 'black', size = 2.5) + theme_classic() +
   theme(axis.text.x = element_blank()) +
   geom_hline(yintercept = mean(pDat$Average_intensity) - 2*sd(pDat$Average_intensity),
              linetype = 'dashed', col = 'blue')+
   geom_hline(yintercept = mean(pDat$Average_intensity) + 2*sd(pDat$Average_intensity),
              linetype = 'dashed', col = 'red') +
-  geom_text_repel(data = pDat %>% 
+  geom_label_repel(data = pDat %>% 
                     filter(Average_intensity < mean(pDat$Average_intensity) -
                              2*sd(pDat$Average_intensity)),
-                  aes(label = Sample_Name), col = 'black') +
-  scale_fill_brewer(palette ='Set1')
+                  aes(label = Sample_Name), force = 10, nudge_y = -2500, show.legend = F) +
+  scale_fill_brewer(palette ='Set1') +
+  scale_y_continuous(limits = c(0, 15000)) +
+  labs(x = 'Samples')
+```
+
+## 2.5 Control probes
+
+ewastools
+
+```{r}
+#take out control matrix
+ctrls <- control_metrics(et_meth)
+sample_failure(ctrls) # no failures
+
+
+# format as dat aframe
+controls <- tibble(control = sapply(names(ctrls), 
+                                    function(x) paste0(x, '_', 1:192))  %>%
+                     as.vector, 
+                   Intensity = unlist(ctrls)) %>%
+  separate(control, into = c('Control', 'Sample'), sep = '_') %>%
+  mutate(Sample = as.numeric(Sample)) %>%
+  dplyr::select(Sample, Control, Intensity) %>%
+  spread(key = Control, value = Intensity) %>%
+  mutate(Sample_Name = pDat$Sample_Name,
+         Tissue = pDat$Tissue) %>%
+  dplyr::select(Sample_Name, Tissue, everything()) %>%
+  dplyr::select(-Sample)
+
+controls_melt <- controls %>%
+  gather(key = Control, value = Intensity, -Sample_Name, -Tissue) %>%
+  mutate(Control = factor(Control, levels = names(ctrls)))
+
+# thresholds described per the beadchip manual
+controls_thresholds <- tibble(
+  Control = factor(levels(controls_melt$Control), levels = levels(controls_melt$Control)),
+  Intensity = unlist(sapply(ctrls, attributes))
+)
+  
+# plot
+controls_melt %>%
+  filter(Control %in% levels(Control)[1:6]) %>%
+  ggplot(aes(x = Tissue, y = Intensity, fill = Tissue)) +
+  geom_boxplot(col = 'black') + 
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = '') +
+  scale_fill_brewer(palette = 'Set1') +
+  facet_wrap(~Control, scales = 'free') +
+  scale_y_continuous(limits = c(0,NA)) +
+  geom_hline(data = controls_thresholds %>% filter(Control %in% levels(Control)[1:6]),
+             aes(yintercept = Intensity), col = 'red', linetype = 'dashed')
+  
+controls_melt %>%
+  filter(Control %in% levels(Control)[7:12]) %>%
+  ggplot(aes(x = Tissue, y = Intensity, fill = Tissue)) +
+  geom_boxplot(col = 'black') + 
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = '') +
+  scale_fill_brewer(palette = 'Set1') +
+  facet_wrap(~Control, scales = 'free')+
+  scale_y_continuous(limits = c(0,NA))+
+  geom_hline(data = controls_thresholds %>% filter(Control %in% levels(Control)[7:12]),
+             aes(yintercept = Intensity), col = 'red', linetype = 'dashed')
+
+controls_melt %>%
+  filter(Control %in% levels(Control)[13:17]) %>%
+  ggplot(aes(x = Tissue, y = Intensity, fill = Tissue)) +
+  geom_boxplot(col = 'black') + 
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = '') +
+  scale_fill_brewer(palette = 'Set1') +
+  facet_wrap(~Control, scales = 'free', nrow = 2)+
+  scale_y_continuous(limits = c(0,NA)) +
+  geom_hline(data = controls_thresholds %>% filter(Control %in% levels(Control)[13:17]),
+             aes(yintercept = Intensity), col = 'red', linetype = 'dashed')
 ```
 
 ## 2.7 remove probes
@@ -224,15 +362,13 @@ Here I generate a list of probes to remove based on :
 - cross hybridizing probes (30bp non-unique, non-unique mapping)
 - probes with SNPs within 5bp of the CpG site, in probe direction, including CpG and SBE site 
 
-nonvariable placental probes I compute after normalization
-
 ```{r}
-# failed probes, remove if > 10% missing
-probe_fail <- probe_anno %>% filter(number_failed_probes > 0.10*96)  %>% pull(probe_ID)
-probe_fail %>% length # 5578
+# failed probes, remove if > 5% missing
+probe_fail <- probe_anno %>% filter(number_failed_probes > 0.05*n)  %>% pull(probe_ID)
+probe_fail %>% length # 15249
 
 probe_anno <- probe_anno %>% mutate(remove_failed = ifelse(probe_ID %in% probe_fail, T, F))
-sum(probe_anno$remove_failed) # 5578
+sum(probe_anno$remove_failed) # 15249
 
 # cross hybridizing AND snp in 5bp of target site, + SBE
 # zhou's annotation
@@ -246,12 +382,18 @@ length(probe_CH_snp) # 99360
 probe_anno <- probe_anno %>% mutate(remove_CH_SNP = ifelse(probe_ID %in% probe_CH_snp, T, F))
 sum(probe_anno$remove_CH_SNP) # 99360
 
-# sex probes
+# filter to sex probes 
 zhou_XY <- zhou_anno %>% filter(seqnames %in% c('chrX', 'chrY')) %>% pull(probe_ID)
-length(zhou_XY) # 19637
+zhou_X <- zhou_anno %>% filter(seqnames %in% c('chrX')) %>% pull(probe_ID)
+zhou_Y <- zhou_anno %>% filter(seqnames %in% c('chrY')) %>% pull(probe_ID)
 XY_probes <- intersect(zhou_XY, rownames(meth))
+X_probes <- intersect(zhou_X, rownames(meth))
+Y_probes <- intersect(zhou_Y, rownames(meth))
+
+length(zhou_XY) # 19637
 length(XY_probes) # 19631, 6 xy probes in zhou's anno not in our data
 
+# indicate for sex probe
 probe_anno <- probe_anno %>% mutate(remove_XY = ifelse(probe_ID %in% zhou_XY, T, F))
 sum(probe_anno$remove_XY) # 19631
 
@@ -259,103 +401,544 @@ sum(probe_anno$remove_XY) # 19631
 remove <- probe_anno %>% 
   filter(remove_failed == T | remove_CH_SNP == T | remove_XY == T) %>%
   pull(probe_ID)
-length(remove) # 120623
+length(remove) # 129041
+
+# how many probes removed based on CH and poor quality
+probe_anno %>% 
+  filter(remove_failed == T | remove_CH_SNP == T) %>% nrow() # 112360
 
 betas_raw <- getBeta(rgset)
 betas_raw_filt <- betas_raw[setdiff(rownames(betas_raw), remove),]
-dim(betas_raw_filt) # 745468 probes
+dim(betas_raw_filt) # 737050 probes
 
-# remove XY probes
-betas_raw_XY <- betas_raw[probe_anno %>% filter(remove_XY == T) %>% pull(probe_ID),]
-dim(betas_raw_XY) # 19631 sex probes
-```
+# XY probes
+XY_filt <- probe_anno %>%
+  filter(remove_XY == T & remove_failed == F & remove_CH_SNP == F) %>%
+  pull(probe_ID)
+length(XY_filt) # 16681
 
-# 3.0 Normalization
-
-## 3.1 Functional normalization
-
-Here I normalize, filter nonvariable probes.
-
-```{r}
-gset_funnorm <- preprocessFunnorm(rgset)
-betas_norm <- getBeta(gset_funnorm)
-```
-
-## 3.2 nonvariable probes
-
-We call nonvariable probes after normalization
-
-```{r}
-edgar_nonvar <- read.csv('Z:/Victor/Data/DNAm annotations/Invariant_Placenta_CpGs.csv') %>% 
-  as_tibble
-
-# call our data-specific nonvariable probes
-Variation <- function(x) {quantile(x, c(0.9), na.rm=T)[[1]]-quantile(x, c(0.1), na.rm=T)[[1]]}
-ref_range <- lapply(1:nrow(betas_norm), function(x) Variation(betas_norm[x,]))
-ref_range <-unlist(ref_range)
-norm_nonvar <- rownames(betas_norm)[ref_range < 0.05]
-length(norm_nonvar) # 179677
-
-# find intersect
-probe_anno <- probe_anno %>%
-  mutate(nonvariable_edgar = ifelse(probe_ID %in% edgar_nonvar$CpG, T, F),
-         nonvariable_norm = ifelse(probe_ID %in% norm_nonvar, T, F))
-sum(probe_anno$nonvariable_edgar) # 179677
-sum(probe_anno$nonvariable_norm) # 95304
-nonvar <- probe_anno %>% filter(nonvariable_edgar == T & nonvariable_norm == T) %>% pull(probe_ID)
-length(nonvar) #74558
-
-# plot one nonvariable probe
-probe_anno %>% filter(nonvariable_edgar == T, nonvariable_norm == T)
-pDat %>% mutate(cg17236668_norm = betas_norm['cg17236668',]) %>%
-  ggplot(aes(x = Tissue, y = cg17236668_norm)) +
-  geom_boxplot() + geom_point() + theme_bw() + ylim(0,1) +labs(title = 'Normalized')
-
-pDat %>% mutate(cg17236668_raw = betas_raw['cg17236668',]) %>%
-  ggplot(aes(x = Tissue, y = cg17236668_raw)) +
-  geom_boxplot() + geom_point() + theme_bw() + ylim(0,1) +labs(title = 'Raw')
-
-#filter out nonvariable probes
-filt <- setdiff(rownames(betas_raw_filt), nonvar)
-dim(betas_norm) # 865859
-betas_norm_filt <- betas_norm[intersect(rownames(betas_norm), filt),]
-betas_raw_filt <- betas_raw_filt[rownames(betas_norm_filt),]
-nrow(betas_norm_filt); nrow(betas_raw_filt) # 675227
-
-filt_XY <- setdiff(rownames(betas_raw_XY), nonvar)
-dim(betas_norm) # 865859
-betas_norm_XY <- betas_norm[intersect(rownames(betas_norm), filt_XY),]
-betas_raw_XY <- betas_raw_XY[rownames(betas_norm_XY),]
-nrow(betas_norm_XY); nrow(betas_raw_XY) # 19465
+betas_raw_XY <- betas_raw[XY_filt,]
 ```
 
 # 3.0 Sample QC
 
-## 3.1 PCA
+## 3.1 Sex Prediction
 
+1. minfi approach by comparing median intensity of X and Y probes
+2. Methylation patterns on XY probes
+
+```{r}
+# calculat total intensities for each probe
+MU_total <- meth + unmeth
+
+# calculate median intensity across X and Y probes
+pDat <- pDat %>% 
+  mutate(median_X_intensity = colMedians(MU_total[X_probes,]),
+         median_Y_intensity = colMedians(MU_total[Y_probes,]))
+ggplot(pDat, aes(x = median_X_intensity, y = median_Y_intensity, col = Sex)) +
+  geom_point() +
+  geom_text_repel(data = pDat %>% filter(Sex == 'M', median_Y_intensity < 5000),
+                  aes(label = Sample_Name), nudge_x = -3000, force = 15) +
+  geom_hline(yintercept = 5000, linetype = 'dashed', col = '#9B9B9B')
+```
+
+3. ewastools check sex
+
+```{r}
+predicted_sex <- check_sex(et_meth)
+pDat <- pDat %>% mutate(normalized_X_intensity = predicted_sex$X,
+                        normalized_Y_intensity = predicted_sex$Y)
+ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, col = Sex)) +
+  geom_point() +theme_classic() +
+  geom_text_repel(data = pDat %>% filter(Sex == 'M', normalized_X_intensity > 0.95,
+                                         normalized_Y_intensity < 0.5), 
+            aes(label = Sample_Name), size = 3, force = 15, nudge_x = -0.1, nudge_y = -0.1) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', col = '#9B9B9B') + 
+  geom_vline(xintercept = 0.95, linetype = 'dashed', col = '#9B9B9B')
+```
+
+Flag samples that appear as outliers
+
+```{r}
+pDat <- pDat %>% 
+  mutate(Flag_Sex = case_when(
+    Sex == 'M' & (normalized_X_intensity > 0.95 & normalized_Y_intensity <0.5) ~ T,
+    Sex == 'M' & median_Y_intensity < 5000 ~ T,
+    TRUE ~ F))# if not matched then return 
+```
+
+## 3.2 Genotype checking
+
+### ewastools
+
+infers genotypes using 3 component mixture models on snp betas, and another 4th component uniform distribution to catch outliers.
+
+
+```{r}
+#snps <- getSnpBeta(rgset)
+
+#ewastools pipeline
+snps <- et_meth$manifest[probe_type=="rs",index]
+et_betas <- dont_normalize(et_meth)
+snps <- et_betas[snps,]
+
+# fit mixture model to call genotypes
+snps_called <- call_genotypes(snps, learn = T)
+
+# call genotype clusters
+pDat <- pDat %>% mutate(genotype_cluster = as.factor(enumerate_sample_donors(snps_called)))
+
+# examine probability outlier
+plot(snp_outliers(snps_called) %>% sort)
+
+
+# find any discrepancies
+genotype_issues <- check_snp_agreement(snps_called, donor_ids = pDat$Case_ID, 
+                                       sample_ids = pDat$Sample_Name)
+genotype_issues_df <- do.call("rbind", genotype_issues) %>% as_tibble
+
+# add sex results
+genotype_issues_df <- genotype_issues_df %>% 
+  left_join(pDat %>% dplyr::select(Sample_Name, Flag_Sex), 
+            by = c('sample1' = 'Sample_Name')) %>% rename(Flag_Sex_sample1 = Flag_Sex) %>%
+  left_join(pDat %>% dplyr::select(Sample_Name, Flag_Sex), 
+            by = c('sample2' = 'Sample_Name'))  %>% rename(Flag_Sex_sample2 = Flag_Sex) %>%
+  select(contains('1'), contains('2'), agreement)
+
+
+# GROUP ROWS
+kable(genotype_issues_df %>% select(-contains('donor'))) %>%
+   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F) %>%
+  pack_rows(index = sapply(genotype_issues, nrow), 
+            label_row_css = "background-color: #C0C0C0; color: #fff;")
+
+# flag samples
+pDat <- pDat %>% 
+  mutate(Flag_genotype = ifelse(Sample_Name %in% c(genotype_issues_df$sample1,
+                                                   genotype_issues_df$sample2), 
+                                T, F)) 
+```
+
+Looks like there are some low confidence assignments, but these are still the correct Case_IDs for
+these samples. So it might be a sample quality issue
+
+### clustering on snps
+
+Here I cluster on snp betas
+
+```{r}
+# extract snp matrix
+snp_betas <- getSnpBeta(rgset)
+colnames(snp_betas) <- pDat$Sample_Name
+
+#distance
+D <- dist(t(snp_betas)) #snp probes
+
+# clustering
+clust <- hclust(D)
+dendo <- as.dendrogram(clust)   
+
+# get number of tissues and assign a color
+#n_class<- length(unique(pDat$Case_ID))
+#col_pal <- viridis_pal()(n_class)
+
+# map it to Tissue
+#colors_to_use <- col_pal[as.numeric(as.factor(pDat$Case_ID))]
+
+# sort them based on their order in dend:
+#colors_to_use <- colors_to_use[order.dendrogram(dendo)]
+#colors_to_use
+
+show_col(viridis_pal(option = 'inferno')(8))
+
+#samples to highlight:
+Flagged_genotype <- pDat %>% filter(Flag_genotype == T) %>% pull(Sample_Name)
+Flagged_sex <- pDat %>% filter(Flag_Sex == T) %>% pull(Sample_Name)
+
+dendo %>% set("labels_cex", 0.6) %>% 
+ #set("branches_col", colors_to_use) %>%
+  color_labels(labels = Flagged_genotype, col = "#E93535") %>% # red = genotype flagged
+  color_labels(labels = Flagged_sex, col = "#B84EFF") %>% # purple = sex flagged
+  hang.dendrogram %>% 
+  plot(horiz = T)
+
+```
+
+Hard to see with so many samples. Saving this to as a vector graphic (e.g. pdf) will allow for
+an easier view (can zoom in with no loss of resolution).
+
+
+```{r eval = F}
+#save to pdf
+pdf('../../outs/11_snp_clustering.pdf')
+par(mar=c(2,1,1.5,6))   
+dendo %>% set("labels_cex", 0.25) %>% 
+  
+  # highlight flagged samples
+  color_labels(labels = Flagged_genotype, col = "#E93535") %>% # red = genotype flagged
+  color_labels(labels = Flagged_sex, col = "#B84EFF") %>% # purple = sex flagged
+  hang.dendrogram %>% 
+  plot(horiz = T, cex.main = 0.6,
+       main = 'Red: flagged for low genotype agreement\nBlue: flagged for unusual sex methylation')
+dev.off()
+```
+
+### correlation on snps
+
+```{r}
+ind <- pDat %>% 
+  add_count(Case_ID) %>%
+  arrange(n, Case_ID) %>%
+  pull(Sample_Name)
+
+# distance
+pheatmap(as.matrix(D)[ind,ind], cluster_cols = F, cluster_rows = F)
+
+# correlation
+C <- cor(snp_betas[,ind])
+pheatmap(as.matrix(C), cluster_cols = F, cluster_rows = F)
+
+# Save correlation matrix
+C_save <- C
+
+# replace upper triangle with NAs
+C[upper.tri(C)] <- NA
+
+
+# reshape
+C_melt <- C %>%
+  as_tibble() %>% 
+  mutate(Sample1 = factor(ind, levels = ind)) %>% 
+  gather(key = Sample2, value = Correlation, -Sample1) %>%
+  mutate(Sample2 = factor(Sample2, levels = levels(Sample1)))
+  
+g1 <- ggplot(na.omit(C_melt), aes(x = Sample1, y = Sample2, fill = Correlation)) +
+  geom_tile(col = 'grey') +
+  geom_text(data = C_melt %>% filter(Sample1 == Sample2),
+              aes(x = Sample1, y = Sample2, label = Sample1, hjust = 1)) +
+  scale_fill_viridis_c(limits = c(-1, 1))  +
+  scale_x_discrete(breaks = NULL, limits = ind) +
+  scale_y_discrete(breaks = NULL, limits = ind) +
+  labs(x = NULL, y = NULL) +
+  coord_equal() +
+  theme(panel.background = element_blank(), 
+        legend.key = element_blank());g1
+
+
+# divide into 3 plots
+
+# organize by and trimester
+indx <- pDat %>% 
+  add_count(Case_ID) %>%
+  mutate(Trimester = factor(as.character(Trimester), levels = c('Second', 'First', 'Third'))) %>%
+  arrange(Trimester, n, Case_ID) %>%
+  pull(Sample_Name)
+
+
+ind1 <- indx[1:66]
+ind2 <- indx[67:123]
+ind3 <- indx[124:192]
+
+label_size <- 1.5
+point_size <- 2.2
+r_size <- 0.85
+colors <- c('red', 'red', rev(viridis_pal(option = 'D')(9))[c(1,1,1:8)])
+r_limit <- c(0.65,1)
+
+g2 <- ggcorr(data = NULL, cor_matrix = C[ind1,ind1], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white');g2
+
+g3 <- ggcorr(data = NULL, cor_matrix = C[ind2,ind2], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white');g3
+
+g4 <- ggcorr(data = NULL, cor_matrix = C[ind3,ind3], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white');g4
+```
+
+
+pdf('../../outs/11_snp_cor_set1.pdf')
+g2
+dev.off()
+pdf('../../outs/11_snp_cor_set2.pdf')
+g3
+dev.off()
+pdf('../../outs/11_snp_cor_set3.pdf')
+g4
+dev.off()
+
+### Within case correlations
+
+To calculate average correlation within group, we need to ensure that we have all comparisons in a single column.
+
+So 
+
+P1_troph - P1_endo
+P1_troph - P1_hofb
+p1_troph - P1_strom
+
+Needs to be represented as two columns where
+
+P1_troph
+P1_troph
+p1_troph  
+
+is in columns one, and 
+
+P1_endo
+P1_hofb
+P1_strom
+
+is in column two
+
+
+Right now, the data is arranged as:
+
+P1_troph - P1_endo
+P1_troph - P1_hofb
+P1_strom - p1_troph 
+
+So to fix this, we have to bind these two columns rowwise twice, flipping the columns of one these
+sets:
+
+Original matrix:
+P1_troph - P1_endo   **
+P1_troph - P1_hofb   **
+P1_strom - p1_troph 
+
+Plus flipped columns matrix:
+P1_endo  - P1_troph  
+P1_hofb  - P1_troph
+p1_troph - P1_strom  **
+
+
+```{r}
+# pull out those cases with some samples low correlation
+# add in case ID for sample 1 and sample 2
+C_melt2 <- C_melt %>% 
+  left_join(pDat %>% select(Sample_Name, Case_ID), by = c('Sample1' = 'Sample_Name')) %>%
+  rename(Case_ID1 = Case_ID) %>%
+  left_join(pDat %>% select(Sample_Name, Case_ID), by = c('Sample2' = 'Sample_Name')) %>%
+  rename(Case_ID2 = Case_ID) 
+
+# filter such that we have only within case comparisons, 
+# excluding the same sample comparison (when correlation = 1)
+# note that this removes cases with only a single sample (e.g. 2nd trimester villi)
+Ca <- C_melt2 %>% 
+  filter(Case_ID1 == Case_ID2, Correlation != 1) 
+
+# flip the matrix
+Cb <- C_melt2 %>% 
+  filter(Case_ID1 == Case_ID2, Correlation != 1) %>%
+  rename(Sample2 = Sample1, Case_ID2 = Case_ID1,
+         Sample1 = Sample2, Case_ID1 = Case_ID2) 
+
+C_melt3 <- rbind(Ca, Cb) %>%
+  
+  # average correlation to all other members of case
+  group_by(Sample1) %>%
+  summarize(Average_cor = mean(Correlation, na.rm = T)) %>%
+  
+  # add Tissue and CasE_ID
+  left_join(pDat %>% select(Sample_Name, Tissue, Case_ID, contains('Flag')), 
+            by = c('Sample1' = 'Sample_Name')) %>%
+  
+  #Prepare for plotting
+  arrange(desc(Average_cor)) %>%
+  mutate(Sample1 = factor(as.character(Sample1), levels = Sample1)) 
+C_melt3
+
+# all samples
+#stars indicate flagged for sex
+ggplot(C_melt3, aes(x = Sample1, y = Average_cor)) +
+  geom_bar(stat = 'identity', aes(fill = Flag_genotype)) +
+  geom_text(data = C_melt3 %>% filter(Flag_Sex == T), 
+            aes(x = Sample1, y = Average_cor, label = '*'), nudge_y = 0.005) +
+  scale_fill_manual(values = c('TRUE' = 'Red', 'FALSE' = 'Grey'))+
+  labs(x = 'Samples', y = expression(rho)) +
+  coord_flip(ylim = c(0.6, 1))+
+  theme(axis.text.y = element_blank()) 
+
+# What are these flagged samples with high snp correlation?
+C_melt3 %>% filter(Average_cor > 0.93, Flag_genotype == T) %>% kable %>% kable_styling()
+
+## plot just those with low correlation
+# first arrange samples by their groups average correlation:
+C_melt3 %>% filter(Average_cor < 0.95) %>% 
+  group_by(Case_ID) %>% mutate(case_cor = mean(Average_cor)) %>% ungroup() %>% 
+  arrange(desc(case_cor), Case_ID, desc(Average_cor)) %>%
+  mutate(Sample1 = factor(as.character(Sample1), levels = Sample1)) %>%
+  ggplot(aes(x = Sample1, y = Average_cor)) +
+  geom_point(aes(fill = Flag_Sex), shape = 21, size = 3) +
+  scale_fill_manual(values = c('TRUE' = 'Red', 'FALSE' = 'Black'))+
+  geom_segment(aes(col = Flag_genotype, xend = Sample1, yend = Average_cor, y = 0))+
+  scale_color_manual(values = c('TRUE' = 'Red', 'FALSE' = 'Black'))+
+  geom_text(aes(label = prettyNum(Average_cor, digits = 2)), nudge_y = 0.02, size = 3) +
+  labs(x = '', y = expression(rho), title = 'Average SNP correlation to other tissues in same case') +
+  coord_flip(ylim = c(0.6, 1))+
+  theme_bw() 
+```
+
+These samples with low correlations / agreement on SNP data are a concern because their methylation 
+data may be equally messed up. 
+
+It seems apparent that these samples are mostly cell sorted samples from first trimester. Let's add
+their average within-case snp correlation to pData and see if we can detect any associations.
+
+```{r}
+pDat <- pDat %>% 
+  left_join(C_melt3 %>% select(Sample1, Average_cor), by = c('Sample_Name' = 'Sample1'))
+
+# NA is where the case_ID group contains only 1 sample, so here I replace those NAs with 1
+pDat <- pDat %>% 
+  mutate(Average_cor = ifelse(is.na(Average_cor), 1, Average_cor))  %>%
+  rename(Average_SNP_cor_within_donor = Average_cor)
+
+pDat %>% arrange(Trimester, Tissue, Average_SNP_cor_within_donor) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Average_SNP_cor_within_donor, fill = Tissue, Shape = Trimester)) +
+  geom_point(aes(shape = Trimester), col = 'black', size = 2)  +
+  labs(x = 'Samples', y = expression(rho), 
+       title = 'Average SNP correlation to all other same-case samples') +
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  scale_shape_manual(values = c('First' = 21, 'Second' = 22, 'Third' = 24)) +
+  scale_fill_viridis_d(option = "C") +
+  guides(fill=guide_legend(override.aes=list(shape=21)))
+
+# flag samples below a certain correlation
+pDat <- pDat %>% mutate(Flag_genotype = ifelse(Average_SNP_cor_within_donor < 0.9, T, F)) 
+
+table(pDat$Flag_genotype, pDat$Chip_number)
+table(pDat$Flag_genotype, pDat$Row)
+table(pDat$Flag_genotype, pDat$Sex)
+table(pDat$Flag_genotype, pDat$Week)
+table(pDat$Flag_genotype, pDat$Batch_BSC)
+```
+
+Not really strongly associated with anything
+
+Let's see if first trimester samples have variable intensities. Here we use the average intensity
+across red and green that we calculated previously:
+
+```{r}
+pDat %>% 
+  arrange(Trimester, Tissue, Average_intensity) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Average_intensity, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  geom_hline(yintercept = mean(pDat$Average_intensity) - 2*sd(pDat$Average_intensity),
+             linetype = 'dashed', col = 'blue')+
+  geom_hline(yintercept = mean(pDat$Average_intensity) + 2*sd(pDat$Average_intensity),
+             linetype = 'dashed', col = 'red') +
+  geom_label_repel(data = pDat %>% 
+                    filter(Average_intensity < mean(pDat$Average_intensity) -
+                             2*sd(pDat$Average_intensity)),
+                  aes(label = Sample_Name), force = 10, nudge_y = -2500, show.legend = F) +
+  scale_fill_brewer(palette ='Set1') +
+  scale_y_continuous(limits = c(0, 15000)) +
+  labs(x = 'Samples') +
+  facet_wrap(~Trimester, ncol = 3, scales = 'free_x') 
+```
+
+Doesn't appear to explain these
+
+### Contamination
+
+```{r}
+# ewastools probability belong to the uniform distribution over normals
+mxm_(snps_called)
+
+# average probability over all snps being classified to the uniform, for each sample
+pDat <- pDat %>% 
+  mutate(Prob_SNP_outlier = colMeans(snps_called$outliers, na.rm = T),
+         Prob_SNP_outlier_Logodds = snp_outliers(snps_called))
+
+pDat %>% arrange(Trimester, Tissue, Prob_SNP_outlier) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Prob_SNP_outlier, fill = Tissue, Shape = Trimester)) +
+  geom_point(aes(shape = Trimester), col = 'black', size = 2)  +
+  labs(x = 'Samples', y = "P", 
+       title = 'Average probability of SNP being an outlier') +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  scale_shape_manual(values = c('First' = 21, 'Second' = 22, 'Third' = 24)) +
+  scale_fill_viridis_d(option = "C") +
+  guides(fill=guide_legend(override.aes=list(shape=21))) +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1,0.1)) +
+  scale_x_discrete(breaks = NULL, expand = c(0.02, 0.02))
+
+pDat %>% arrange(Trimester, Tissue, Prob_SNP_outlier) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Prob_SNP_outlier_Logodds, fill = Tissue, Shape = Trimester)) +
+  geom_point(aes(shape = Trimester), col = 'black', size = 2)  +
+  labs(x = 'Samples', y = "P", 
+       title = 'Average Log Odds of SNP being an outlier') +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  scale_shape_manual(values = c('First' = 21, 'Second' = 22, 'Third' = 24)) +
+  scale_fill_viridis_d(option = "C") +
+  guides(fill=guide_legend(override.aes=list(shape=21))) +
+  scale_y_continuous(limits = c(-5,1.5), breaks = -5:1) +
+  scale_x_discrete(breaks = NULL, expand = c(0.02, 0.02))
+
+# look at the raw distribution
+snp_betas_melt <- t(snp_betas) %>% as_tibble %>% mutate(Sample_Name = colnames(snp_betas)) %>%
+  left_join(pDat %>% select(Sample_Name, Tissue, Trimester), by = 'Sample_Name') %>%
+  gather(key = 'SNP', value = 'Beta', -Sample_Name, -Tissue, -Trimester)
+
+ggplot(snp_betas_melt, aes(x = SNP, y = Beta)) +
+  geom_point(alpha = 0.7, color = 'black') + 
+  labs(x = '59 SNPs') + theme_bw() + theme(axis.text.x =element_blank()) +
+  facet_grid(Trimester ~ Tissue) +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  scale_x_discrete(breaks = NULL, expand = c(0.02, 0.02))
+```
+
+## 3.3 PCA
 
 ```{r}
 # calculate pca
 set.seed(2019)
-pca_raw <- prcomp_irlba(t(na.omit(betas_raw_filt)), n = 20)
-pca_norm <- prcomp_irlba(t(na.omit(betas_norm_filt)), n = 20)
+pca_raw <- prcomp_irlba(t(na.omit(betas_raw)), n = 20)
 
 # rename columns
 pca_raw_scores <-pca_raw$x %>% as_tibble() %>% mutate(Sample_Name = pDat$Sample_Name) 
 colnames(pca_raw_scores)[1:20] <- paste0(colnames(pca_raw_scores)[1:20], '_raw')
-pca_norm_scores <- pca_norm$x %>%as_tibble() %>% mutate(Sample_Name = pDat$Sample_Name) 
-colnames(pca_norm_scores)[1:20] <- paste0(colnames(pca_norm_scores)[1:20], '_norm')
 
+# factorize some variables encoded as numeric
+pDat <- pDat %>%
+  mutate(Week = as.factor(as.character(Week)),
+         Chip_number = as.factor(as.character(Chip_number)),
+         Row = as.factor(as.character(Row)))
+  
 # correlate with phenodata
 pca_raw_cor <- lmmatrix(dep = pca_raw_scores[,1:20],
-                        ind = pDat %>% dplyr::select(Case_ID, Tissue, Sex, Trimester, DNA_QP, 
-                                                     Chip_number, Sentrix_Position, detP_01,
-                                                     beadcount), metric = 'Pvalue')
-pca_norm_cor <- lmmatrix(dep = pca_norm_scores[,1:20],
-                         ind = pDat %>% dplyr::select(Case_ID, Tissue, Sex, Trimester, DNA_QP, 
-                                                     Chip_number, Sentrix_Position, detP_01,
-                                                     beadcount), metric = 'Pvalue')
-
+                        ind = pDat %>% 
+                          dplyr::select(Case_ID, Tissue, Sex, Trimester, #bio
+                                        Week, Chip_number, Row, Batch_BSC, # batch 
+                                        DNA_conc_BSC_adjusted, DNA_conc_before_load, DNA_loaded,
+                                        failed_probes, Flag_Sex, Flag_genotype), 
+                        metric = 'Pvalue')
 # plot
 pca_raw_plot <- pca_raw_cor %>% as.data.frame() %>% 
   
@@ -366,278 +949,214 @@ pca_raw_plot <- pca_raw_cor %>% as.data.frame() %>%
   gather(PC, pval, -dep) %>%
   
   # pvalue categories
-  mutate(pval_cat = case_when(
+  mutate(pval_cat = factor(case_when(
     pval > 0.05  ~ '> 0.05',
     pval < 0.05 & pval > 0.01 ~ '< 0.05',
     pval < 0.01 & pval > 0.001 ~ '< 0.01',
     pval < 0.001 ~ '< 0.001'
-  ))
+  ), levels = c('> 0.05', '< 0.05','< 0.01', '< 0.001')),
+  
+  # make PC is encoded with proper levels!!!
+  PC = factor(PC, levels = colnames(pca_raw_cor))) %>% as_tibble()
 
-pca_norm_plot <- pca_norm_cor %>% as.data.frame() %>% 
-  
-  # add dep variables
-  mutate(dep = rownames(pca_norm_cor)) %>%
-  
-  # reshape
-  gather(PC, pval, -dep) %>%
-  
-  # pvalue categories
-  mutate(pval_cat = case_when(
-    pval > 0.05  ~ '> 0.05',
-    pval < 0.05 & pval > 0.01 ~ '< 0.05',
-    pval < 0.01 & pval > 0.001 ~ '< 0.01',
-    pval < 0.001 ~ '< 0.001'
-  ))
-
+# create color palette
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pca_raw_plot$pval_cat)
 
 p1 <- ggplot(pca_raw_plot, aes(x = PC, y = dep, fill = pval_cat)) +
   geom_tile(col = 'lightgrey') + theme_bw() +
   scale_x_discrete(expand = c(0, 0), labels = 1:20) +
   scale_y_discrete(expand = c(0, 0)) +
-  scale_fill_manual(values = c('> 0.05' = 'white', '< 0.05' = '#fee8c8', 
-                               '< 0.01' = '#fdbb84', '< 0.001' = '#e34a33'))  + 
-  labs(title = 'raw data', y = '', fill = 'P value') + coord_equal();p1
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value') + coord_equal();p1
 
-p2 <- ggplot(pca_norm_plot, aes(x = PC, y = dep, fill = pval_cat)) +
-  geom_tile(col = 'lightgrey') + theme_bw() +
-  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
-  scale_y_discrete(expand = c(0, 0)) +
-  scale_fill_manual(values = c('> 0.05' = 'white', '< 0.05' = '#fee8c8', 
-                               '< 0.01' = '#fdbb84', '< 0.001' = '#e34a33'))  + 
-  labs(title = 'normalized data', y = '', fill = 'P value') + coord_equal(); p2
 
 # calculate proportion variance
 prop_var <- tibble(Prop_var_raw = pca_raw$sdev^2 *100 / pca_raw$totalvar,
-                   Prop_var_norm = pca_norm$sdev^2*100/ pca_norm$totalvar,
                    PC = 1:20)
 p1b <- ggplot(prop_var, aes(x = PC, y = Prop_var_raw)) +
-  geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance', title = 'raw') +
+  geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance') +
   scale_x_continuous(breaks = 1:20);p1b
-p2b <- ggplot(prop_var, aes(x = PC, y = Prop_var_norm)) +
-  geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance', title = 'Normalized') +
-  scale_x_continuous(breaks = 1:20);p2b
 ```
+
 
 ### PC plots
 
 ```{r}
-# add pc to data
-pDat <- pDat %>% left_join(pca_norm_scores)
-p3 <- ggplot(pDat, aes(x = PC1_norm, y = PC2_norm, col = Tissue, shape = Trimester)) +
+# add to data
+pDat <- pDat %>% left_join(pca_raw_scores)
+
+PC1_lab <- paste0('PC1 (', prettyNum(prop_var$Prop_var_raw[1],digits =3), '%)')
+PC2_lab <- paste0('PC2 (', prettyNum(prop_var$Prop_var_raw[2],digits =3), '%)')
+PC3_lab <- paste0('PC3 (', prettyNum(prop_var$Prop_var_raw[3],digits =3), '%)')
+PC4_lab <- paste0('PC4 (', prettyNum(prop_var$Prop_var_raw[4],digits =3), '%)')
+
+# PC1 and 2
+p3 <- ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, col = Tissue)) +
   geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
-  scale_color_brewer(palette = 'Set1') + labs(x = 'PC1 (41.7%)', y = 'PC2 (21.2%)');p3
-p4 <- ggplot(pDat, aes(x = PC3_norm, y = PC4_norm, col = Tissue, shape = Trimester)) +
+  scale_color_brewer(palette = 'Set1') + labs(x = PC1_lab, y = PC2_lab) +
+  geom_label_repel(data = pDat %>% filter(Sample_Name == 'P128_hofb_cs'), nudge_x = -50, 
+                   col = 'black', aes(x = PC1_raw, y = PC2_raw, label = Sample_Name), size = 2,
+                   show.legend = F) +
+  geom_label_repel(data = pDat %>% filter(Tissue == 'Hofbauer', PC1_raw < 0), nudge_y = -10,
+                   col = 'black', aes(x = PC1_raw, y = PC2_raw, label = Sample_Name), size = 2,
+                   show.legend = F)
+
+p4 <- ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, col = Trimester)) +
   geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
-  scale_color_brewer(palette = 'Set1') + labs(x = 'PC3 (10.8%)', y = 'PC4 (6.35%)');p4
-p5 <- ggplot(pDat, aes(x = PC3_norm, y = PC4_norm, col = Sex)) +
+  scale_color_brewer(palette = 'Dark2') + labs(x = PC1_lab, y = PC2_lab)
+
+p5 <- ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, col = failed_probes)) +
   geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
-  scale_color_brewer(palette = 'Set1') + labs(x = 'PC3 (10.8%)', y = 'PC4 (6.35%)');p5
-p6<- ggplot(pDat, aes(x = PC1_norm, y = PC2_norm, col = Sex)) +
+  scale_color_viridis_c()+ labs(x = PC1_lab, y = PC2_lab)
+
+p6<- ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, col = DNA_conc_BSC_adjusted)) +
   geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
-  scale_color_brewer(palette = 'Set1') + labs(x = 'PC1 (41.7%)', y = 'PC2 (21.2%)');p6
+  scale_color_viridis_c(option = 'magma') + labs(x = PC1_lab, y = PC2_lab)
+
+plot_grid(p3,p4,p5,p6, ncol = 2, nrow = 2, align = 'hv')
+
+## FLAGGED samples on PC1 and PC2
+pp1 <- ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, col = Flag_Sex)) +
+  geom_point(size = 2.5, alpha = 0.75) + 
+  geom_text_repel(data = pDat %>% filter(Flag_Sex == T), force = 30,
+                  aes(x = PC1_raw, y = PC2_raw, label = Sample_Name)) + 
+  theme_bw() +
+  #scale_color_viridis_d(option = 'C') + 
+  labs(x = PC1_lab, y = PC2_lab);pp1
+
+pp2 <- ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, col = Flag_genotype)) +
+  geom_point(size = 2.5, alpha = 0.75) + 
+  geom_text_repel(data = pDat %>% filter(Flag_genotype == T), force = 30,
+                  aes(x = PC1_raw, y = PC2_raw, label = Sample_Name)) + 
+  theme_bw() +
+  #scale_color_viridis_d(option = 'C') + 
+  labs(x = PC1_lab, y = PC2_lab);pp2
+
+
+plot_grid(pp1, pp2, ncol = 2, align = 'hv')
+
+# PC3 PC4 
+p7 <- ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, col = Tissue)) +
+  geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
+  scale_color_brewer(palette = 'Set1') + labs(x = PC3_lab, y = PC4_lab)
+
+p8 <- ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, col = Trimester)) +
+  geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
+  scale_color_brewer(palette = 'Dark2') + labs(x = PC3_lab, y = PC4_lab)
+
+p9 <- ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, col = Flag_Sex)) +
+  geom_point(size = 2.5, alpha = 0.75) + theme_bw()+ 
+  labs(x = PC3_lab, y = PC4_lab)
+
+p10<- ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, col = Flag_genotype)) +
+  geom_point(size = 2.5, alpha = 0.75) + theme_bw() +
+  labs(x = PC3_lab, y = PC4_lab)
+
+
+plot_grid(p7,p8,p9,p10, ncol = 2, nrow = 2, align = 'hv')
 ```
 
-## 3.2 Sex Prediction
-
-1. minfi approach by comparing median intensity of X and Y probes
-2. Methylation patterns on XY probes
+## 3.5 UMAP
 
 ```{r}
-# median intensities of XY probes
-meth_XY <- getMeth(mset_raw[rownames(betas_norm_XY),])
-unmeth_XY <- getUnmeth(mset_raw[rownames(betas_norm_XY),])
-pDat <- pDat %>% mutate(meth_XY_med = colMedians(meth_XY),
-                unmeth_XY_med = colMedians(unmeth_XY))
-ggplot(pDat, aes(x = meth_XY_med, y = unmeth_XY_med, col = Sex)) +
-  geom_point()
+# no villi, decidua, dead cells, mixtures
+pDat_sub1 <- pDat %>% 
+  filter(Tissue %in% c('Trophoblasts', 'Endothelial', 'Stromal', 'Hofbauer'))
 
-# PCA / clustering on betas
-prcomp_XY <- prcomp(t(na.omit(betas_norm_XY)))
-prcomp_XY <- prcomp_XY$x[,1:20]
-colnames(prcomp_XY) <- paste0(colnames(prcomp_XY), '_XY')
+#run umap
+umap_res1 <- umap(t(na.omit(betas_raw[,pDat_sub1$Sentrix])), random_state = 2019)
 
-pDat <- bind_cols(pDat, as.data.frame(prcomp_XY))
+# add coordinates to pDat
+pDat_sub1 <- pDat_sub1 %>% mutate(UMAP1 = umap_res1$layout[,1], UMAP2 = umap_res1$layout[,2])
 
-ggplot(pDat, aes(x = PC1_XY, y = PC2_XY, col = Sex)) + geom_point()
-ggplot(pDat, aes(x = PC1_XY, y = PC2_XY, col = Tissue)) + geom_point()
-ggplot(pDat, aes(x = PC1_XY, y = PC2_XY, col = Trimester)) + geom_point()
+#plot
+pDat_sub1 %>% mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue))) %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, col = Tissue)) +
+  geom_point(aes(shape = Trimester), size = 2) +
+  theme_bw() +
+  geom_label_repel(data = pDat_sub1 %>% filter(Sample_Name == 'P128_hofb_cs'), 
+                   aes(x = UMAP1, y = UMAP2, label = Sample_Name), show.legend = F,
+                   nudge_y = -2) +
+  scale_color_brewer(palette = 'Set1')
+
+pDat_sub1 %>% mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue))) %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, col = Flag_genotype)) +
+  geom_point(size = 2) +
+  theme_bw() +
+  scale_color_manual(values = c('TRUE' = 'Red', 'FALSE' = 'Grey'))
+pDat_sub1 %>% mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue))) %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, col = Flag_Sex)) +
+  geom_point(size = 2) +
+  theme_bw() +
+  scale_color_manual(values = c('TRUE' = 'Red', 'FALSE' = 'Grey'))
+
+pDat_sub1 %>% mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue))) %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, col = Average_SNP_cor_within_donor)) +
+  geom_point(size = 2) +
+  theme_bw() +
+  scale_color_viridis_c()
+
+# all samples 
+umap_res2 <- umap(t(na.omit(betas_raw)), random_state = 2019)
+pDat <- pDat %>% mutate(UMAP1 = umap_res2$layout[,1], UMAP2 = umap_res2$layout[,2])
+pDat %>% mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue))) %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, col = Tissue)) +
+  geom_point(aes(shape = Trimester), size = 2) +
+  theme_bw() +
+  scale_color_brewer(palette = 'Set1')
 ```
 
-3. ewastools check sex
+Only on first trimester cells
 
 ```{r}
-library(ewastools) #devtools::install_github("hhhh5/ewastools")
-x <- list.files(path = 'Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/IDATs - Week 1/',
-                recursive = T)
-y <- grep(paste(paste0(pDat$Sentrix, "_Grn.idat"), collapse = "|"), x, value = T)
-filepaths <- paste0('Z:/ROBLAB6 Infinium450k John/EPIC Raw data/NIH EPIC Batch 2/IDATs - Week 1/',
-                    gsub('_Grn.idat', '', y))
-idats <- read_idats(filepaths)
+pDat_sub2 <- pDat %>% 
+  filter(Tissue %in% c('Trophoblasts', 'Endothelial', 'Stromal', 'Hofbauer'), 
+         Trimester == 'First')
 
-predicted_sex <- check_sex(idats)
-pDat <- pDat %>% mutate(normalized_X_intensity = predicted_sex$X,
-                        normalized_Y_intensity = predicted_sex$Y)
-ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, col = Sex)) +
-  geom_point() +
-  geom_label_repel(data = pDat %>% filter(Sex == 'M', normalized_X_intensity > 0.95), 
-            aes(label = Sample_Name)) + theme_bw()
+#run umap
+umap_res3 <- umap(t(na.omit(betas_raw[,pDat_sub2$Sentrix])), random_state = 2019)
+
+# add coordinates to pDat
+pDat_sub2 <- pDat_sub2 %>% mutate(UMAP1 = umap_res3$layout[,1], UMAP2 = umap_res3$layout[,2]) %>%
+  mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue)))
+
+ggplot(pDat_sub2, aes(x = UMAP1, y = UMAP2, col = Tissue)) +
+  geom_point(size = 2) +
+  theme_bw() +
+  geom_label_repel(data = pDat_sub2 %>% filter(Sample_Name == 'P128_hofb_cs'), 
+                   aes(x = UMAP1, y = UMAP2, label = Sample_Name), show.legend = F,nudge_y = -2)  +
+  geom_label_repel(data = pDat_sub2 %>% filter(UMAP1 > 0, Tissue == 'Hofbauer'), 
+                   aes(x = UMAP1, y = UMAP2, label = Sample_Name), show.legend = F, nudge_y = 2)  
 ```
 
-## 3.3 Correlation
-## 3.4 SNP clustering
+## 3.6 TSNE
 
 ```{r}
-#snps <- getSnpBeta(rgset)
+library(Rtsne)
 
-#ewastools pipeline
-snps <- idats$manifest[probe_type=="rs",index]
-idats <- dont_normalize(idats)
-snps <- idats[snps,]
+Rtsne <- Rtsne(t(na.omit(betas_raw[,pDat_sub1$Sentrix])), verbose = T)
 
-# fit mixture model to call genotypes
-snps_called <- call_genotypes(snps, learn = F)
+# add coordinates to pDat
+pDat_sub1 <- pDat_sub1 %>% mutate(TSNE1 = Rtsne$Y[,1], TSNE2 = Rtsne$Y[,2]) %>%
+   mutate(Tissue = ifelse(Tissue == 'Stromal', 'Fibroblast', as.character(Tissue)))
 
-# call genotype clusters
-pDat <- pDat %>% mutate(genotype_cluster = enumerate_sample_donors(snps_called))
-
-# find any discrepancies
-genotype_issues <- check_snp_agreement(snps_called, donor_ids = pDat$Case_ID, 
-                                       sample_ids = pDat$Sample_Name)
-
-kable(genotype_issues[[1]])  %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
-
-kable(genotype_issues[[2]]) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
-
-kable(genotype_issues[[3]]) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
-```
-
-Looks like there are some low confidence assignments, but these are still the correct Case_IDs for
-these samples. So it might be a sample quality issue
-
-```{r}
-
-genotype_res <- pDat %>% dplyr::select(genotype_cluster, Case_ID, Tissue)%>%
-  add_count(genotype_cluster) %>%
-  arrange(desc(n), genotype_cluster, Case_ID)
-
-kable(genotype_res) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
-
-
-# Any Case_IDs assigned to more than one genotype?
-genotype_res2 <- genotype_res %>% group_by(Case_ID) %>% 
-  summarize(Number_genotype_clusters = n_distinct(genotype_cluster)) 
-
-kable(genotype_res2) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
-
-```
-
-## 3.5 CNV calling
-
-Conumee CNV calling
-
-### Setup
-
-```{r}
-# define controls
-CNV_controls <- pDat %>% 
-  filter(Trimester == 'Third' & Sex == 'F') %>% 
-  pull(Sample_Name) %>% as.character()
-
-# exclude cross hyb probes
-zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
-zhou_anno <- zhou_anno[intersect(rownames(mset_raw), names(zhou_anno)),]
-
-exclude <- zhou_anno[zhou_anno$MASK_general == T,]
-exclude <- exclude[!seqnames(exclude) %in% c('chrM','*'),]
-
-# create annotation
-CNV_anno <- CNV.create_anno(array_type="EPIC", chrXY=TRUE, 
-                            exclude_regions = granges(exclude))
-# subset annotation to those present in mset
-CNV_anno@probes <- subsetByOverlaps(CNV_anno@probes, granges(zhou_anno))
-
-# load into cnv calling format
-CNV <- CNV.load(mset_raw[intersect(rownames(mset_raw), names(zhou_anno)),])
-
-# test
-#x <- CNV.fit(CNV[1], ref = CNV[setdiff(CNV_controls, names(CNV[1]))], anno = CNV_anno)
-#x <- CNV.bin(x)
-#x <- CNV.detail(x)
-#x <- CNV.segment(x)
-#CNV.genomeplot(x)
-#CNV.genomeplot(x, chr = 'chr6')
-```
-
-Call CNVs
-```{r}
-# initilize cluster
-cl <- makeCluster(24)
-registerDoParallel(cl)
-
-# parallel cnv fit
-CNV_calls <- foreach (i =  1:ncol(mset_raw),
-                          .export = c("CNV.fit", "CNV.bin", 
-                                      "CNV.segment", "CNV.detail")) %dopar%
-  CNV.segment(
-    CNV.detail(
-      CNV.bin(
-        CNV.fit(
-          CNV[i], ref = CNV[setdiff(CNV_controls, names(CNV[i]))], anno = CNV_anno))))
-
-# kill cluster
-stopCluster(cl)
-
-# name the output list
-names(CNV_calls) <- pDat$Sample_Name
-CNV.genomeplot(CNV_calls[[1]])
-
-# visualize 
-#organize by case
-Cases <- levels(as.factor(as.character(pDat$Case_ID)))
-
-
-pdf(file='../../outs/11_CNV_conumee.pdf')  
-for (i in 1:length(Cases)) {
-  Case_i <- Cases[i]
-  pDat_i <- pDat %>% filter(Case_ID == Case_i)
-  name_i <- as.character(pDat_i$Sample_Name)
-  sex_i <- as.character(pDat_i$Sex)
-  
-  
-  # set number of plots per page
-  if (length(name_i) == 1) {
-    par(mfrow = c(1,1))
-  }
-  
-  if (length(name_i) == 2) {
-    par(mfrow = c(2, 1)) # two plots on two rows, better than two plots in two columns
-  }
-  
-  if (length(name_i) > 2) {
-    par(mfrow = c(ceiling(length(name_i)/2), 2)) # set two columns and enough rows to hold all plots
-  }
-  
-  
-  for (j in 1:length(name_i)){
-    CNV.genomeplot(CNV_calls[[name_i[j]]],
-                   main = paste0(name_i[j], ' (', sex_i[j], ')' ), set_par = F)
-  }
-}
-dev.off()
-
+ggplot(pDat_sub1, aes(x = TSNE1, y = TSNE2, col = Tissue)) +
+  geom_point(aes(shape = Trimester), size = 2) +
+  theme_bw() +
+  geom_label_repel(data = pDat_sub1 %>% filter(Sample_Name == 'P128_hofb_cs'), 
+                   aes(x = TSNE1, y = TSNE2, label = Sample_Name), nudge_y = -2, show.legend = F) +
+  scale_color_brewer(palette = 'Set1')
 ```
 
 # for wendy's nih report
 
+Saved for my records. This was done only on Week 1 samples. This same analysis is applied above in
+the UMAP section.
+
 Umap projection + clustering
 
-```{R}
-library(umap)
+```{R eval = F}
 # no villi, decidua, dead cells, mixtures
 pDat_sub1 <- pDat %>% 
   filter(Tissue %in% c('Trophoblasts', 'Endothelial', 'Stromal', 'Hofbauer'))
@@ -674,7 +1193,32 @@ ggplot(pDat, aes(x = PC1_norm, y = PC2_norm, col = Tissue, shape = Trimester)) +
 # 4.0 Saving data
 
 ```{r eval = F}
-betas_norm_filt
-betas_norm_XY
-pDat
+# Save all QC metric with pData, except UMAP projections we will only save from the cells data
+saveRDS(pDat %>% select(-contains('UMAP')), '../../data/main/interim/11_pDat.rds')
+
+
+# save UMAP and TSNE coordinates
+saveRDS(pDat_sub1 %>% select(Sample_Name, Tissue, Trimester, contains('UMAP'), contains('TSNE')),
+        '../../data/main/interim/11_dimreduc.rds')
+
+#snp betas
+saveRDS(snp_betas, '../../data/main/interim/11_snp_betas.rds')
+
+# called genotypes
+saveRDS(snps_called, '../../data/main/interim/11_snps_called.rds')
+
+# probe QC results
+saveRDS(probe_anno, '../../data/main/interim/11_probe_anno.rds')
+
+# control probes
+saveRDS(list('Data' = controls_melt, 'Thresholds' = controls_thresholds),
+        '../../data/main/interim/11_control_probes.rds')
+
+# save pairwise snp correlation matrix
+saveRDS(C_save, '../../data/main/interim/11_cor_matrix_snp_betas.rds')
+
+# PCA association data for plotting
+saveRDS(list("Plot_data" = pca_raw_plot,
+             "PC_variance" = prop_var),
+        '../../data/main/interim/11_pca_association_plot.rds')
 ```
