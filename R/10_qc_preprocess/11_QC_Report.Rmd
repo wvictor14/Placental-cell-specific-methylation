@@ -1,0 +1,910 @@
+---
+title: "QC for NIH EPIC Batch 2"
+author: "Victor Yuan"
+date: "May 13, 2019"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
+  html_document:
+    df_print: kable
+    keep_md: no
+    self_contained: yes
+    theme: spacelab
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+editor_options:
+  chunk_output_type: console
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE) #hide code
+```
+
+# Highlights
+
+* Large number of high quality probes across all 192 samples
+* High overall intensity
+* Passed all control probe metrics
+* All predicted sex matches reported sex
+* All samples cluster with other samples from the same donor, however...
+* First trimester cell sorted samples are contaminated with varying amounts of maternal DNA
+
+```{r setup, message = F, warning = F, include = F}
+# libraries and data
+library(tidyr)
+library(plyr)
+library(ggplot2)
+library(ggrepel)
+library(yahew) #install_github('wvictor14/yahew')
+library(RColorBrewer)
+library(dplyr)
+library(kableExtra)
+library(stringr)
+library(cowplot)
+library(dendextend)
+library(ggdendro)
+library(pheatmap)
+library(GGally)
+library(grid)
+library(yahew) # wvictor14/yahew github
+library(viridis)
+library(ewastools)
+
+# load data
+pDat <- readRDS('../../data/main/interim/11_pDat.rds')
+pDat <- pDat %>% 
+  mutate(Tissue = ifelse(Tissue == 'Dead Cells and Lymphocytes', 'Dead cells', Tissue))
+
+#  UMAP and TSNE coordinates
+dimreduc <- readRDS('../../data/main/interim/11_dimreduc.rds')
+
+#snp betas
+snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+
+# snp betas cor matrix
+snp_betas_cor <- readRDS('../../data/main/interim/11_cor_matrix_snp_betas.rds')
+
+# out put from ewastools: snps called
+snps_called <- readRDS('../../data/main/interim/11_snps_called.rds')
+
+# probe QC results
+probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+
+# controls
+control_probes <- readRDS('../../data/main/interim/11_control_probes.rds')
+controls_melt <- control_probes$Data
+controls_thresholds <- control_probes$Thresholds
+
+# PCA association data
+pca_associations <- readRDS('../../data/main/interim/11_pca_association_plot.rds')
+pca_raw_plot <- pca_associations$Plot_data
+prop_var <- pca_associations$PC_variance
+```
+
+# Probe QC {.tabset}
+
+**Takeaway:** All samples had > 98.5% of their methylation probes passing typical QC thresholds.
+
+Standard workflows assess probe quality by calculating the 'detection p value' and 'bead count' for
+each methylation measurement.
+
+* **Detection p values** indicate whether a particular methylation intensity is statistically different 
+from the average intensity over the negative control probes. P values greater than 0.01 are 
+considered poor quality measurements.
+* **Bead count** refers to the number of beads that contribute to a measurement. Measurements with less
+than 3 beads are considered unreliable.
+
+Combining these two definitions of poor quality probes, we can assess the number of **failed probes** 
+for each sample. A failed sample is typically defined as one with > 5 - 10 % of their data consists
+of failed probes.
+
+## Failed probes
+
+Failed probe is defined as having either a detection p value > 0.01, or bead count  < 3.
+
+*Red dashed line denotes 1% of all probes*
+
+```{r}
+pDat %>% 
+  arrange(Tissue, failed_probes) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = failed_probes, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) +
+  scale_fill_brewer(palette = 'Set1') +
+  labs(x = 'Samples', y = '', title = '# probes with bead count < 3 or detection p > 0.01') +
+  geom_hline(yintercept = 0.01*nrow(probe_anno), linetype = 'dashed', color = 'red') +
+  geom_text(aes(x = 0, y = 0.01*nrow(probe_anno)), 
+            label = '1%', vjust = -0.5, hjust = -0.5, color = 'red')+
+  geom_label_repel(data = pDat %>% filter(failed_probes > 0.01*nrow(probe_anno)),
+                   aes(x = Sample_Name, y = failed_probes, label = Sample_Name),
+                   force = 100, show.legend = F, nudge_y = -500, nudge_x = -10)+
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+```
+
+## Detection p values
+
+*Blue dashed line denotes 0.5% of all probes*
+
+```{r}
+pDat %>% 
+  arrange(Tissue, detP_01_minfi) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = detP_01_minfi, fill = Tissue))+
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  labs(x = 'Samples', y ='',  title = '# of probes with detection p > 0.01')+
+  geom_hline(yintercept = 0.005*nrow(probe_anno), linetype ='dashed', color = 'blue') +
+  geom_text(aes(x = 0, y = 0.005*nrow(probe_anno)),
+            label = '0.5%', vjust = -0.5, hjust = -0.5, color = 'blue') +
+  geom_label_repel(data = pDat %>% filter(detP_01_minfi > 0.005*nrow(probe_anno)),
+                   aes(x = Sample_Name, y = detP_01_minfi, label = Sample_Name),
+                   show.legend = F, nudge_y = 500) +
+  scale_y_continuous(limits = c(0, 7000), breaks = seq(0,7000, 1000)) +
+  scale_fill_brewer(palette = 'Set1') +
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+```
+
+## Beadcount
+
+*Red dashed line denotes 1% of all probes*
+
+```{r}
+pDat %>% 
+  arrange(Tissue, beadcount) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = beadcount, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_hline(yintercept = 0.01*nrow(probe_anno), linetype = 'dashed', color = 'red') +
+  geom_text(aes(x = 0, y = 0.01*nrow(probe_anno)), 
+            label = '1%', vjust = -0.5, hjust = -0.5, color = 'red')+
+  geom_label_repel(data = pDat %>% filter(beadcount > 0.01*nrow(probe_anno)),
+                   aes(x = Sample_Name, y = beadcount, label = Sample_Name),
+                   nudge_y = 1000, force = 15, show.legend = F)+
+  scale_fill_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0, 12500), breaks = seq(0, 12500, 2500)) +
+  labs(x = 'Samples', y = '', title = '# probes with bead count < 3') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank())
+```
+
+# Methylation Intensity {.tabset}
+
+**Takeaway:** All samples had high intensity values across methylated and unmethylated channels.
+
+Low quality samples can sometimes be due to a lower amount of DNA hybridizing to the array, which 
+can sometimes happen due to variable amounts of good quality input DNA. This was a concern for our
+cell-sorted samples due to a low starting quantity of DNA to work with.
+
+## Average over methylated and unmethylated
+
+For previous 450k/EPIC batches, we have looked at the average intensity over both methylated and
+unmethylated channels.
+
+*Red and blue dashed lines indicate +2/-2 standard deviations (SD) from the mean*
+
+```{r}
+pDat %>% 
+  arrange(Tissue, Average_intensity) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Average_intensity, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  theme(axis.text.x = element_blank()) +
+  geom_hline(yintercept = mean(pDat$Average_intensity) - 2*sd(pDat$Average_intensity),
+             linetype = 'dashed', col = 'blue')+
+  geom_hline(yintercept = mean(pDat$Average_intensity) + 2*sd(pDat$Average_intensity),
+             linetype = 'dashed', col = 'red') +
+  geom_label_repel(data = pDat %>% 
+                    filter(Average_intensity < mean(pDat$Average_intensity) -
+                             2*sd(pDat$Average_intensity)),
+                  aes(label = Sample_Name), force = 10, nudge_y = -2500, show.legend = F) +
+  scale_fill_brewer(palette ='Set1') +
+  scale_y_continuous(limits = c(0, 15000)) +
+  labs(x = 'Samples') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank())
+```
+
+## Log2 median
+
+Minfi recommends using the log2 -normalized median values of both methylated and unmethylated 
+channels.
+
+```{r}
+ggplot(pDat, aes(x = log2_median_meth, y = log2_median_unmeth)) +
+  geom_point() +
+  geom_abline(intercept = 10.5*2, slope = -1, col = 'red', linetype = 'dashed') +
+  xlim(7.5, 15) + ylim(7.5, 15) + theme_bw()
+```
+
+# Control probes {.tabset}
+
+**Takeway**: All samples passed default thresholds for all 17 control probes.
+
+17 control probes are on the array to measure various technical aspects of the array. 
+Descriptions and default thresholds can be found in the [BeadArray Controls Reporter Software Guide](https://support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium_hd_methylation/beadarray-controls-reporter-user-guide-1000000004009-00.pdf). 
+
+*The described default thresholds are displayed as the red horizontal dashed line.*
+
+## Controls 1-6
+
+```{r}
+# plot
+controls_melt %>%
+  filter(Control %in% levels(Control)[1:6]) %>%
+  ggplot(aes(x = Tissue, y = Intensity, fill = Tissue)) +
+  geom_boxplot(col = 'black') + 
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = '') +
+  scale_fill_brewer(palette = 'Set1') +
+  facet_wrap(~Control, scales = 'free') +
+  scale_y_continuous(limits = c(0,NA)) +
+  geom_hline(data = controls_thresholds %>% filter(Control %in% levels(Control)[1:6]),
+             aes(yintercept = Intensity), col = 'red', linetype = 'dashed')
+```
+
+## 7-12
+
+```{r}
+controls_melt %>%
+  filter(Control %in% levels(Control)[7:12]) %>%
+  ggplot(aes(x = Tissue, y = Intensity, fill = Tissue)) +
+  geom_boxplot(col = 'black') + 
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = '') +
+  scale_fill_brewer(palette = 'Set1') +
+  facet_wrap(~Control, scales = 'free')+
+  scale_y_continuous(limits = c(0,NA))+
+  geom_hline(data = controls_thresholds %>% filter(Control %in% levels(Control)[7:12]),
+             aes(yintercept = Intensity), col = 'red', linetype = 'dashed')
+```
+
+## 13-17
+
+```{r}
+controls_melt %>%
+  filter(Control %in% levels(Control)[13:17]) %>%
+  ggplot(aes(x = Tissue, y = Intensity, fill = Tissue)) +
+  geom_boxplot(col = 'black') + 
+  theme_classic() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = '') +
+  scale_fill_brewer(palette = 'Set1') +
+  facet_wrap(~Control, scales = 'free', nrow = 2)+
+  scale_y_continuous(limits = c(0,NA)) +
+  geom_hline(data = controls_thresholds %>% filter(Control %in% levels(Control)[13:17]),
+             aes(yintercept = Intensity), col = 'red', linetype = 'dashed')
+```
+
+# {.toc-ignore}
+
+We can see that all samples lay above default thresholds for all control probes.
+
+# Sex sample check {.tabset}
+
+**Takeaway:** All samples have total XY intensities in concordance with their reported sex. However,
+some male samples were flagged due to a low level of Y intensity.
+
+We can determine the sex of samples based off the total amount of signal measured across X and Y probes.
+Compared to males, we expect females to have more signal (2x more) on X probes, and no signal on Y 
+probes.
+
+Previously, I/others have relied on the median or total intensity of X and Y probes to do this 
+analysis, but in a relatively recent [paper](https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-018-0504-1), others have proposed to first normalize these 
+intensities to autosomal probes on a sample-specific basis. This in theory accounts for any amount 
+of variability in the quantity of DNA loaded onto the array, which in this particular run was a 
+concern. 
+
+*arbitrarily-chosen cutoff points (grey dashed lines) are shown to flag samples throughout downstream analysis*
+
+## ewastools
+
+For each sample, [`ewastools`](https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-018-0504-1) approach is to normalize the total X and Y signal to autosomal signal.
+
+```{r}
+ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, fill = Sex)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) +theme_bw() +
+  geom_text_repel(data = pDat %>% filter(Sex == 'M', normalized_X_intensity > 0.95,
+                                         normalized_Y_intensity < 0.5), 
+            aes(label = Sample_Name), size = 3, force = 15, nudge_x = -0.1, nudge_y = -0.1) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', col = '#9B9B9B') + 
+  geom_vline(xintercept = 0.95, linetype = 'dashed', col = '#9B9B9B')
+```
+
+## minfi
+
+The common / previously used approach
+
+```{r}
+ggplot(pDat, aes(x = median_X_intensity, y = median_Y_intensity, fill = Sex)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + theme_bw() +
+  geom_text_repel(data = pDat %>% filter(Sex == 'M', median_Y_intensity < 5000),
+                  aes(label = Sample_Name), nudge_x = -3000, force = 15, show.legend = F) +
+  geom_hline(yintercept = 5000, linetype = 'dashed', col = '#9B9B9B')
+```
+
+`ewastools` seems to result in cleaner clustering of the samples. 
+
+Importantly, all samples can be discriminated based on X & Y signal in concordance with their 
+reported sex. However, it appears that there is some variability in amount of Y signal in male 
+samples. Some male samples have a level of Y signal that is close to females, so these I have 
+flagged to keep an eye out for in downstream analysis.
+
+# Genotype sample check
+
+**Takeaway:** All samples cluster with their donor ID. However, first trimester sorted cells samples
+appear to be contaminated, likely with maternal tissue. 2 Hofbaeur third trimester and all 3 villi 
+sampled from maternal side have some evidence of contamination.
+
+Note that in this section I refer **contamination** to when a sample contains DNA from 2 sources with
+distinct genotype (i.e. placental / maternal).
+
+**Files associated with this section:**
+
+* 11_snp_clustering.pdf
+* 11_snp_cor_set1.pdf
+* 11_snp_cor_set2.pdf
+* 11_snp_cor_set3.pdf
+
+59 probes exist on the EPIC array that target single nucleotide polymorphisms (SNPs). Determined 
+genotypes can be used to ensure samples were ran in the intended order, and can be used to ID any
+accidental sample switches have occured.
+
+In previous analyses, I have relied on unsupervised hierarchical clustering to determine the level 
+of relatedness on this data. But the output I found difficult to work with, and required much manual
+inspection, which resulted in an overall very time-consuming analysis. This time, I explored some
+alternatives. (You can still check out the hierarchical clustering graph, provided as the file *11_snp_clustering.pdf*.)
+
+Instead of hierarchical clustering, I relied primarily on pairwise sample-correlations as a first 
+check to determine any genotype mismatches. But I also explore another approach using "mixture 
+modelling", implemented by `ewastools`, and which I found also very useful.
+
+## Pairwise sample correlations 
+
+**Takeaway:** Samples of first trimester have variable correlations on SNP data to other samples from the same donor. Term samples in comparison have very high within-donor correlations.
+
+
+This graph is quite large so I split it up to see everything a bit better. Some samples names are 
+cutoff, which I couldn't fix so I recommend just viewing from the pdf files:
+
+* 11_snp_cor_set1.pdf
+* 11_snp_cor_set2.pdf
+* 11_snp_cor_set3.pdf
+
+### Third Trimester {.tabset}
+
+#### Samples 1 - 22
+
+```{r}
+# organize by trimester
+ind_third <- pDat %>% 
+  add_count(Case_ID) %>%
+  filter(Trimester == 'Third') %>%
+  arrange(n, Case_ID) %>%
+  pull(Sample_Name)
+
+#four graphs
+ind_third_1 <- ind_third[1:22]
+ind_third_2 <- ind_third[23:42]
+ind_third_3 <- ind_third[43:62]
+ind_third_4 <- ind_third[63:88]
+ind_third_5 <- ind_third[89:105]
+ind_third_6 <- ind_third[106:126]
+
+label_size <- 3.5
+point_size <- 6.75
+r_size <- 2
+colors <- c('red', 'red', rev(viridis_pal(option = 'D')(9))[c(1,1,1:8)])
+r_limit <- c(0.65,1)
+
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_third_1,ind_third_1], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size-0.5) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 23 - 42
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_third_2,ind_third_2], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 43 - 62
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_third_3,ind_third_3], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 63 - 88
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_third_4,ind_third_4], 
+             geom = 'blank', name = expression(rho), size = label_size-0.5, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size-1) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size-0.5) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 89 - 105
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_third_5,ind_third_5], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size+1) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 106 - 126
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_third_6,ind_third_6], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+### First Trimester {.tabset}
+
+#### Samples 1 - 19
+
+
+```{r}
+label_size <- 3.5
+point_size <- 7.5
+r_size <- 2.5
+colors <- c('red', 'red', rev(viridis_pal(option = 'D')(9))[c(1,1,1:8)])
+r_limit <- c(0.65,1)
+
+# organize by trimester
+ind_first <- pDat %>% 
+  add_count(Case_ID) %>%
+  filter(Trimester == 'First') %>%
+  arrange(n, Case_ID) %>%
+  pull(Sample_Name)
+
+#four graphs
+ind_first_1 <- ind_first[1:19]
+ind_first_2 <- ind_first[20:37]
+ind_first_3 <- ind_first[38:50]
+
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_first_1,ind_first_1], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 20 - 37
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_first_2,ind_first_2], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+#### 38 - 50
+
+```{r}
+ggcorr(data = NULL, cor_matrix = snp_betas_cor[ind_first_3,ind_first_3], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size+1.5) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size+0.5) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+# 
+
+We can see that some first trimester samples have low within-donor sample correlations. There are 
+two likely explanations:
+
+1. Sample quality for these samples is poor, resulting in high variability.
+2. Samples are contaminated, likely with maternal tissue.
+
+We can reasonably discount 1. because previous all samples passed all previous QC checks. We can 
+further investigate 2. by seeing if any biases exists by tissue type.
+
+### Within-donor correlations
+
+For each sample, I calculated their *within-donor average genotype correlation* which is an average 
+of all pairwise comparisons on genotype probes to other samples within the same donor group. 
+
+Example:
+
+```{r}
+data.frame(Sample1 = rep('PM1_troph', 3),
+           Sample2 = c('PM1_villi', 'PM1_hofb', 'PM1_endo'),
+           Correlation = c(0.99, 0.97, 0.90)) %>%  kable %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+```
+
+
+`PM1_troph`'s within-donor average genotype correlation is `(0.99 + 0.97 + 0.9) / 3 = 0.95`
+
+```{r}
+pDat %>% arrange(Trimester, Tissue, Average_SNP_cor_within_donor) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Average_SNP_cor_within_donor, fill = Tissue, Shape = Trimester)) +
+  geom_point(aes(shape = Trimester), col = 'black', size = 2)  +
+  labs(x = 'Samples', y = expression(rho), 
+       title = 'Average SNP correlation to all other same-donor samples') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  scale_shape_manual(values = c('First' = 21, 'Second' = 22, 'Third' = 24)) +
+  scale_fill_viridis_d(option = "C") +
+  guides(fill=guide_legend(override.aes=list(shape=21)))
+```
+
+Observations:
+
+* First trimester compare to third trimester samples have lower correlations to other samples from 
+the same donor. It is not clear, however, if there is a tissue bias.
+* A total of 9 samples have a averaged correlation below 0.90.
+* Does not seem to be a strong tissue-specific effect.
+* Three third trimester cell-sorted samples show some evidence of contamination.
+
+## SNP betas distributions
+
+**Takeaway:** SNP data demonstrates low within-donor correlations in first trimester samples likely 
+due to contamination in cell sorted samples, rather than villi. Third trimester samples Hofbauer
+cells and villi from maternal side  also show some degree of contamination.
+
+Based on Wendy's suggestion, I looked at the distribution of SNP intensity over all SNPs.
+
+```{r}
+snp_betas_melt <- t(snp_betas) %>% as_tibble %>% mutate(Sample_Name = colnames(snp_betas)) %>%
+  left_join(pDat %>% select(Sample_Name, Tissue, Trimester), by = 'Sample_Name') %>%
+  gather(key = 'SNP', value = 'Beta', -Sample_Name, -Tissue, -Trimester)
+
+ggplot(snp_betas_melt, aes(x = SNP, y = Beta)) +
+  geom_point(alpha = 0.7, color = 'black') + 
+  labs(x = '59 SNPs') + theme_bw() + theme(axis.text.x =element_blank()) +
+  facet_grid(Trimester ~ Tissue) +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  scale_x_discrete(breaks = NULL, expand = c(0.02, 0.02))
+```
+
+Based on this data, we can clearly see that first trimester cell sorted samples have a high level of
+genotype variability, whereas corresponding villi samples do not.
+
+Additional observations on this data:
+
+* Hofbauer third trimester samples have some moderate levels of variability
+* Villi collected from maternal side has moderate levels of variability
+
+## SNP contamination
+
+To quantify the level this 'genotype variability', which in our samples are likely from 
+contamination of another, distinct genotype (i.e. maternal genotype), I used mixture modelling 
+implemented from [`ewastools`](https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-018-0504-1).
+
+Briefly, we determine the probability for every SNP if they belong to 1 of 4 distributions, 3 of 
+which correspond to the 3 expected genotypes (AA, AB, BB), and where the 4th distribution 
+corresponds to outside / in-between these expected genotype distributions. SNPs with a higher 
+probability of belonging to this 4th distribution indicate mixing between more than one genotype.
+
+Here we can see the overall distribution of the genotypes, as well as the model fit to the data (red
+line).
+
+```{r}
+mxm_(snps_called)
+```
+
+We can clearly see three peaks, corresponding to 3 possible genotypes (distribution 1-3), and then 
+many observations falling between these peaks (distribution 4). Next, for each sample, I take the 
+average probability of SNP belonging to this 4th  distribution, or in other words, not belonging to 
+the any of the 3 genotype distributions.
+
+```{r}
+pDat %>% arrange(Trimester, Tissue, Prob_SNP_outlier) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Prob_SNP_outlier, fill = Tissue, Shape = Trimester)) +
+  geom_point(aes(shape = Trimester), col = 'black', size = 2)  +
+  labs(x = 'Samples', y = "P", 
+       title = 'Average probability of SNP being an outlier') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  scale_shape_manual(values = c('First' = 21, 'Second' = 22, 'Third' = 24)) +
+  scale_fill_viridis_d(option = "C") +
+  guides(fill=guide_legend(override.aes=list(shape=21))) +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1,0.1)) 
+```
+
+This plot is very similar to the correlation plot, but is more explicit in describing which samples
+are contaminated and which are not, as the probability on the y axis can be interpreted as the level
+of purity in terms of genotype for each sample. Supporting that, we see that no sample has a 
+probability > 0.5 (as those samples contamined with > 50% of another genotype would appear < 50%
+contaminated since the "reference" sample is arbitrary).
+
+Note that despite observing low levels of maternal genotype observed from microsatellite experiments
+by Maria, we can see Villi from maternal side have a moderate (2) to high (1) level of contamination. 
+
+# Dimension reduction
+
+**Takeaway:** Global DNA methylation variation primarily reflects tissue, and gestational age effects. 
+Genotype contamination associated with a large effect on -sorted first trimester samples. 
+
+Lastly, I inspect global patterns of variation in the (raw) DNA methylation data using linear (PCA) 
+and non-linear (UMAP, TSNE) dimension reduction techniques.
+
+I do this on the raw data so that we can understand the extent of any batch-associated variation.
+
+## PCA
+
+Here I compute PCA onto the entire betas matrix and associate each PC with sample variables.
+
+### Association plot
+
+```{r}
+# create color palette
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pca_raw_plot$pval_cat)
+
+ggplot(pca_raw_plot, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value') + coord_equal()
+```
+
+```{r, fig.width = 5, fig.height = 2.5}
+ggplot(prop_var, aes(x = PC, y = Prop_var_raw)) +
+  geom_bar(stat = 'identity') + theme_bw() + labs(y = '', title = '% variance') +
+  scale_x_continuous(breaks = 1:20)
+```
+
+Observations:
+
+* PC1 accounts for 40%, PC2 accounts for 22%, PC3 accounts for for 12% of variation.
+* PC1 & PC2 are associated with Trimester, Tissue, DNA concentration of BSC, Flagged sex, failed 
+probes, and BSC Batch.
+* PC3 and PC4 are associated with Trimester, Tissue, failed probes. 
+
+Next, I inspect individual PC plots colored by the different associated sample variables.
+
+```{r}
+PC1_lab <- paste0('PC1 (', prettyNum(prop_var$Prop_var_raw[1],digits =3), '%)')
+PC2_lab <- paste0('PC2 (', prettyNum(prop_var$Prop_var_raw[2],digits =3), '%)')
+PC3_lab <- paste0('PC3 (', prettyNum(prop_var$Prop_var_raw[3],digits =3), '%)')
+PC4_lab <- paste0('PC4 (', prettyNum(prop_var$Prop_var_raw[4],digits =3), '%)')
+```
+
+### PC1 PC2 {.tabset}
+
+#### Tissue
+
+```{r}
+# PC1 and 2
+ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + theme_bw() +
+  scale_fill_brewer(palette = 'Set1') + labs(x = PC1_lab, y = PC2_lab) +
+  geom_text_repel(data = pDat %>% filter(Sample_Name == 'P128_hofb_cs'), nudge_x = -50, 
+                   col = 'black', aes(x = PC1_raw, y = PC2_raw, label = Sample_Name), 
+                   show.legend = F) +
+  geom_text_repel(data = pDat %>% filter(Tissue == 'Hofbauer', PC1_raw < 0), nudge_y = -10,
+                   col = 'black', aes(x = PC1_raw, y = PC2_raw, label = Sample_Name), 
+                   show.legend = F)
+```
+
+#### Trimester
+
+```{r}
+ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, fill = Trimester)) +
+  geom_point(shape = 21, color = 'black', size = 2.5) + theme_bw() +
+  scale_color_brewer(palette = 'Dark2') + labs(x = PC1_lab, y = PC2_lab)
+```
+
+#### Failed probes
+
+```{r}
+ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, fill = failed_probes)) +
+  geom_point(shape = 21, color = 'black', size = 2.5, alpha = 0.75) + theme_bw() +
+  scale_fill_viridis_c()+ labs(x = PC1_lab, y = PC2_lab)
+```
+
+#### BSC DNA concentraion
+
+This is the concentration of the bisulfite converted DNA, prior to any dilutions / speed vac'ing 
+done just before loading onto the array.
+
+```{r}
+ggplot(pDat, aes(x = PC1_raw, y = PC2_raw, fill = DNA_conc_BSC_adjusted)) +
+  geom_point(shape = 21, color = 'black', size = 2.5, alpha = 0.75) + theme_bw() +
+  scale_fill_viridis_c(option = 'magma') + labs(x = PC1_lab, y = PC2_lab)
+```
+
+We can see that the DNA concentration is associated with PC1 and PC2 likely because sorted cells 
+especially first trim) have lower BSC concentration than nonsorted (e.g. villi) samples.
+
+### PC3 PC4 {.tabset}
+
+#### Tissue
+
+```{r}
+ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, fill = Tissue)) +
+  geom_point(shape = 21, color = 'black',size = 2.5) + theme_bw() +
+  scale_fill_brewer(palette = 'Set1') + labs(x = PC3_lab, y = PC4_lab)
+```
+
+#### Trimester
+
+```{r}
+ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, fill = Trimester)) +
+  geom_point(shape = 21, color = 'black',size = 2.5) + theme_bw() +
+  scale_fill_brewer(palette = 'Dark2') + labs(x = PC3_lab, y = PC4_lab)
+```
+
+#### Flagged Sex
+
+Colored by whether they were flagged on the sex prediction analysis.
+
+```{r}
+ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, fill = Flag_Sex)) +
+  geom_point(shape = 21, color = 'black',size = 2.5) + theme_bw()+ 
+  labs(x = PC3_lab, y = PC4_lab)
+```
+
+#### Flagged genotype
+
+Colored by whether they were flagged on the genotype checking analysis.
+
+```{r}
+ggplot(pDat, aes(x = PC3_raw, y = PC4_raw, fill = Flag_genotype)) +
+  geom_point(shape = 21, color = 'black',size = 2.5) + theme_bw() +
+  labs(x = PC3_lab, y = PC4_lab)
+```
+
+
+## UMAP and TSNE {.tabset}
+
+Because we have cell sorted data, we can try some single cell analysis techniques. Non-linear 
+dimension reduction techniques, such as UMAP and TSNE, have become a popular way to visualize the 
+complex relationships between various cell types in scRNAseq data. 
+
+TSNE became the first most widely used nonlinear dimension reduction technique for single cell 
+analysis. However the following limiations led to development of additional techniques such as UMAP:
+
+* TSNE has a random-component, such that every time it is computed, a different result can be 
+expected. 
+* TSNE results can vary depending on the parameters specified. And it is not always clear how to 
+choose these parameters. 
+* TSNE tends to exaggerate local relationships within clusters and ignore global relationships 
+between clusters
+
+To improve upon these limitations, UMAP was developed and is now commonly used in single cell analysis papers. See this [1st trimester placental scRNAseq analysis](https://www.nature.com/articles/s41586-018-0698-6) foran example of it's usage. In 
+contrast to TSNE:
+
+* UMAP  is deterministic (every runtime will produce the same result)
+* UMAP preserves global relationships, such that distances between clusters means something
+* UMAP is faster
+
+[A good article on these differences](https://www.nature.com/articles/nbt.4314?WT.feed_name=subjects_data-mining)
+
+*These plots were generated using only cell sorted samples, excluding the discarded fractions, since
+those are heterogeneous*
+
+### UMAP
+
+```{r}
+ggplot(dimreduc, aes(x = UMAP1, y = UMAP2, fill = Tissue)) +
+  geom_point(aes(shape = Trimester), color = 'black', size = 2) +
+  theme_bw() +
+  scale_shape_manual(values = c('First' = 21, 'Third' = 22)) +
+  geom_text_repel(data = dimreduc %>% filter(Sample_Name == 'P128_hofb_cs'), 
+                   aes(x = UMAP1, y = UMAP2, label = Sample_Name), show.legend = F,
+                   nudge_y = -2) +
+  scale_color_brewer(palette = 'Set1') +
+  guides(fill=guide_legend(override.aes=list(shape=21)))
+```
+
+### TSNE
+
+```{r}
+ggplot(dimreduc, aes(x = TSNE1, y = TSNE2, fill = Tissue)) +
+  geom_point(aes(shape = Trimester), color = 'black', size = 2) +
+  scale_shape_manual(values = c('First' = 21, 'Third' = 22)) +
+  theme_bw() +
+  geom_text_repel(data = dimreduc %>% filter(Sample_Name == 'P128_hofb_cs'), 
+                   aes(x = TSNE1, y = TSNE2, label = Sample_Name), nudge_x = 2, show.legend = F) +
+  scale_fill_brewer(palette = 'Set1') +
+  guides(fill=guide_legend(override.aes=list(shape=21)))
+```
+
+# 
+
+Observations:
+
+* 3rd trimester samples have very distinct DNAme profiles, forming the main clusters in these plots. 
+* 1st trimester samples form their own distinct clusters, in close proximity  to their the same cell type cluster of 3rd trimester
+* Many 1st trimester cell samples cluster in the center of the plots, indicating high variation 
+within cell types in 1st trimester cell samples
+
+I wondered if these 1st trimester samples with odd clustering in the middle could be explained by
+their contamination with maternal DNA:
+
+### {.tabset}
+
+#### UMAP
+
+```{r}
+dimreduc %>% left_join(pDat %>% select(Sample_Name, Prob_SNP_outlier), by = 'Sample_Name') %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, fill = Prob_SNP_outlier)) +
+  geom_point(aes(shape = Trimester), color = 'black', size = 2) +
+  theme_bw() +
+  scale_shape_manual(values = c('First' = 21, 'Third' = 22)) +
+  scale_fill_viridis_c() 
+```
+
+#### TSNE
+
+```{r}
+dimreduc %>% left_join(pDat %>% select(Sample_Name, Prob_SNP_outlier), by = 'Sample_Name') %>%
+  ggplot(aes(x = TSNE1, y = TSNE2, fill = Prob_SNP_outlier)) +
+  geom_point(aes(shape = Trimester), color = 'black', size = 2) +
+  theme_bw() +
+  scale_shape_manual(values = c('First' = 21, 'Third' = 22)) +
+  scale_fill_viridis_c() 
+```
+
+#
+
+It seems that the odd clustering of some of these first trimester samples might be explained by 
+contamination.
