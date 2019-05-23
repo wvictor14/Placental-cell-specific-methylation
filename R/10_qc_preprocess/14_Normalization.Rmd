@@ -1,0 +1,269 @@
+---
+title: "14_Normalization"
+author: "Victor Yuan"
+date: "23/05/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+# 1.0 Libraries
+
+```{r message = F, warning = F}
+# libraries and data
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(viridis)
+library(RColorBrewer)
+library(GGally) # for ggcorr
+library(minfi)
+library(impute)
+library(pheatmap)
+library(irlba)
+library(yahew) # github.com/wvictor14/yahew
+
+# for noob normalization
+library(IlluminaHumanMethylationEPICmanifest)
+library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+
+# pdata
+pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+
+# raw methylation data
+rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
+betas_raw <- getBeta(rgset)
+probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+
+# snp data
+snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+
+# annotation
+zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
+```
+
+# 2.0 Processing
+
+## Normalization
+
+Here I use noob normalization to correct for background noise and dye-bias.
+
+```{r eval = F}
+mset_noob <- preprocessNoob(rgset)
+
+# pull betas
+betas_noob <- getBeta(mset_noob)
+```
+
+saveRDS(mset_noob, '../../data/main/interim/14_mset_noob.rds')
+
+```{r}
+mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
+betas_noob <- getBeta(mset_noob)
+```
+
+## Filtering
+
+ remove probes with > 5% observations failed
+ remove probes CH probes
+ separate XY probes 
+
+```{r}
+# unfiltered autosomal probes
+ind_probe_unfilt <- probe_anno %>% 
+  filter(remove_XY == F) %>%
+  pull(probe_ID)
+
+#filtered autosomal probes
+ind_probe_filt <- probe_anno %>% 
+  filter(remove_XY == F & (remove_failed == F & remove_CH_SNP == F)) %>% 
+  pull(probe_ID)
+
+# unfiltered XY probes
+ind_probe_unfilt_XY <- probe_anno %>%
+  filter(remove_XY == T) %>%
+  pull(probe_ID)
+  
+# filtered XY probes
+ind_probe_filt_XY <- probe_anno %>%
+  filter(remove_XY == T & (remove_failed == F & remove_CH_SNP == F)) %>% 
+  pull(probe_ID)
+
+
+# filter
+betas_raw <- betas_raw[ind_probe_unfilt,]
+betas_noob_unfilt <- betas_noob[ind_probe_unfilt,]
+betas_noob_filt <- betas_noob[ind_probe_filt,]
+
+betas_raw_XY <- betas_raw[ind_probe_unfilt,]
+betas_noob_unfilt_XY <- betas_noob[ind_probe_unfilt_XY,]
+betas_noob_filt_XY <- betas_noob[ind_probe_filt_XY,]
+
+data.frame(number_of_probes = c(nrow(betas_noob), nrow(betas_noob_unfilt), nrow(betas_noob_filt),
+                                nrow(betas_noob_unfilt_XY), nrow(betas_noob_filt_XY)),
+           step = c('all probes', 'all autosomal', 'filtered autosomal', 'all XY', 'filtered XY'),
+           object_name = c('betas_noob / betas_raw', 'betas_noob_unfilt', 'betas_noob_filt', 
+                           'betas_noob_unfilt_XY / betas_raw_XY', 'betas_noob_filt_XY'))
+```
+
+# 3.0 Compare processing steps
+
+## Beta distributions
+
+Sample 80000 rows and plot, takes about 1 minute to plot
+
+```{r fig.height = 10}
+set.seed(1)
+
+# filter and melt 
+x <- betas_raw[sample.int(nrow(betas_raw), size = 80000),] %>% as_tibble() %>%
+  gather() %>% 
+  left_join(pDat %>% select(Sentrix, Tissue, Trimester), by = c('key' = 'Sentrix')) %>%
+  mutate(stage = 'Raw')
+y <- betas_noob_unfilt[sample.int(nrow(betas_noob_unfilt), 80000),] %>% as_tibble() %>%
+  gather() %>% 
+  left_join(pDat %>% select(Sentrix, Tissue, Trimester), by = c('key' = 'Sentrix')) %>%
+  mutate(stage = 'Noob')
+z <- betas_noob_filt[sample.int(nrow(betas_noob_filt), 80000),] %>% as_tibble() %>%
+  gather() %>% 
+  left_join(pDat %>% select(Sentrix, Tissue, Trimester), by = c('key' = 'Sentrix')) %>%
+  mutate(stage = 'Noob, Filtered')
+
+# combine
+densities <- x %>%
+  bind_rows(y) %>%
+  bind_rows(z)
+
+#plot
+ggplot(densities, aes(x = value, col = stage)) +
+  geom_density() + theme_bw() + labs(x = 'Beta', col = '', title = '80000 random probes') +
+  facet_grid(Tissue ~ Trimester)
+```
+
+## Replicates
+
+```{r, fig.width=9, fig.height=9}
+cor_raw <- cor(na.omit(betas_raw))
+cor_noob_unfilt <- cor(na.omit(betas_noob_unfilt))
+cor_noob_filt <- cor(na.omit(betas_noob_filt))
+
+colnames(cor_raw) <- rownames(cor_raw) <- pDat$Sample_Name
+colnames(cor_noob_unfilt) <- rownames(cor_noob_unfilt) <- pDat$Sample_Name
+colnames(cor_noob_filt) <- rownames(cor_noob_filt) <- pDat$Sample_Name
+
+pheatmap_anno <- pDat %>% mutate(Replicate = ifelse(grepl('_R', Sample_Name), 'Replicate', 
+                                                    'Not Replicate')) %>%
+  select(Tissue, Trimester, Sex, Replicate) %>%
+  as.data.frame()
+rownames(pheatmap_anno) <- pDat$Sample_Name
+
+heatmap_cols <- list(
+  Replicate = c('Replicate' = 'Black', 'Not Replicate' = 'Grey'),
+  Sex = c('M' = 'Blue', 'F' = 'Pink'),
+  Trimester =  setNames(viridis_pal(option = 'A')(3), levels(factor(pDat$Trimester))),
+  Tissue = setNames(brewer.pal(9, name = 'Set1'), levels(factor(pDat$Tissue)))
+)
+
+pheatmap(cor_raw, annotation_row = pheatmap_anno,
+         annotation_colors = heatmap_cols)
+
+pheatmap(cor_noob_unfilt, annotation_row = pheatmap_anno,
+         annotation_colors = heatmap_cols)
+
+pheatmap(cor_noob_filt, annotation_row = pheatmap_anno,
+         annotation_colors = heatmap_cols)
+
+cor_raw['PL293_v_R1','PL293_v_R2'] # 0.9900
+cor_noob_unfilt['PL293_v_R1','PL293_v_R2'] # 0.9927
+cor_noob_filt['PL293_v_R1','PL293_v_R2'] # 0.9933
+
+cor_raw['PM366_vc_R1','PM366_vc_R2'] # 0.9961
+cor_noob_unfilt['PM366_vc_R1','PM366_vc_R2'] # 0.9971
+cor_noob_filt['PM366_vc_R1','PM366_vc_R2'] # 0.9972
+```
+
+## PCA
+
+```{r}
+# calculate pca
+set.seed(2019)
+pca_norm_filt <- prcomp_irlba(t(na.omit(betas_noob_filt)), n = 20)
+
+# rename columns
+pca_norm_filt_scores <-pca_norm_filt$x %>% as_tibble() %>% mutate(Sample_Name = pDat$Sample_Name) 
+colnames(pca_norm_filt_scores)[1:20] <- paste0(colnames(pca_norm_filt_scores)[1:20], '_norm_filt')
+
+# factorize some variables encoded as numeric
+pDat <- pDat %>%
+  mutate(Week = as.factor(as.character(Week)),
+         Chip_number = as.factor(as.character(Chip_number)),
+         Row = as.factor(as.character(Row)))
+  
+# correlate with phenodata
+pca_norm_filt_cor <- lmmatrix(dep = pca_norm_filt_scores[,1:20],
+                        ind = pDat %>% 
+                          dplyr::select(Case_ID, Tissue, Sex, Trimester, #bio
+                                        Week, Chip_number, Row, Batch_BSC, # batch 
+                                        DNA_conc_BSC_adjusted, DNA_conc_before_load, DNA_loaded,
+                                        failed_probes, Flag_Sex, Flag_genotype,
+                                        Agreement_to_donor_villi), 
+                        metric = 'Pvalue')
+# plot
+pca_norm_filt_plot <- pca_norm_filt_cor %>% as.data.frame() %>% 
+  
+  # add dep variables
+  mutate(dep = rownames(pca_norm_filt_cor)) %>%
+  
+  # reshape
+  gather(PC, pval, -dep) %>%
+  
+  # pvalue categories
+  mutate(pval_cat = factor(case_when(
+    pval > 0.05  ~ '> 0.05',
+    pval < 0.05 & pval > 0.01 ~ '< 0.05',
+    pval < 0.01 & pval > 0.001 ~ '< 0.01',
+    pval < 0.001 ~ '< 0.001'
+  ), levels = c('> 0.05', '< 0.05','< 0.01', '< 0.001')),
+  
+  # make PC is encoded with proper levels!!!
+  PC = factor(PC, levels = colnames(pca_norm_filt_cor))) %>% as_tibble()
+
+# create color palette
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pca_norm_filt_plot$pval_cat)
+
+p1 <- ggplot(pca_norm_filt_plot, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value') + coord_equal();p1
+
+
+# calculate proportion variance
+prop_var <- tibble(Prop_var_norm_filt = pca_norm_filt$sdev^2 *100 / pca_norm_filt$totalvar,
+                   PC = 1:20)
+p1b <- ggplot(prop_var, aes(x = PC, y = Prop_var_norm_filt)) +
+  geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance') +
+  scale_x_continuous(breaks = 1:20);p1b
+```
+
+# 4.0 Save data
+
+```{r eval = F}
+saveRDS(betas_noob_filt, '../../data/main/interim/14_betas_noob_filt.rds')
+```
+
+# SessionInfo
+
+```{r}
+sessionInfo()
+```
