@@ -1,0 +1,415 @@
+---
+title: "Estimating maternal contamination, and CNV calling"
+author: "Victor Yuan"
+date: "May 16, 2019"
+output:
+  html_document:
+    df_print: kable
+    keep_md: no
+    self_contained: yes
+    theme: spacelab
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+editor_options:
+  chunk_output_type: console
+---
+
+Previously I had looked at various quality metric of the raw EPIC array data and found that many first trimester cell sorted samples were contaminated. Here I follow-up on some of that analysis, and also take a look at the CNV calls for these samples.
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE) #hide code
+```
+
+```{r setup, message = F, warning = F, include = F}
+# libraries and data
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(viridis)
+library(GGally) # for ggcorr
+
+# pdata
+pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+
+# snp data
+snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+cor_snp <- readRDS('../../data/main/interim/11_cor_matrix_snp_betas.rds')
+
+# CNV calling output
+CNV_segments <- readRDS('../../data/main/interim/12_CNV_segments.rds')
+CNV_bins <- readRDS('../../data/main/interim/12_CNV_bins.rds')
+chrom_lengths <- readRDS('../../data/main/interim/12_chrom_lengths.rds')
+```
+
+# Follow-up on contamination
+
+I determined first trimester cell sorted samples had varying degrees of contamination based on the 59 genotyping probes on the EPIC array. 
+
+Specifically, I used average probability that a sample's SNPs lie outside of any of the 3 expected distributions that correspond to the 3 genotypes (AA, AB, BB), which are centered around the values 0.1, 0.5, and 0.9 on the beta scale.  
+
+However, after some thinking, I realized this approach does not explicitly measure *maternal* contamination, which will be important to consider in downstream analyses and interpretation. 
+
+## Contaminator or contaminated?
+
+Maternal contamination can vary between 0-100%, and should be highly correlated with the probability 
+of samples SNPs being an outlier (falling outside of the 3 expected peaks). However, once maternal
+contamination rises beyond 50% (i.e. the sample is now primarily maternal cells), then we expect the
+probability of a samples SNPs being an outlier to decrease. This is because beyond 50% contamination
+we expect the SNPs to begin shifting towards the peaks that represent maternal genotype instead of fetal genotype, and are no longer lying in between genotype peaks. 
+
+*Some fake data to illustrate this:*
+```{r}
+df <- data.frame(contamination = seq(0, 100, 5),
+           probability = c(seq(0,50,5), seq(45, 0, -5)))
+
+ggplot(df, aes(x = contamination, y = probability)) +
+  geom_point() + theme_bw()  +geom_smooth(stat = 'smooth', method = 'loess') + 
+  labs(x = 'Maternal contamination', 
+       y = 'Probability of SNP lying\noutside of\nexpected distribution') +
+  theme(axis.title.y = element_text(angle = 0, vjust = 0.5))
+```
+
+We can look to our data to see if this relationship holds. 
+
+In male samples, we have a variable that always decreases as the sample becomes contaminated with more maternal cells: Y chromosome intensity:
+
+```{r, warning = F}
+ggplot(pDat %>% filter(Sex == 'M'), 
+       aes(x = normalized_Y_intensity, y = Prob_SNP_outlier, fill = Prob_SNP_outlier)) +
+  geom_point(shape = 21, color = 'black', size = 3) + 
+  geom_smooth(method = 'loess')+
+  theme_bw() +
+  scale_fill_viridis_c(option = 'inferno')
+```
+
+This observed relationship resembles the model based on fake data, supporting that after maternal contamination reaches about 50%, we see a decrease in the probability of SNP being an outlier. In male samples, normalized Y intensity would be a better  approximation of maternal contamination, however we can't use this measure for female samples, so next I look for a more generalized approach.
+
+## Limitations of inferred contamination
+
+Up until this point, we have looked at 3 measure of contamination based on the genotype probes. 
+Below, I wanted to summarize each approach and their limitations:
+
+*Note that I am assuming the quality of samples is fine, as that can also lead to poorly performing snp data, but is not a problem for these samples.*
+
+1. **Average correlation to other tissues from the same donor**  
+   + easy to see which donor group consist of contaminated samples  
+   - not easy to see which samples within a donor group is contaminated  
+   - requires multiple samples from the same donor  
+
+2. **Average probability of SNP being an outlier over all snps**  
+   + explicitly indicates which samples are contaminated  
+   + does not require multiple samples from the same donor  
+   - does not explicitly tell us what the majority genotype in the sample is  
+
+3. **normalized y intensity**  
+   + explicitly indicates which samples are contaminated  
+   + does not require multiple samples from the same donor  
+   + will tell us if majority of the sample fetal/maternal  
+   - only appliable to male samples
+
+The ideal measure we want is one that  measures **maternal** contamination that is applicable to both female/male samples.
+
+## Villi as reference genotypes
+
+The problem with the previous measures, is that they don't take into account what genotype the sample 
+is supposed to be (fetal). However, we know that the villi samples are relatively pure, by looking
+at their snp distributions. 
+
+```{r, warning = F}
+snp_betas_melt <- t(snp_betas) %>% as_tibble %>% mutate(Sample_Name = colnames(snp_betas)) %>%
+  left_join(pDat %>% select(Sample_Name, Tissue, Trimester), by = 'Sample_Name') %>%
+  gather(key = 'SNP', value = 'Beta', -Sample_Name, -Tissue, -Trimester)
+
+ggplot(snp_betas_melt, aes(x = SNP, y = Beta)) +
+  geom_point(alpha = 0.7, color = 'black') + 
+  labs(x = '59 SNPs') + theme_bw() + theme(axis.text.x =element_blank()) +
+  facet_grid(Trimester ~ Tissue) +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  scale_x_discrete(breaks = NULL, expand = c(0.02, 0.02))
+```
+
+Therefore, we can use the *villi samples as our reference* for **fetal genotype** and refer to *deviations from this genotype* as a measure of **maternal contamination*. 
+
+To measure deviations from villi genotype, I used the correlation of a samples SNP data to the SNP data of the villi sample from the same donor.
+
+
+Samples had an average correlation of 0.978 to their donor villi sample of, and 0.111 to unrelated 
+samples.
+
+```{r, warning = F}
+pDat %>% select(cor_to_reference, cor_to_unrelated) %>% gather() %>%
+  ggplot(aes(x = key, y = value)) + theme_bw() + geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.5) +
+  labs(x = '', y = 'Average Correlation') +
+  scale_x_discrete(labels = c('Villi of related sample', 'Unrelated'))
+```
+
+## Samples without villi 
+
+This approach requires that we have a reference villi for all samples. However, for two first trimester cases, `P128` and `P131`, we do not have matched villi. Therefore, for these samples only, I used stromal cells instead of villi as the reference genotype, because:
+
+1. Stromal cells show the least amount of contamination over all first trimester sorted samples (see snp distribution plot, and also I will show this later too).
+2. These samples show relatively low levels of contamination:
+
+```{r}
+ind <- pDat %>% 
+  add_count(Case_ID) %>%
+  filter(Case_ID %in% c('P128', 'P131'))  %>%
+  arrange(n, Case_ID) %>%
+  pull(Sample_Name)
+
+# plot settings
+label_size <- 5
+point_size <- 16
+r_size <- 4
+colors <- c('red', 'red', rev(viridis_pal(option = 'D')(9))[c(1,1,1:8)])
+r_limit <- c(0.65,1)
+
+ggcorr(data = NULL, cor_matrix = cor_snp[ind,ind], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+```
+
+## Overall contamination
+
+Now that we have a reference genotype for all samples, we can calculate our measure of contamination
+for all samples:
+
+*red dashed line indicates the average correlation between unrelated samples.*
+```{r, warning = F}
+pDat %>% arrange(Tissue, desc(cor_to_donor_villi)) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = cor_to_reference, color = Tissue)) +
+  geom_point() +
+  scale_color_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1, 0.1)) +
+  facet_grid(~Trimester, scales = 'free_x', space = 'free_x') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  geom_hline(yintercept = mean(pDat$cor_to_unrelated), linetype = 'dashed', color = 'red')
+```
+
+The average correlation to unrelated samples represents a conservative estimate of the  lower-bound 
+on the correlations to the reference genotype. However, it would be much nicer and more accurate to
+have maternal genotypes since at most these samples will be 50% genetically identical even with 100% maternal contamination.
+
+## Compared to previous approaches {.tabset}
+
+We can compare this to previous measures of contamination:
+
+### Average SNP correlation within donor
+
+```{r, warning = F, message = F}
+ggplot(pDat, aes(x = cor_to_donor_villi, y = Average_SNP_cor_within_donor)) +
+  geom_point() + theme_bw() +stat_smooth(method = 'lm') +
+  labs(x = 'Correlation to donor villi', y = 'Average Correlation within donor')
+```
+
+Samples on the right below the regression are there since some donor groups had majority of samples contaminated (so within donor group correlation is low, but correlation to villi is high).
+
+### Probability SNPs are outliers
+
+```{r, warning = F}
+ggplot(pDat, aes(x = cor_to_donor_villi, y = Prob_SNP_outlier)) +
+  geom_point() + theme_bw() +stat_smooth(method = 'auto')
+```
+
+Characteristic mountain-shape, similar to the described model.
+
+### Normalized Y intensity
+
+```{r, warning = F}
+ggplot(pDat, aes(x = cor_to_donor_villi, y = normalized_Y_intensity, color = Sex)) +
+  geom_point() + theme_bw() +stat_smooth(method = 'lm')
+```
+
+Would be great, but is only useful in male samples.
+
+# CNV Processing
+
+I used the R package `conumee` to call CNVs on this placental cells EPIC data. Calling CNVs can be broken down into steps:
+
+1. Merging neighbouring probes into bins
+2. Defining reference samples
+3. Calculating log 2 ratio for each bin
+4. Determining segments of similar copy number
+
+Details on these steps can be found in the [conumee vignette](https://www.bioconductor.org/packages/release/bioc/vignettes/conumee/inst/doc/conumee.html#perform-cnv-analysis). For this analysis, I used the following parameters:
+
+* minimum probes per bin = 15, minimum/maximum size per bin = 50000/500000 (these are defaults).
+* Reference samples were specified as male third trimester villi samples. However, CNVs for all 
+samples were calculated. When a calling on a reference sample, this sample was left out for that
+specific run
+
+# CNV Heatmap {.tabset}
+
+Using the resulting CNV calls, we can visualize the overall CNV patterns across the entire genome.
+Conumee leaves it up to the user to define copy number states (i.e. neutral, gain, loss).
+
+Thresholds I have seen are +/- 0.1 on Log2ratio on the median for each segment. However, others have
+noted a bias for gain/loss calls if using symmetric cutoffs for gain/losses. Therefore, we expect
+that losses will be overestimated. Future work can exploring using an assymetric threshold to 
+address this bias, and also look at additional downstream filtering like based on size.
+
+Current thresholds:
+
+* Gains: Log2Ratio > 0.1
+* Losses: Log2Ratio < -0.1
+
+Some ideas on how to better define thresholds:
+
+1. Use the difference of intensities on bins from X chromosome between female/male samples to call
+losses
+2. Use thresholds that will closely match genotyping array data -determined CNVs 
+3. This [paper](https://www.ebiomedicine.com/article/S2352-3964(18)30153-1/abstract) describes using a sample-specific standard deviation based metric. 
+4. [cnv450kanalysis](https://academic.oup.com/bioinformatics/article-lookup/doi/10.1093/bioinformatics/btx156) package also describes an approach, but seems difficult to implement
+
+```{r}
+# remove XY chromosomes for plotting, but keep for saving data
+CNV_segments <- CNV_segments %>%
+  filter(!chrom %in% c('chrX', 'chrY'))
+
+
+#sample index
+Second <- pDat %>% filter(Trimester == 'Second') %>% pull(Sample_Name)
+First <- pDat %>% filter(Trimester == 'First') %>% arrange(Case_ID) %>% pull(Sample_Name)
+Third <- pDat %>% filter(Trimester == 'Third') %>% arrange(Case_ID) %>% pull(Sample_Name)
+
+
+plot_cnv <- function(data) {
+  p <- ggplot(data = data, aes(x =  ID, color = state)) +
+  geom_segment(aes(x =  ID, xend = ID,  y = start_genome, yend = end_genome), size = 3)+
+  scale_color_manual(values = c('Gain' = 'Red', 'Loss' = 'Blue', 'Neutral' = NA)) +
+  scale_y_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()  +labs(x = '', y = '') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank()) +
+  coord_flip() 
+  
+  print(p)
+}
+```
+
+## Second Trimester
+
+```{r}
+plot_cnv(data = CNV_segments %>% filter(ID %in% Second))
+```
+
+
+## First trimester
+
+```{r}
+plot_cnv(CNV_segments %>% filter(ID %in% First[1:25])) 
+plot_cnv(CNV_segments %>% filter(ID %in% First[26:50])) 
+```
+
+## third trimester
+
+```{r}
+plot_cnv(CNV_segments %>% filter(ID %in% Third[1:42]))
+plot_cnv(CNV_segments %>% filter(ID %in% Third[43:85]))
+plot_cnv(CNV_segments %>% filter(ID %in% Third[86:126])) 
+```
+
+# potential CNVs
+
+In the next section, I plot the bins and segments for each sample. After going over each plot manually, I note that there are a few samples that might be interesting to look into. I took into account whether a CNV was large (affecting multiple bins), and if it was present in more than one sample/cell type per donor.  
+
+Second trimester:  
+
+* FT73 V -  gain on chromosome 16  
+* FT54 VC - loss on chromosome 13  
+* FT58 vc - loss on chromosome 16  
+
+First trimester:  
+
+* PL292 - gain on chromosome 6, not very strong but consistent across most/all cell types, is this mosaic?  
+* PL294 - gain on chromosome 7 across all tissues/cell types  
+
+Third trimester:  
+
+* PM324 V1 - several  gains consistent with Giulia's analysis on the omni data  
+* PM139 vc - Gain on chromosome 8  
+* PM372 - small gain on chromosome 3 across all tissues, maybe another small gain on chromosome 11 and 2  
+* PM373 - small gains on chromosome 7, and 22, across all cell types  
+
+# CNV scatterplots {.tabset}
+
+We can visualize the raw log 2 ratios for each bin, for each sample, organized by donor ID
+
+```{r}
+CNV_bins <- CNV_bins  %>%
+  filter(!Chromosome %in% c('chrX', 'chrY')) %>%
+  mutate(Log2Ratio_abs= abs(Log2Ratio))
+
+
+#plot
+plot_cnv_bin <- function(bins, segments) {
+  ggplot(bins) +
+  geom_point(aes(x = start_genome, y = Log2Ratio, fill = Log2Ratio_abs), shape = 21, 
+             color = '#E7E7E7', na.rm = T) +
+  scale_fill_gradientn(colours = c('black', '#E7E7E7', 'black'), na.value = 'black', 
+                        values = c(-0.5, 0, 0.5),
+                        guide = F) +
+  facet_wrap(~Sample, ncol = 1)+
+  scale_y_continuous(limits = c(-1, 1)) +
+  scale_x_continuous(expand = c(0.001, 0), breaks = chrom_lengths$toadd[1:22], 
+                     labels = chrom_lengths$Chromosome[1:22]) +
+  theme_bw()+ 
+  labs(x = '', y = '', color = '') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        panel.grid.minor = element_blank())+ 
+  geom_segment(data = segments, aes(x = start_genome, xend = end_genome, 
+                                    y = seg.median, yend = seg.median, color = state), size = 1) +
+  scale_color_manual(values = c('Neutral' = 'black', 'Gain' = 'Red', 'Loss' = 'Blue'))
+}
+
+Second <- pDat %>% filter(Trimester == 'Second') %>% pull(Sample_Name)
+
+
+
+First <- pDat %>% filter(Trimester == 'First') %>% arrange(Case_ID) %>% pull(Sample_Name)
+Third <- pDat %>% filter(Trimester == 'Third') %>% arrange(Case_ID) %>% pull(Sample_Name)
+```
+
+
+## Second trimester
+
+```{r}
+for (i in Second){
+  p <- plot_cnv_bin(CNV_bins %>% filter(Sample == i), CNV_segments %>% filter(ID == i))
+  print(p)
+}
+```
+
+## First trimester
+
+```{r}
+for (i in First){
+  p <- plot_cnv_bin(CNV_bins %>% filter(Sample == i), CNV_segments %>% filter(ID == i))
+  print(p)
+}
+```
+
+## Third trimester
+
+```{r}
+for (i in Third){
+  p <- plot_cnv_bin(CNV_bins %>% filter(Sample == i), CNV_segments %>% filter(ID == i))
+  print(p)
+}
+```
+

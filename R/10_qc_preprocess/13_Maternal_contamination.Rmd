@@ -1,0 +1,340 @@
+---
+title: "13_maternal_contamination"
+author: "Victor Yuan"
+date: "May 21, 2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r, warning = F, message = F}
+library(minfi)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ewastools)
+library(ggrepel)
+library(viridis)
+library(GGally) # for ggcorr
+source('../check_snp_agreement2.R') # code to return all agreement scores
+
+pDat <- readRDS('../../data/main/interim/11_pDat.rds')
+
+# called genotypes
+snps_called <- readRDS('../../data/main/interim/11_snps_called.rds')
+
+
+cor_snp <- readRDS('../../data/main/interim/11_cor_matrix_snp_betas.rds')
+```
+
+# Limitations of inferring contamination
+
+Normalized Y intensity only applicable for male samples
+Probability snp outlier only linearly correlated with the minority genotype
+
+```{r}
+ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, 
+                 fill = Prob_SNP_outlier)) +
+  geom_point(aes(shape = Sex), size = 2.5, alpha = 0.95) +
+  scale_shape_manual(values = c('M' = 21, 'F' = 22)) +
+  theme_bw() +
+  scale_fill_viridis_c(option = 'inferno')
+
+ggplot(pDat %>% filter(Sex == 'M'), 
+       aes(x = normalized_Y_intensity, y = Prob_SNP_outlier, fill = Prob_SNP_outlier)) +
+  geom_point(shape = 21, color = 'black', size = 3) + 
+  geom_smooth(method = 'loess')+
+  theme_bw() +
+  scale_fill_viridis_c(option = 'inferno') 
+
+ggplot(pDat %>% filter(Sex == 'M'), 
+       aes(x = normalized_Y_intensity, y = Prob_SNP_outlier)) +
+  geom_smooth(method = 'loess')+
+  geom_point(shape = 21, color = 'black', size = 3, aes(fill = Tissue)) + 
+  theme_bw() +
+  scale_fill_brewer(palette = 'Set1')
+```
+
+# Agreement between inferred snps
+
+**Motivation**: Based on previous data, villi are relatively clean (see snp distributions in QC report). Therefore, we can safely assume that fetal genotype is represented by the villi samples. Deviations from villi genotypes, therefore should be a proxy for maternal contamination.
+
+**The measure of maternal contamination:** Based on the probability each sample for each snp is belonging to one of three genotypes, we can determine the proportion of SNPs that agree between all pairwise comparisons between samples. Grouping comparison to those between a villi sample and other samples from the same placenta, we can gain a measure of maternal contamination (assuming that deviation from fetal genotype is always maternal).
+
+To do this, I turn to two approaches. #1 involves using the output of ewastools::check_snp_agreement,
+and #2 involves correlations on the snp betas.
+
+## ewastools
+
+I edited the `check_snp_agreement` function and saved as `check_snp_agreement2`, so that all comparisons are returned.
+
+```{r}
+# original function
+check_snp_agreement(snps_called, donor_ids = pDat$Case_ID, sample_ids = pDat$Sample_Name) 
+  
+# percent of SNPs concordant 
+agreement <- check_snp_agreement2(snps_called, threshold = F, return = 'within-donor',
+                                  donor_ids = pDat$Case_ID, sample_ids = pDat$Sample_Name) 
+
+# Filter to within donor group comparisons
+agreement <- agreement %>% 
+  left_join(pDat %>% select(Sample_Name, Tissue, Prob_SNP_outlier), 
+            by = c('sample2' = 'Sample_Name')) %>%
+  rename(Tissue2 = Tissue, P_outlier2 = Prob_SNP_outlier) %>%
+  left_join(pDat %>% select(Sample_Name, Tissue, Prob_SNP_outlier), 
+            by = c('sample1' = 'Sample_Name')) %>%
+  rename(Tissue1 = Tissue, P_outlier1 = Prob_SNP_outlier) %>%
+  filter(Tissue1 == 'Villi' | Tissue2 == 'Villi') %>%
+  select(contains('1'), contains('2'), everything()) %>% as_tibble %>%
+  arrange(donor1, donor2, sample1, sample2)
+
+# swap columns such that villi is always in 'sample1'
+agreement <- agreement %>% 
+  mutate(sample_reference = case_when(Tissue1 == 'Villi' ~ sample1,
+                                      Tissue2 == 'Villi' ~ sample2), 
+         sample_query = case_when(Tissue1 == 'Villi' ~ sample2,
+                                  Tissue2 == 'Villi' ~ sample1),
+         
+         tissue_query = case_when(Tissue1 == 'Villi' ~ Tissue2,
+                                  Tissue2 == 'Villi' ~ Tissue1)) %>%
+  rename(donor = donor1) %>%
+  select(sample_reference, sample_query, tissue_query, 
+         donor, agreement, contains('outlier')) %>%
+  arrange(donor, tissue_query) %>%
+
+# average agreement scores when comparing to replicate villi samples
+  group_by(donor, tissue_query) %>%
+  mutate(agreement_ave = mean(agreement)) %>% ungroup() %>%
+  select(sample_query, agreement_ave) %>%
+  distinct()
+
+# add to pData
+pDat <- pDat %>% 
+  left_join(agreement, by = c('Sample_Name' = 'sample_query')) %>%
+  rename(Agreement_to_donor_villi = agreement_ave) 
+```
+
+For a reference I compare to the average agreement of samples to non-donor samples
+
+```{r}
+# return comparisons for ALL samples
+agreement <- check_snp_agreement2(snps_called, threshold = F, return = 'all',
+                                  donor_ids = pDat$Case_ID, sample_ids = pDat$Sample_Name) 
+
+# filter to out of donor sample  comparisons 
+agreement <- agreement %>% as_tibble() %>%
+  filter(donor1 != donor2) %>%
+  
+  # duplicate the rows so that all comparisons are represented in sample1 column
+  bind_rows(agreement %>% rename(donor1 = donor2, sample1 = sample2,
+                                 donor2 = donor1, sample2 = sample1)) %>%
+  arrange(sample1, sample2)
+
+# check that around 180-190 comparisons for each sample 
+table(agreement$sample1)
+
+# calculate average out of donor SNP agreement scores
+agreement <- agreement %>% group_by(sample1) %>%
+  summarize(Agreement_to_unrelated = mean(agreement))
+
+pDat <- pDat %>% left_join(agreement, by = c('Sample_Name' = 'sample1')) 
+
+# plot agremeent scores
+pDat %>% arrange(Tissue, desc(Agreement_to_donor_villi)) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Agreement_to_donor_villi, color = Tissue)) +
+  geom_point() +
+  scale_color_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1, 0.1)) +
+  geom_hline(yintercept = mean(pDat$Agreement_to_unrelated), linetype = 'dashed', color = 'red')  +
+  facet_grid(~Trimester, scales = 'free_x', space = 'free_x') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank())
+```
+
+How does this compare to previous measures of contamination?
+
+```{r}
+ggplot(pDat, aes(x = Agreement_to_donor_villi, y = normalized_Y_intensity, color = Sex)) +
+  geom_point() + theme_bw() +
+  geom_smooth(method = 'lm')
+ggplot(pDat, aes(x = Agreement_to_donor_villi, y = Prob_SNP_outlier, color = Sex)) +
+  geom_point() + theme_bw()
+```
+
+In males, SNP agreement to villi is highly correlated with normalized Y intensity.
+
+probability of having SNPs being outliers shows the mountain shaped pattern described previously.
+
+The limitation of this approach, however, is that this requires a clean reference.
+
+```{r}
+# samples without sex information
+ggplot(pDat, aes(x = normalized_X_intensity, y= normalized_Y_intensity, color = Sex)) +
+  geom_point() + theme_bw() +
+  geom_text_repel(data = pDat %>% filter(Case_ID %in% c('P131', 'P128')),
+             aes(x = normalized_X_intensity, y= normalized_Y_intensity, label = Case_ID),
+             color = 'black', nudge_x = -0.15, nudge_y = 0.1, force = 25)+
+  geom_point(data = pDat %>% filter(Case_ID %in% c('P131', 'P128')),
+             aes(x = normalized_X_intensity, y= normalized_Y_intensity),
+             color = 'black')
+```
+
+## Correlation to donor villi
+
+The idea here is the same, except instead of posterior probabilities on the snp probes, we use the
+pairwise correlations on the snp betas. 
+
+```{r}
+# correlation to donor villi
+cor_to_donor_villi <- cor_snp %>% as_tibble() %>% mutate(Sample1 = rownames(cor_snp)) %>% 
+  left_join(pDat %>% select(Sample_Name, Case_ID, Tissue), by = c('Sample1' = 'Sample_Name')) %>%
+  tidyr::gather(key = 'Sample2', value = 'Cor', -Sample1, -Case_ID, -Tissue) %>%
+  dplyr::rename(Case_ID1 = Case_ID, Tissue1 = Tissue) %>%
+  left_join(pDat %>% select(Sample_Name, Case_ID, Tissue), by = c('Sample2' = 'Sample_Name')) %>%
+  dplyr::rename(Case_ID2 = Case_ID, Tissue2 = Tissue) %>% 
+  filter(Case_ID1 == Case_ID2, Tissue2 == 'Villi') %>%
+  group_by(Sample1) %>%
+  summarize(cor_to_donor_villi = mean(Cor))
+
+pDat <- pDat %>% left_join(cor_to_donor_villi, by = c('Sample_Name' = 'Sample1'))
+
+# correlation to unrelated samples
+cor_to_unrelated <- cor_snp %>% as_tibble() %>% mutate(Sample1 = rownames(cor_snp)) %>% 
+  left_join(pDat %>% select(Sample_Name, Case_ID, Tissue), by = c('Sample1' = 'Sample_Name')) %>%
+  tidyr::gather(key = 'Sample2', value = 'Cor', -Sample1, -Case_ID, -Tissue) %>%
+  dplyr::rename(Case_ID1 = Case_ID, Tissue1 = Tissue) %>%
+  left_join(pDat %>% select(Sample_Name, Case_ID, Tissue), by = c('Sample2' = 'Sample_Name')) %>%
+  dplyr::rename(Case_ID2 = Case_ID, Tissue2 = Tissue) %>% 
+  filter(Case_ID1 != Case_ID2) %>%
+  group_by(Sample1) %>%
+  summarize(cor_to_unrelated = mean(Cor))
+
+pDat <- pDat %>% left_join(cor_to_unrelated, by = c('Sample_Name' = 'Sample1'))
+
+# correlation to donor villi compared to unrelated
+pDat %>% select(cor_to_donor_villi, cor_to_unrelated) %>% gather() %>%
+  ggplot(aes(x = key, y = value)) + theme_bw() + geom_boxplot()
+
+# correlation to other measures of contamination
+ggplot(pDat, aes(x = cor_to_donor_villi, y = Agreement_to_donor_villi)) +
+  geom_point() + theme_bw() +stat_smooth(method = 'lm')
+
+fit <- lm(cor_to_donor_villi ~ normalized_Y_intensity, data = pDat %>% filter(Sex == 'M'))
+fit <- summary(fit)
+ggplot(pDat, aes(x = cor_to_donor_villi, y = normalized_Y_intensity, color = Sex)) + 
+  geom_point() + theme_bw()+stat_smooth(method = 'lm') +
+  geom_text(x = 0.7, y = 0.9, color = 'black',
+            label = paste0('Rsquared = ', prettyNum(fit$r.squared, digits = 3), 
+                           '\np-value = ', prettyNum(fit$coefficients[2,4], digits = 3)))
+
+
+pDat %>% arrange(Tissue, desc(cor_to_donor_villi)) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = cor_to_donor_villi, color = Tissue)) +
+  geom_point() +
+  scale_color_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1, 0.1)) +
+  facet_grid(~Trimester, scales = 'free_x', space = 'free_x') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  geom_hline(yintercept = mean(pDat$cor_to_unrelated), linetype = 'dashed', color = 'red')
+```
+
+Because we are missing villi samples for two first trimester cases, we are also missing inferred
+contamination information. However, if we inspect the pairwise correlations, we can see it's likely
+OK to pick a different cell type to serve as reference for fetal genotype. Also, based on the other
+samples, we can see that first trimester stromal and endothelial cells are less often contaminated.
+
+```{r}
+ind <- pDat %>% 
+  add_count(Case_ID) %>%
+  filter(Case_ID %in% c('P128', 'P131'))  %>%
+  arrange(n, Case_ID) %>%
+  pull(Sample_Name)
+
+# plot settings
+label_size <- 5
+point_size <- 13
+r_size <- 4
+colors <- c('red', 'red', rev(viridis_pal(option = 'D')(9))[c(1,1,1:8)])
+r_limit <- c(0.65,1)
+
+ggcorr(data = NULL, cor_matrix = cor_snp[ind,ind], 
+             geom = 'blank', name = expression(rho), size = label_size, hjust = 0.95) +
+  geom_point(aes(col = coefficient), size = point_size) +
+  geom_text(data = function(x) dplyr::filter(x, coefficient > r_limit[1]), 
+            aes(label = prettyNum(coefficient, digits = 2)),
+            size = r_size) +
+  scale_color_gradientn(colours = colors, 
+                        limits = r_limit, na.value = 'white')
+
+ggplot(pDat %>% filter(Sample_Name %in% ind), aes(x = Sample_Name, y = Prob_SNP_outlier)) +
+  geom_bar(stat = 'identity')
+
+# check to agreement scores
+agreement <- check_snp_agreement2(snps_called, threshold = F, return = 'all',
+                                  donor_ids = pDat$Case_ID, sample_ids = pDat$Sample_Name) 
+agreement %>% filter(donor1 %in% c('P128', 'P131') | donor2 %in% c('P128', '131'), donor1 == donor2)
+```
+
+Below I recompute correlations for all samples, making sure that for these two first trimester 
+samples, I use stromal cells to serve as the reference genotype (Whereas villi is used for all 
+other samples).
+
+```{r}
+cor_to_reference <- cor_snp %>% as_tibble() %>% mutate(Sample1 = rownames(cor_snp)) %>% 
+  left_join(pDat %>% select(Sample_Name, Case_ID, Tissue), by = c('Sample1' = 'Sample_Name')) %>%
+  tidyr::gather(key = 'Sample2', value = 'Cor', -Sample1, -Case_ID, -Tissue) %>%
+  dplyr::rename(Case_ID1 = Case_ID, Tissue1 = Tissue) %>%
+  left_join(pDat %>% select(Sample_Name, Case_ID, Tissue), by = c('Sample2' = 'Sample_Name')) %>%
+  dplyr::rename(Case_ID2 = Case_ID, Tissue2 = Tissue) %>% 
+  filter(Case_ID1 == Case_ID2, 
+         Tissue2 == 'Villi' | (Case_ID2 %in% c('P128', 'P131') & Tissue2 == 'Stromal')) %>%
+  group_by(Sample1) %>%
+  summarize(cor_to_reference = mean(Cor))
+
+pDat <- pDat %>% left_join(cor_to_reference, by = c('Sample_Name' = 'Sample1'))
+
+
+pDat %>% arrange(Tissue, desc(cor_to_reference)) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = cor_to_reference, color = Tissue)) +
+  geom_point() +
+  scale_color_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1, 0.1)) +
+  facet_grid(~Trimester, scales = 'free_x', space = 'free_x') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  geom_hline(yintercept = mean(pDat$cor_to_unrelated), linetype = 'dashed', color = 'red')
+```
+
+# SessionINfo
+
+```{r}
+sessionInfo()
+```
+
+# save data
+```{r, eval = F}
+pDat <- pDat %>% 
+  select(Sample_Name:Prob_SNP_outlier_Logodds, 
+         Agreement_to_donor_villi:cor_to_reference,
+         PC1_raw:PC20_raw)
+saveRDS(pDat, '../../data/main/interim/13_pDat.rds')
+```
