@@ -2,16 +2,29 @@
 title: "Placental Cell DNA Methylation"
 author: "Victor Yuan"
 output:
-  prettydoc::html_pretty:
-    theme: leonids
-    highlight: github
+    html_document:
+    keep_md: no
+    self_contained: yes
+    theme: spacelab
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: no
+editor_options:
+  chunk_output_type: console
 ---
+
+```{r, echo = F, message = F, warning = F}
+library(dplyr)
+library(plyr)
+library(kableExtra)
+```
 
 # README
 
 For NIH EPIC cells project
 
-## Directory structure
+# Directory structure
 
 ```
 Placental Cell DNA Methylation
@@ -35,20 +48,69 @@ Placental Cell DNA Methylation
 └───outs                          <- Figures, tables, reports
 ```
 
-## Data
+# data
 
-Main - raw
+## data/main/raw/
 
-* NIH EPIC Batch 2 week 1 sample sheet.csv - sample sheet for week 1 samples (not used)
-* NIH EPIC Batch 2 sample sheet.xlsx - final sample sheet created after week 2
+```{r, echo = F}
+main_raw <- data.frame(
+  File = list.files('./data/main/raw/'),
+  Description = c('final sample sheet created after week 2',
+                  'sample sheet for week 1 samples (not used)')
+)
+kable(main_raw)  %>%
+  kable_styling(c("striped", "bordered"))
+```
 
-Main - interim
+## data/main/interim/
 
-* 01_rgset.rds - generated from 01_load_data, raw unprocessed rg channelset object of first week 
-samples
+```{r, echo = F}
 
-## Analysis
+main_interim <- data.frame(
+  File = list.files('./data/main/interim/'),
+  Description = c('IDATs parsed/loaded using ewastools',
+                  'IDATs parsed/loaded using minfi',
+                  'Control probes data parsed/loaded using ewastools',
+                  'Correlation matrix on snp betas',
+                  'UMAP and TSNE coordinates computed on raw betas', #5
+                  'PCA association plot data',
+                  'Phenodata with QC info',
+                  'Probe QC information',
+                  'SNP probe data',
+                  'Called genotypes on SNP data using ewastools', #10
+                  'Custom Chromosome lengths',
+                  'Conumee determined binned probes for CNV calling',
+                  'Probes output from conumee::CNV.write',
+                  'Segments output from conumee::CNV.write',
+                  'pData with maternal contamination info', # 15
+                  'Noob-normalized filtered autosomal probes',
+                  'Noob-normalized mset object'),
+  Object = c('list',
+             'rgchannelset',
+             'dataframe',
+             'matrix',
+             'dataframe', #5
+             'dataframe',
+             'dataframe',
+             'dataframe',
+             'matrix',
+             'list', # 10
+             'dataframe?',
+             'dataframe',
+             'dataframe',
+             'dataframe',
+             'dataframe', # 15
+             'matrix',
+             'methylset') 
+)
 
-## References
+kable(main_interim)  %>%
+  kable_styling(c("striped", "bordered"))
+  
+```
+
+# Analysis
+
+# References
 
 
