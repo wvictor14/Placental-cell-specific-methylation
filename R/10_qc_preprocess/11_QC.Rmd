@@ -45,7 +45,10 @@ library(GGally)
 library(grid)
 library(yahew) # wvictor14/yahew github
 library(umap)
+library(egg)
 ```
+
+Load the data in
 
 ```{r}
 rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
@@ -53,7 +56,80 @@ et_meth <- readRDS('../../data/main/interim/01_ewastools_loaded_idats.rds')
 pDat <- pData(rgset) %>% as_tibble()
 ```
 
-# 2.0 QC
+## 1.1 Colors
+
+Set colors for rest of analysis:
+
+Tissue - Material Design Color Chart htlmcolorcodes.com
+
+
+```{r}
+#color for tissue
+tissue_col <- tibble(
+  Tissue = sort(levels(as.factor(pDat$Tissue)))
+) %>%
+  mutate(Colors_Tissue = c('#424242', '#6A1B9A', '#1565C0',
+                           '#546E7A', '#388E3C',    '#E64A19',
+                           '#FBC02D', '#C62828', '#880E4F'))
+
+scales::show_col(c('#424242', '#6A1B9A', '#1565C0',
+                   '#546E7A', '#388E3C',    '#E64A19',
+                   '#FBC02D', '#C62828', '#880E4F'))
+
+pDat <- pDat %>% left_join(tissue_col)
+```
+
+Sex    - Dulled pink (f) / blue (m)
+
+```{r}
+#color for sex
+sex_col <- tibble(
+  Sex = sort(levels(as.factor(pDat$Sex)))
+) %>%
+  mutate(Colors_Sex = c('#F8BBD0', '#BBDEFB'))
+
+scales::show_col(c('#F8BBD0', '#BBDEFB'))
+
+pDat <- pDat %>% left_join(sex_col)
+```
+
+Trimester - Greyscale, first (light) -> third (dark)
+
+```{r}
+#color for Trimester
+trimester_col <- tibble(
+  Trimester = sort(levels(as.factor(pDat$Trimester)))
+) %>%
+  mutate(Colors_Trimester = c('#E0E0E0', '#616161', '#212121'))
+
+scales::show_col(c('#E0E0E0', '#616161', '#212121'))
+
+pDat <- pDat %>% left_join(trimester_col)
+
+color_code <- list(tissue_col, sex_col, trimester_col)
+```
+
+## 1.2 pData cleaning
+
+Some variables need to be cleaned up
+
+```{r}
+glimpse(pDat)
+
+# 0 concentration means we did not measure
+pDat <- pDat %>%
+  mutate(DNA_conc_BSC_adjusted = ifelse(DNA_conc_BSC_adjusted == 0, NA, DNA_conc_BSC_adjusted),
+         DNA_conc_before_load = ifelse(DNA_conc_before_load == 0, NA, DNA_conc_before_load),
+         DNA_loaded = ifelse(DNA_loaded == 0, NA, DNA_loaded)) %>%
+  
+  mutate(Row_numeric = as.numeric(Row), Row_factor = factor(Row, levels = 1:8),
+         DNA_QP = as.numeric(DNA_QP),
+         Week = factor(Week, levels = 1:2),
+         Chip_number = factor(Chip_number, levels = 25:48)) %>%
+  select(-Row)
+```
+
+# 2.0 Data QC
 
 We start with probe qc to remove any failed measurements before going into sample qc
 
@@ -827,7 +903,7 @@ pDat %>% arrange(Trimester, Tissue, Average_SNP_cor_within_donor) %>%
 pDat <- pDat %>% mutate(Flag_genotype = ifelse(Average_SNP_cor_within_donor < 0.9, T, F)) 
 
 table(pDat$Flag_genotype, pDat$Chip_number)
-table(pDat$Flag_genotype, pDat$Row)
+table(pDat$Flag_genotype, pDat$Row_numeric)
 table(pDat$Flag_genotype, pDat$Sex)
 table(pDat$Flag_genotype, pDat$Week)
 table(pDat$Flag_genotype, pDat$Batch_BSC)
@@ -914,7 +990,7 @@ ggplot(snp_betas_melt, aes(x = SNP, y = Beta)) +
   scale_x_discrete(breaks = NULL, expand = c(0.02, 0.02))
 ```
 
-## 3.3 PCA
+## 3.4 PCA
 
 ```{r}
 # calculate pca
@@ -925,17 +1001,12 @@ pca_raw <- prcomp_irlba(t(na.omit(betas_raw)), n = 20)
 pca_raw_scores <-pca_raw$x %>% as_tibble() %>% mutate(Sample_Name = pDat$Sample_Name) 
 colnames(pca_raw_scores)[1:20] <- paste0(colnames(pca_raw_scores)[1:20], '_raw')
 
-# factorize some variables encoded as numeric
-pDat <- pDat %>%
-  mutate(Week = as.factor(as.character(Week)),
-         Chip_number = as.factor(as.character(Chip_number)),
-         Row = as.factor(as.character(Row)))
-  
 # correlate with phenodata
 pca_raw_cor <- lmmatrix(dep = pca_raw_scores[,1:20],
                         ind = pDat %>% 
                           dplyr::select(Case_ID, Tissue, Sex, Trimester, #bio
-                                        Week, Chip_number, Row, Batch_BSC, # batch 
+                                        Week, Chip_number, Row_numeric, Row_factor, 
+                                        Batch_BSC, # batch 
                                         DNA_conc_BSC_adjusted, DNA_conc_before_load, DNA_loaded,
                                         failed_probes, Flag_Sex, Flag_genotype), 
                         metric = 'Pvalue')
@@ -968,7 +1039,7 @@ p1 <- ggplot(pca_raw_plot, aes(x = PC, y = dep, fill = pval_cat)) +
   scale_x_discrete(expand = c(0, 0), labels = 1:20) +
   scale_y_discrete(expand = c(0, 0)) +
   scale_fill_manual(values = colpal)  + 
-  labs(y = '', fill = 'P value') + coord_equal();p1
+  labs(y = '', fill = 'P value')
 
 
 # calculate proportion variance
@@ -976,9 +1047,10 @@ prop_var <- tibble(Prop_var_raw = pca_raw$sdev^2 *100 / pca_raw$totalvar,
                    PC = 1:20)
 p1b <- ggplot(prop_var, aes(x = PC, y = Prop_var_raw)) +
   geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance') +
-  scale_x_continuous(breaks = 1:20);p1b
-```
+  scale_x_continuous(breaks = 1:20)
 
+ggarrange(p1, p1b, heights = c(3,1))
+```
 
 ### PC plots
 
@@ -1193,6 +1265,9 @@ ggplot(pDat, aes(x = PC1_norm, y = PC2_norm, col = Tissue, shape = Trimester)) +
 # 4.0 Saving data
 
 ```{r eval = F}
+# save color code
+saveRDS(color_code, '../../data/main/interim/11_color_code.rds')
+
 # Save all QC metric with pData, except UMAP projections we will only save from the cells data
 saveRDS(pDat %>% select(-contains('UMAP')), '../../data/main/interim/11_pDat.rds')
 
