@@ -1,0 +1,229 @@
+---
+title: "PM364_hofb_cs"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+PM364_hofb is an 'odd' sample compared to other third trimester cell samples. So I'm wondering if 
+this sample should be removed.
+
+**Main observations:**
+
+* unusual density distribution on cpg betas methylation
+* clusters with trophoblast cells
+
+*This is unlikely a quality issue, because:*
+
+* QC thresholds were met
+* CNV plot looks clean/tight (not noisy)
+
+*It is unlikely from contamination with maternal cells:*
+
+* SNP correlation to reference villi is > 0.98
+
+These observations make me believe it is contaminated with trophoblast cells, which I think warrants
+removal, but what do you think?
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE) #hide code
+```
+
+```{r setup, message = F, warning = F, include = F}
+# libraries and data
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(viridis)
+library(scales)
+library(RColorBrewer)
+library(pheatmap)
+library(GGally)
+library(cowplot)
+library(tibble)
+library(kableExtra)
+library(egg)
+
+pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat_1 <- readRDS('../../data/main/interim/21_pDat_term_cells.rds')
+cov_tests <- readRDS('../../data/main/interim/21_cov_tests.rds')
+sample_densities <- readRDS('../../data/main/interim/21_sample_densities.rds')
+pca <- readRDS('../../data/main/interim/21_pca.rds')
+pheatmap_data <- readRDS('../../data/main/interim/21_pheatmap_data.rds')
+color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
+```
+
+# Setup
+
+Below analyses were conducted on 103 third trimester samples from the following cell/tissue types:
+
+```{r}
+pDat_1 %>% dplyr::count(Tissue) %>% kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = F, position = 'left')
+```
+
+The following were excluded for my preliminary analysis, but will be included in later ones:
+
+```{r, message = F}
+pDat %>% 
+  anti_join(pDat_1 %>% select(Sample_Name)) %>%
+  filter(Trimester == 'Third') %>% 
+  dplyr::count(Tissue) %>% kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = F, position = 'left')
+```
+
+Note the two villi are PM324 V1 and V4 samples, ran for follow-up on GDG's work.
+
+# Sample density plots
+
+PM364_hofb appears to have a large peak at 0.5-0.6, similar to what is seen in the trophoblast 
+cells.
+
+```{r}
+ggplot(sample_densities, aes(x = x, y = y, color = Tissue, group = Sample_Name)) +
+  geom_line(size = 1, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1))  +
+  facet_wrap(~Tissue) +
+  scale_color_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  geom_text_repel(data = sample_densities %>% 
+                    filter(Sample_Name == 'PM364_hofb_cs', x > 0.55, x < 0.6) %>%
+                    dplyr::slice(1),
+                  aes(x = x, y = y, label = Sample_Name), inherit.aes = F,
+                  nudge_y = 1, nudge_x = -0.1) +
+  labs(x = '% methylation', y = 'density')
+```
+
+# PCA
+
+We see here that PC1, PC2, and PC3 are associated with Tissue.
+
+```{r}
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pca$pc_cor$pval_cat)
+
+p1 <- ggplot(pca$pc_cor, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+p2 <- ggplot(pca$pc_info %>% filter(variable == 'Proportion of Variance') %>%
+               mutate(value = value*100), 
+             aes(x = PC, y = value)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() + 
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(y = '% variance explained')
+
+egg::ggarrange(p1, p2, heights = c(3,1))
+```
+
+## PC scatter plots { .tabset}
+
+```{r}
+scatter <- function(x, y, fill, point_size = 1){
+  xlab <- pca$pc_info %>% filter(variable == 'Proportion of Variance', PC == x) %>% pull(Label)
+  ylab <- pca$pc_info %>% filter(variable == 'Proportion of Variance', PC == y) %>% pull(Label)
+  
+  x <- paste0(x, '_processed')
+  y <- paste0(y, '_processed')
+  
+  out <- ggplot(pDat_1, aes_string(x = x, y = y, fill = fill)) +
+    geom_point(shape = 21, size = point_size) + theme_bw() + labs(x = xlab, y = ylab) 
+  
+  if (is.numeric(as.data.frame(pDat_1)[,fill])){
+    out <- out +
+      scale_fill_viridis()
+  } else {
+    out <- out + 
+      scale_fill_brewer(palette = 'Set1')
+  }
+    
+  out
+}
+```
+
+### PC1 & PC2
+
+PM364_hofb_cs appears to cluster with trophoblast/villi samples rather than hofbaeur cells. This is
+unlikely due to a sample swap with PM364_troph, since PM364_troph clusters normally with other 
+trophoblast cells.
+
+Desmond also mentioned previously that cross-contamination during sorting was a concern, however 
+looking through his notes, I haven't seen anything noted on this particular sort.
+
+```{r, message = F}
+scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)])
+scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  geom_text_repel(data = pDat_1 %>% filter((Tissue == 'Hofbauer' & PC1_processed < 0)|
+                                             Case_ID == 'PM364'),
+                  aes(x = PC1_processed, y = PC2_processed, label =Sample_Name),
+                  nudge_y = 15, nudge_x = -5)
+```
+
+### PC3 & PC4
+
+```{r , message = F}
+scatter(x = 'PC3', y = 'PC4', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)])
+scatter(x = 'PC3', y = 'PC4', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  geom_text_repel(data = pDat_1 %>% filter(Case_ID == 'PM364'),
+                  aes(x = PC3_processed, y = PC4_processed, label =Sample_Name),
+                  force = 50)
+```
+
+It might be possible that this is also due to maternal contamination. However, PM364_hofb has very
+low levels of contamination:
+
+```{r}
+pDat_1 %>%
+  arrange(Tissue, cor_to_reference) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = cor_to_reference, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_text_repel(data = pDat_1 %>% filter(Sample_Name == 'PM364_hofb_cs' | cor_to_reference < 0.96),
+                  aes(x = Sample_Name, y = cor_to_reference, label = Sample_Name),
+                  nudge_y = -0.01, force = 10) +
+  labs(x = 'Samples', y ='Correlation to reference villi',  title = '')+
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+```
+
+We can see that other hofbauer cells have some level of contamination, but do not cluster with 
+PM364_hofb.
+
+# Correlation
+
+Pairwise correlations on the processed DNAme data also show PM364_hofb clusters with 
+villi/trophoblast samples:
+
+```{r}
+# pheatmap
+pheatmap(pheatmap_data$cor_betas, annotation_col = pheatmap_data$annotation, 
+         show_rownames = F, show_colnames = F,
+         labels_col = pheatmap_data$x$Sample_number, labels_row = pheatmap_data$x$Sample_number,
+         angle_col = 45, fontsize_row = 6, fontsize_col = 6,
+         annotation_colors = pheatmap_data$anno_colors,
+         color = viridis(100, option = 'B'),
+         cutree_cols = 6)
+```
