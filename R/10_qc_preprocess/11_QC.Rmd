@@ -6,11 +6,10 @@ output:
   html_document:
     keep_md: true
     toc: true
-    toc_depth: 3
+    toc_depth: 4
     toc_float:
       collapsed: false
     theme: spacelab
-  pdf_document: default
 editor_options: 
   chunk_output_type: console
 ---
@@ -1228,7 +1227,7 @@ the UMAP section.
 
 Umap projection + clustering
 
-```{R eval = F}
+```{r eval = F}
 # no villi, decidua, dead cells, mixtures
 pDat_sub1 <- pDat %>% 
   filter(Tissue %in% c('Trophoblasts', 'Endothelial', 'Stromal', 'Hofbauer'))
