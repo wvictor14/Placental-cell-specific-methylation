@@ -1,0 +1,117 @@
+---
+title: "15_Sample_Characteristics"
+author: "Victor Yuan"
+date: "29/05/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+I realized some variables were had an incorrect class (e.g. factor when should be numeric), and some
+observations needed to be replaced with NAs (0 for DNA concentration means we did not measure).
+
+I made edits in my 11_QC script to address these issues. 
+I also forgot to test for confounders / relationships between sample characteristics.
+
+
+# Setup
+
+```{r message = F, warning = F}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(viridis)
+library(yahew)
+library(egg)
+
+pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+# PCA association data for plotting
+pca <- readRDS('../../data/main/interim/11_pca_association_plot.rds')
+```
+
+# Relationships between variables
+
+```{r warning = F}
+glimpse(pDat)
+
+cov_tests <- pDat %>%
+  select(Row_numeric, Row_factor, Chip_number, Week,Batch_BSC,
+         DNA_conc_before_load, DNA_loaded,  
+         failed_probes, detP_01_minfi , beadcount, Average_intensity, 
+         Case_ID, Sex, Tissue,  Trimester,
+         cor_to_reference, cor_to_unrelated, Prob_SNP_outlier) %>%
+  as.data.frame() %>% pairtest
+
+# make categories
+cov_tests <- cov_tests %>% 
+  mutate(pval_cat = if_else(p.value < 0.001, '< 0.001',
+                            if_else(p.value < 0.01, '< 0.01',
+                                    if_else(p.value < 0.05, '< 0.05', '> 0.05'))))
+
+# plot heatmap of associations
+ggplot(cov_tests, aes(x=Column, y = Row, fill = pval_cat)) +
+  geom_tile(col = 'grey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = c('> 0.05' = 'White', '< 0.05' = '#fee8c8', 
+                               '< 0.01' = '#fdbb84', '< 0.001' = '#e34a33')) +
+  labs(x = '', y = '', fill = 'p') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust= 1),
+        panel.grid.major.x = element_blank()) +
+  coord_equal()
+```
+
+```{r warning = F}
+qplot(data = pDat,x = DNA_loaded, y = failed_probes) + geom_smooth()
+qplot(data = pDat,x = DNA_conc_before_load, y = failed_probes) + geom_smooth()
+qplot(data = pDat, x = Row_numeric, y = failed_probes) + geom_smooth()
+qplot(data = pDat, x = Row_numeric, y = detP_01_minfi) + geom_smooth()
+qplot(data = pDat, x = Week, y = detP_01_minfi, geom = 'boxplot') 
+qplot(data = pDat, x = Row_numeric, y = Average_intensity) + geom_smooth()
+qplot(data = pDat, x = as.numeric(as.factor(Batch_BSC)), y =Average_intensity) + 
+  geom_smooth(method = 'lm') + 
+  scale_x_continuous(labels = levels(as.factor(pDat$Batch_BSC))) +
+  scale_y_continuous(limits = c(0, 14500))
+  labs(x = 'BSC Batch')
+qplot(data = pDat, x = Average_intensity, y = detP_01_minfi)
+qplot(data = pDat, x = Average_intensity, y = beadcount)
+qplot(data = pDat, x = Sex, y = detP_01_minfi)
+ggplot(pDat, aes(x = Tissue, fill = Batch_BSC)) + geom_bar(position = 'dodge')
+```
+
+# PCA
+
+```{r}
+# create color palette
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pca$Plot_data$pval_cat)
+
+p1 <- ggplot(pca$Plot_data, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+p1b <- ggplot(pca$PC_variance, aes(x = PC, y = Prop_var_raw)) +
+  geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance') +
+  scale_x_continuous(breaks = 1:20)
+
+ggarrange(p1, p1b, heights = c(3,1))
+```
+
+```{r}
+qplot(data = pDat, x = Row_numeric, y = PC5_raw)
+qplot(data = pDat, x = Row_numeric, y = PC6_raw)
+qplot(data = pDat, x = Row_numeric, y = PC7_raw)
+qplot(data = pDat, x = Row_numeric, y = PC8_raw)
+qplot(data = pDat, x = Row_numeric, y = PC10_raw)
+```

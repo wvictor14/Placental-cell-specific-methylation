@@ -1,0 +1,172 @@
+---
+title: "Technical variables in EPIC array analysis"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+Here I examine some of the technical factors that can affect EPIC data
+
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE) #hide code
+```
+
+```{r setup, message = F, warning = F, include = F}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(viridis)
+library(yahew)
+library(egg)
+
+pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+# PCA association data for plotting
+pca <- readRDS('../../data/main/interim/11_pca_association_plot.rds')
+```
+
+I inspected the association between various sample characteristics for all 192 samples:
+
+```{r warning = F}
+cov_tests <- pDat %>%
+  select(Row_numeric, Row_factor, Chip_number, Week,Batch_BSC,
+         DNA_conc_before_load, DNA_loaded,  
+         failed_probes, detP_01_minfi , beadcount, Average_intensity, 
+         Case_ID, Sex, Tissue,  Trimester,
+         cor_to_reference, cor_to_unrelated, Prob_SNP_outlier) %>%
+  as.data.frame() %>% pairtest
+
+# make categories
+cov_tests <- cov_tests %>% 
+  mutate(pval_cat = if_else(p.value < 0.001, '< 0.001',
+                            if_else(p.value < 0.01, '< 0.01',
+                                    if_else(p.value < 0.05, '< 0.05', '> 0.05'))))
+
+# plot heatmap of associations
+ggplot(cov_tests, aes(x=Column, y = Row, fill = pval_cat)) +
+  geom_tile(col = 'grey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = c('> 0.05' = 'White', '< 0.05' = '#fee8c8', 
+                               '< 0.01' = '#fdbb84', '< 0.001' = '#e34a33')) +
+  labs(x = '', y = '', fill = 'p') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust= 1),
+        panel.grid.major.x = element_blank()) +
+  coord_equal()
+```
+
+After plotting and going through each significant association manually, I found some to be driven
+by outliers and are probably not actually real, and a few that were convincing. Some of these might
+be good to know for future runs.
+
+# DNA loaded and number of failed probes
+
+There is a weak association between the amount of DNA loaded onto the array and failed probes. The number of failed probes increases only after decreasing from DNA loaded < 100 ng. In fact, the majority of the samples with a high number of failed probes  had > 150ng loaded.
+
+```{r warning = F, message = F}
+qplot(data = pDat,x = DNA_loaded, y = failed_probes) + geom_smooth()
+```
+
+# Row
+
+Row and failed probes were not strongly associated 
+
+```{r, warning = F, message = F}
+qplot(data = pDat, x = Row_numeric, y = failed_probes) + geom_smooth()
+```
+
+But Row is associated with the number of probes failing detection p value threshold. The number
+of failed probes increases starting at 5 until row 8. But in the first 4 rows, there is basically
+no change.
+
+```{r, warning = F, message = F}
+qplot(data = pDat, x = Row_numeric, y = detP_01_minfi) + geom_smooth()
+```
+
+Average intensity is highly assocaited with Row. Again we see an affect in only a subset of the rows.
+Average intensity increases from Row 1 -> Row 5, and then plateaus.
+
+```{r, warning = F, message = F}
+qplot(data = pDat, x = Row_numeric, y = Average_intensity) + geom_smooth()
+```
+
+# BSC Batch
+
+We see a small association of average intensity with BSC Batch, where BSC0 had a lower intensity 
+compared to all other batches. Although this is confounded with the fact that BSC0 only had mixtures,
+which were generally a bit lower in the DNA loaded.
+
+```{r, message = F}
+qplot(data = pDat, x = as.numeric(as.factor(Batch_BSC)), y =Average_intensity) + 
+  geom_smooth(method = 'lm') + 
+  scale_x_continuous(labels = levels(as.factor(pDat$Batch_BSC))) +
+  scale_y_continuous(limits = c(0, 14500))
+```
+
+# PCA {.tabset}
+
+I previously showed no row effects. I originally had row encoded as a "factor" variable, but now I 
+have changed it to both numeric and factor. Now it appears associated with a number of PCs.
+
+I also found that my DNA concentrations were encoded as 0, when really they should have been NAs, 
+as 0 means we did not measure it for that sample. But this did not result in any significant changes.
+
+```{r, message = F}
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pca$Plot_data$pval_cat)
+
+p1 <- ggplot(pca$Plot_data, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+p1b <- ggplot(pca$PC_variance, aes(x = PC, y = Prop_var_raw)) +
+  geom_bar(stat = 'identity') + theme_bw() + labs(y = '% variance') +
+  scale_x_continuous(breaks = 1:20)
+
+ggarrange(p1, p1b, heights = c(3,1))
+```
+
+After inspecting the PC plots, we can see that the row associations are relatively weak. Their R
+squareds are all < 0.15. 
+
+## PC5
+
+```{r, message = F}
+qplot(data = pDat, x = Row_numeric, y = PC5_raw) +theme_bw() + geom_smooth()
+```
+
+## PC6
+
+```{r, message = F}
+qplot(data = pDat, x = Row_numeric, y = PC6_raw) +theme_bw() + geom_smooth()
+```
+
+## PC7
+
+```{r, message = F}
+qplot(data = pDat, x = Row_numeric, y = PC7_raw) +theme_bw() + geom_smooth()
+```
+
+## PC8
+
+```{r, message = F}
+qplot(data = pDat, x = Row_numeric, y = PC8_raw) +theme_bw() + geom_smooth()
+```
+
+## PC10
+
+```{r, message = F}
+qplot(data = pDat, x = Row_numeric, y = PC10_raw) +theme_bw() + geom_smooth()
+```
