@@ -443,6 +443,8 @@ legend(legend = names(color_code_tissue[unique(pDat_1$Tissue)]),
 
 ## Correlations
 
+Pairwise
+
 ```{r}
 # calculate correlation
 colnames(betas_1) <- pDat_1$Sample_Name
@@ -470,6 +472,64 @@ pheatmap(cor_betas, annotation_col = annotation, show_rownames = F, show_colname
          cutree_cols = 6)
 ```
 
+Within and between tissue
+
+```{r}
+# sample names as row/colnames
+colnames(cor_betas) <- rownames(cor_betas) <- pDat_1$Sample_Name
+
+# tidy up the correlation data, compute average tissue correlations
+cor_tissue <- cor_betas %>% as_tibble() %>% 
+  
+  # gather
+  mutate(Sample1 = rownames(cor_betas)) %>%
+  gather(key = 'Sample2', value = 'Cor', -Sample1) %>%
+  
+  # add tissue data for sample1 and sample2
+  left_join(pDat %>% select(Sample_Name, Tissue), by = c('Sample1' = 'Sample_Name')) %>%
+  dplyr::rename(Tissue1 = Tissue) %>%
+  left_join(pDat %>% select(Sample_Name, Tissue), by = c('Sample2' = 'Sample_Name')) %>%
+  dplyr::rename(Tissue2 = Tissue) %>%
+  
+  # compute Tissuespecific correlations
+  group_by(Sample1, Tissue2) %>%
+  summarize(Average_cor = mean(Cor)) %>% 
+  ungroup() %>%
+  left_join(pDat %>% select(Sample_Name, Tissue), by = c('Sample1' = 'Sample_Name')) %>%
+  dplyr::rename(Tissue1 = Tissue) 
+
+p1 <- cor_tissue %>%
+  arrange(Tissue1, Tissue2, Average_cor) %>%
+  mutate(Sample1 = factor(Sample1, levels = unique(Sample1))) %>% 
+  ggplot(aes(x = Sample1, y = Average_cor, fill = Tissue1)) +
+  geom_point(shape = 21, color = 'black') +
+  facet_wrap(~Tissue2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  scale_x_discrete(labels = NULL) +
+  theme_bw() + theme(panel.grid.major.x = element_blank()) +
+  labs(x = 'Samples', y = 'Correlation', 
+       title = 'Average tissue-specific correlation', fill = '')
+p1
+p1 +
+  geom_text_repel(aes(label = ifelse(Sample1 == 'PM364_hofb_cs', 'PM364_hofb_cs', NA)), na.rm = T)
+
+
+# save to pData
+cor_tissue_spread <- cor_tissue %>% mutate(Tissue2 = case_when(
+  Tissue2 == 'Endothelial' ~ 'Ave_cor_endo_cs',
+  Tissue2 == 'Hofbauer' ~ 'Ave_cor_hofb_cs',
+  Tissue2 == 'Stromal' ~ 'Ave_cor_strom_cs',
+  Tissue2 == 'Syncytiotrophoblast' ~ 'Ave_cor_troph_enz',
+  Tissue2 == 'Trophoblasts' ~ 'Ave_cor_troph_cs',
+  Tissue2 == 'Villi' ~ 'Ave_cor_villi',
+)) %>%
+  spread(key = Tissue2, value = Average_cor)
+
+pDat_1 <- pDat_1 %>% 
+  left_join(cor_tissue_spread %>% select(-Tissue1), by = c('Sample_Name' = 'Sample1'))
+```
+
+
 # SessionInfo
 
 ```{r}
@@ -485,5 +545,8 @@ saveRDS(cov_tests, '../../data/main/interim/21_cov_tests.rds')
 saveRDS(sample_densities, '../../data/main/interim/21_sample_densities.rds')
 saveRDS(list(pc_cor = pc_cor, pc_info = pc_info), '../../data/main/interim/21_pca.rds')
 saveRDS(list(cor_betas = cor_betas, annotation = annotation, anno_colors = anno_colors,
-             x = x), '../../data/main/interim/21_pheatmap_data.rds')
+             x = x, cor_tissue = cor_tissue), '../../data/main/interim/21_pheatmap_data.rds')
+
+# additional stuff:
+saveRDS(d, '../../data/main/interim/21_dist.rds') # distance matrix
 ```
