@@ -1,0 +1,139 @@
+---
+title: "16_Ethnicity_ancestry"
+author: "Victor Yuan"
+date: "29/05/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+For adding ethnicity/ancestry information to the samples, 
+
+```{r}
+library(planet)
+library(minfi)
+library(wateRmelon)
+library(IlluminaHumanMethylationEPICmanifest)
+library(dplyr)
+library(egg)
+
+mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
+rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
+pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
+```
+
+```{r eval =F}
+set.seed(1)
+betas_bmiq <- BMIQ(mset_noob, nfit = 100000)
+```
+
+saveRDS(betas_bmiq, '../../data/main/interim/16_bmiq.rds')
+
+```{r eval = T}
+betas_bmiq <- readRDS('../../data/main/interim/16_bmiq.rds')
+```
+
+```{r}
+#combine snps
+snps <- getSnpBeta(rgset)
+data <- rbind(betas_bmiq, snps)
+dim(data) # 866150    192
+
+all(pl_ethnicity_features %in% rownames(data)) #T
+colnames(data) <- pDat$Sample_Name
+
+results <- pl_infer_ethnicity(data)
+results$Sample_Name <- pDat$Sample_Name
+
+# add to pData
+pDat <- pDat %>% left_join(results %>% select(-Highest_Prob, Predicted_ethnicity))
+```
+
+# Small analysis
+
+```{r}
+# distribution of calls
+pDat %>% filter(Tissue == 'Villi') %>% group_by(Trimester) %>% count(Predicted_ethnicity)
+
+# distribution of probabilities, for all samples, including cells
+ggplot(pDat, aes(x = Prob_Asian, y = Prob_Caucasian, color = Tissue)) +
+  geom_point() + theme_bw() +
+  facet_wrap(~Trimester) +
+  scale_color_manual(values= color_code_tissue[unique(pDat$Tissue)])
+
+# just villi
+pDat %>% 
+  filter(Tissue == 'Villi') %>%
+  ggplot(aes(x = Prob_Asian, y = Prob_Caucasian)) +
+  geom_point() + theme_bw() + labs(title ='Just Villi') +
+  facet_wrap(~Trimester)
+
+# just first trimester, by case
+pDat %>% filter(Trimester == 'First') %>% {
+  ggplot(data = ., aes(x = Prob_Asian, y = Prob_Caucasian, color = Tissue)) +
+  geom_point() + theme_bw() +
+  facet_wrap(~Case_ID) +
+  scale_color_manual(values= color_code_tissue[unique(.$Tissue)])
+}
+
+# just third trimester, by case
+pDat %>% filter(Trimester == 'Third') %>%
+  ggplot(aes(x = Prob_Asian, y = Prob_Caucasian, color = Tissue)) +
+  geom_point() + theme_bw() +
+  facet_wrap(~Case_ID) +
+  scale_color_manual(values= color_code_tissue[unique(pDat$Tissue)])
+
+# comparing cell predictions and villi
+p1 <- pDat %>% filter(Trimester == 'Third') %>%
+  ggplot(aes(x = Prob_Asian, y = Prob_Caucasian, color = Tissue)) +
+  geom_point() + theme_bw() + labs(color = '') +
+  scale_color_manual(values= color_code_tissue[unique(pDat$Tissue)]);p1
+p2 <- pDat %>% filter(Trimester == 'Third', Tissue == 'Villi') %>%
+  ggplot(aes(x = Prob_Asian, y = Prob_Caucasian, color = Tissue)) +
+  geom_point() + theme_bw() + labs(color = '') +
+  scale_color_manual(values= color_code_tissue['Villi']);p2
+
+ggarrange(p1, p2)
+```
+
+Saving the results for all tissues, in case I want to investigate further later.
+
+For term analysis, I need to use the predicted ethnicity for villi samples only.
+
+```{r}
+pDat_1 <- readRDS('../../data/main/interim/21_pDat_term_cells.rds')
+
+res <- pDat %>% 
+  filter(Trimester == 'Third', Tissue == 'Villi') %>% 
+  select(Case_ID, contains('ethnicity'), Prob_African, Prob_Asian, Prob_Caucasian)
+
+pDat_1 <- pDat_1 %>% left_join(res, by = 'Case_ID')
+
+p3 <- ggplot(pDat_1, aes(x = Prob_Asian, y = Prob_Caucasian)) +
+  geom_point() + theme_bw() 
+
+ggarrange(p2, p3) # should look the same
+```
+
+
+# Save data
+
+```{r}
+# results for all samples
+pDat %>% 
+  select(contains('Predicted_ethnicity_nothresh'), Prob_African, Prob_Asian, Prob_Caucasian) %>%
+  saveRDS(file = '../../data/main/interim/16_ethnicity_results_all.rds')
+
+# results for term, using villi as final predicted ethnicity
+pDat_1 %>%
+  saveRDS(file = '../../data/main/interim/16_pDat.rds')
+```
