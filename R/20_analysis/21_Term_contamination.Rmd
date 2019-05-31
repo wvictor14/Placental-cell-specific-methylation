@@ -38,6 +38,7 @@ library(tibble)
 library(umap)
 library(dendextend)
 library(stringr)
+library(egg)
 
 # pdata
 pDat <- readRDS('../../data/main/interim/13_pDat.rds')
@@ -366,21 +367,6 @@ scatter(x = 'PC9', y = 'PC10', fill = 'Sex', point_size = 2)
 
 scatter(x = 'PC10', y = 'PC11', fill = 'Prob_SNP_outlier', point_size = 2)
 scatter(x = 'PC12', y = 'PC13', fill = 'Prob_SNP_outlier', point_size = 2)
-
-pDat_1 %>%
-  arrange(Tissue, cor_to_reference) %>%
-  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
-  ggplot(aes(x = Sample_Name, y = cor_to_reference, fill = Tissue)) +
-  geom_point(shape = 21, col = 'black', size = 2.5) + 
-  geom_text_repel(data = pDat_1 %>% filter(Sample_Name == 'PM364_hofb_cs'),
-                  aes(x = Sample_Name, y = cor_to_reference, label = Sample_Name),
-                  nudge_y = -0.01) +
-  labs(x = 'Samples', y ='',  title = '')+
-  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
-  theme_bw()+
-  theme(axis.text.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.grid.major.x = element_blank()) 
 ```
 
 ## UMAP
@@ -529,6 +515,78 @@ pDat_1 <- pDat_1 %>%
   left_join(cor_tissue_spread %>% select(-Tissue1), by = c('Sample_Name' = 'Sample1'))
 ```
 
+# 4.0 Maternal contamination
+
+At this point, I have decided to remove PM364_hofb_cs. 
+
+We previously noticed a few term sorted samples had maternal contamination. So here I return to this
+analysis and decide on which samples to remove. 
+
+```{r}
+p3 <- pDat_1 %>%
+  arrange(Tissue, cor_to_reference) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = cor_to_reference, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_text_repel(data = pDat_1 %>% filter(Sample_Name == 'PM364_hofb_cs'| 
+                                             cor_to_reference < 0.96),
+                  aes(x = Sample_Name, y = cor_to_reference, label = Sample_Name),
+                  nudge_y = -0.01, force = 15) +
+  labs(x = 'Samples', y =expression(rho),  title = 'Correlation to villi', color = '')+
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+
+p4 <- pDat_1 %>%
+  arrange(Tissue, Prob_SNP_outlier) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Prob_SNP_outlier, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_text_repel(data = pDat_1 %>% filter(Sample_Name == 'PM364_hofb_cs'| 
+                                             Sample_Name == 'PM374_endo_cs' |
+                                             Prob_SNP_outlier > 0.3),
+                  aes(x = Sample_Name, y = Prob_SNP_outlier, label = Sample_Name),
+                  nudge_y = -0.01) +
+  labs(x = 'Samples', y ='P',  title = 'Probability SNP is an outlier', color = '')+
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+
+ggarrange(p3, p4)
+```
+
+png('../../outs/21_term_maternal_contamination.png', units = 'in', height = 10, width = 10, res = 300)
+ggarrange(p3, p4)
+dev.off()
+
+Let's see where these samples lie in the correlation plots
+
+```{r}
+contam_samps <- c('PM364_hofb_cs', 'PM374_endo_cs', 'PM381_hofb_cs', 'PM366_hofb_cs')
+
+cor_tissue %>%
+  arrange(Tissue1, Tissue2, Average_cor) %>%
+  mutate(Sample1 = factor(Sample1, levels = unique(Sample1))) %>% {
+    ggplot(data = ., aes(x = Sample1, y = Average_cor, fill = Tissue1)) +
+    geom_point(shape = 21, color = 'black') +
+    facet_wrap(~Tissue2) +
+    scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+      scale_y_continuous(limits = c(0.6, 1))+
+    scale_x_discrete(labels = NULL) +
+    theme_bw() + theme(panel.grid.major.x = element_blank()) +
+    labs(x = 'Samples', y = 'Correlation', 
+         title = 'Average tissue-specific correlation', fill = '') +
+    geom_text_repel(data = . %>% filter(Sample1 %in% contam_samps),
+                    aes(x = Sample1,  y = Average_cor, label = Sample1), force = 15,
+                    nudge_y = -0.07)
+  }
+```
+
+So all are highly correlated to other samples of the same tissue (except PM364_hofb_cs). 
 
 # SessionInfo
 
