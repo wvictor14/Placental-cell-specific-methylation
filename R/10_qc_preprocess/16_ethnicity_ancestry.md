@@ -27,113 +27,7 @@ library(minfi)
 ```
 
 ```
-## Loading required package: BiocGenerics
-```
-
-```
-## Loading required package: parallel
-```
-
-```
-## 
-## Attaching package: 'BiocGenerics'
-```
-
-```
-## The following objects are masked from 'package:parallel':
-## 
-##     clusterApply, clusterApplyLB, clusterCall, clusterEvalQ,
-##     clusterExport, clusterMap, parApply, parCapply, parLapply,
-##     parLapplyLB, parRapply, parSapply, parSapplyLB
-```
-
-```
-## The following objects are masked from 'package:stats':
-## 
-##     IQR, mad, sd, var, xtabs
-```
-
-```
-## The following objects are masked from 'package:base':
-## 
-##     anyDuplicated, append, as.data.frame, basename, cbind,
-##     colMeans, colnames, colSums, dirname, do.call, duplicated,
-##     eval, evalq, Filter, Find, get, grep, grepl, intersect,
-##     is.unsorted, lapply, lengths, Map, mapply, match, mget, order,
-##     paste, pmax, pmax.int, pmin, pmin.int, Position, rank, rbind,
-##     Reduce, rowMeans, rownames, rowSums, sapply, setdiff, sort,
-##     table, tapply, union, unique, unsplit, which, which.max,
-##     which.min
-```
-
-```
-## Loading required package: GenomicRanges
-```
-
-```
-## Loading required package: stats4
-```
-
-```
-## Loading required package: S4Vectors
-```
-
-```
-## 
-## Attaching package: 'S4Vectors'
-```
-
-```
-## The following object is masked from 'package:base':
-## 
-##     expand.grid
-```
-
-```
-## Loading required package: IRanges
-```
-
-```
-## 
-## Attaching package: 'IRanges'
-```
-
-```
-## The following object is masked from 'package:grDevices':
-## 
-##     windows
-```
-
-```
-## Loading required package: GenomeInfoDb
-```
-
-```
 ## Warning: package 'GenomeInfoDb' was built under R version 3.5.2
-```
-
-```
-## Loading required package: SummarizedExperiment
-```
-
-```
-## Loading required package: Biobase
-```
-
-```
-## Welcome to Bioconductor
-## 
-##     Vignettes contain introductory material; view with
-##     'browseVignettes()'. To cite Bioconductor, see
-##     'citation("Biobase")', and for packages 'citation("pkgname")'.
-```
-
-```
-## Loading required package: DelayedArray
-```
-
-```
-## Loading required package: matrixStats
 ```
 
 ```
@@ -141,43 +35,7 @@ library(minfi)
 ```
 
 ```
-## 
-## Attaching package: 'matrixStats'
-```
-
-```
-## The following objects are masked from 'package:Biobase':
-## 
-##     anyMissing, rowMedians
-```
-
-```
-## Loading required package: BiocParallel
-```
-
-```
 ## Warning: package 'BiocParallel' was built under R version 3.5.2
-```
-
-```
-## 
-## Attaching package: 'DelayedArray'
-```
-
-```
-## The following objects are masked from 'package:matrixStats':
-## 
-##     colMaxs, colMins, colRanges, rowMaxs, rowMins, rowRanges
-```
-
-```
-## The following objects are masked from 'package:base':
-## 
-##     aperm, apply
-```
-
-```
-## Loading required package: Biostrings
 ```
 
 ```
@@ -185,40 +43,7 @@ library(minfi)
 ```
 
 ```
-## Loading required package: XVector
-```
-
-```
-## 
-## Attaching package: 'Biostrings'
-```
-
-```
-## The following object is masked from 'package:DelayedArray':
-## 
-##     type
-```
-
-```
-## The following object is masked from 'package:base':
-## 
-##     strsplit
-```
-
-```
-## Loading required package: bumphunter
-```
-
-```
-## Loading required package: foreach
-```
-
-```
 ## Warning: package 'foreach' was built under R version 3.5.2
-```
-
-```
-## Loading required package: iterators
 ```
 
 ```
@@ -226,23 +51,7 @@ library(minfi)
 ```
 
 ```
-## Loading required package: locfit
-```
-
-```
 ## Warning: package 'locfit' was built under R version 3.5.2
-```
-
-```
-## locfit 1.5-9.1 	 2013-03-22
-```
-
-```
-## Setting options('download.file.method.GEOquery'='auto')
-```
-
-```
-## Setting options('GEOquery.inmemory.gpl'=FALSE)
 ```
 
 ```r
@@ -250,34 +59,7 @@ library(wateRmelon)
 ```
 
 ```
-## Loading required package: limma
-```
-
-```
-## 
-## Attaching package: 'limma'
-```
-
-```
-## The following object is masked from 'package:BiocGenerics':
-## 
-##     plotMA
-```
-
-```
-## Loading required package: methylumi
-```
-
-```
-## Loading required package: scales
-```
-
-```
 ## Warning: package 'scales' was built under R version 3.5.2
-```
-
-```
-## Loading required package: reshape2
 ```
 
 ```
@@ -285,66 +67,11 @@ library(wateRmelon)
 ```
 
 ```
-## Loading required package: ggplot2
-```
-
-```
 ## Warning: package 'ggplot2' was built under R version 3.5.2
 ```
 
 ```
-## Loading required package: FDb.InfiniumMethylation.hg19
-```
-
-```
-## Loading required package: GenomicFeatures
-```
-
-```
 ## Warning: package 'GenomicFeatures' was built under R version 3.5.2
-```
-
-```
-## Loading required package: AnnotationDbi
-```
-
-```
-## Loading required package: TxDb.Hsapiens.UCSC.hg19.knownGene
-```
-
-```
-## Loading required package: org.Hs.eg.db
-```
-
-```
-## 
-```
-
-```
-## Loading required package: lumi
-```
-
-```
-## 
-## Attaching package: 'lumi'
-```
-
-```
-## The following objects are masked from 'package:methylumi':
-## 
-##     estimateM, getHistory
-```
-
-```
-## Loading required package: ROC
-```
-
-```
-## Loading required package: IlluminaHumanMethylation450kanno.ilmn12.hg19
-```
-
-```
-## Loading required package: illuminaio
 ```
 
 ```r
@@ -356,101 +83,6 @@ library(dplyr)
 ## Warning: package 'dplyr' was built under R version 3.5.2
 ```
 
-```
-## 
-## Attaching package: 'dplyr'
-```
-
-```
-## The following object is masked from 'package:lumi':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:methylumi':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:AnnotationDbi':
-## 
-##     select
-```
-
-```
-## The following object is masked from 'package:minfi':
-## 
-##     combine
-```
-
-```
-## The following objects are masked from 'package:Biostrings':
-## 
-##     collapse, intersect, setdiff, setequal, union
-```
-
-```
-## The following object is masked from 'package:XVector':
-## 
-##     slice
-```
-
-```
-## The following object is masked from 'package:matrixStats':
-## 
-##     count
-```
-
-```
-## The following object is masked from 'package:Biobase':
-## 
-##     combine
-```
-
-```
-## The following objects are masked from 'package:GenomicRanges':
-## 
-##     intersect, setdiff, union
-```
-
-```
-## The following object is masked from 'package:GenomeInfoDb':
-## 
-##     intersect
-```
-
-```
-## The following objects are masked from 'package:IRanges':
-## 
-##     collapse, desc, intersect, setdiff, slice, union
-```
-
-```
-## The following objects are masked from 'package:S4Vectors':
-## 
-##     first, intersect, rename, setdiff, setequal, union
-```
-
-```
-## The following objects are masked from 'package:BiocGenerics':
-## 
-##     combine, intersect, setdiff, union
-```
-
-```
-## The following objects are masked from 'package:stats':
-## 
-##     filter, lag
-```
-
-```
-## The following objects are masked from 'package:base':
-## 
-##     intersect, setdiff, setequal, union
-```
-
 ```r
 library(egg)
 ```
@@ -460,52 +92,7 @@ library(egg)
 ```
 
 ```
-## Loading required package: gridExtra
-```
-
-```
 ## Warning: package 'gridExtra' was built under R version 3.5.3
-```
-
-```
-## 
-## Attaching package: 'gridExtra'
-```
-
-```
-## The following object is masked from 'package:dplyr':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:lumi':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:methylumi':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:minfi':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:Biobase':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:BiocGenerics':
-## 
-##     combine
 ```
 
 ```r
@@ -671,10 +258,27 @@ pDat_1 <- readRDS('../../data/main/interim/21_pDat_term_cells.rds')
 
 res <- pDat %>% 
   filter(Trimester == 'Third', Tissue == 'Villi') %>% 
-  select(Case_ID, contains('ethnicity'), Prob_African, Prob_Asian, Prob_Caucasian)
+  select(Case_ID, contains('ethnicity'), Prob_African, Prob_Asian, Prob_Caucasian)%>%
+  # AVERAGE PROBABILITY BETWEEN REPLICATES
+  group_by(Case_ID) %>% 
+  mutate(Prob_African = mean(Prob_African),
+         Prob_Caucasian = mean(Prob_Caucasian),
+         Prob_Asian = mean(Prob_Asian)) %>%
+  ungroup() %>%
+  distinct() # filter out the replicate entries
 
-pDat_1 <- pDat_1 %>% left_join(res, by = 'Case_ID')
+n1 <- nrow(pDat_1)
+pDat_1 <- pDat_1 %>% 
+  left_join(res, by = 'Case_ID') 
+n2 <- nrow(pDat_1)
+n1 == n2 # make sure no new rows are added, Needs to be TRUE
+```
 
+```
+## [1] TRUE
+```
+
+```r
 p3 <- ggplot(pDat_1, aes(x = Prob_Asian, y = Prob_Caucasian)) +
   geom_point() + theme_bw() 
 
@@ -696,4 +300,117 @@ pDat %>%
 # results for term, using villi as final predicted ethnicity
 pDat_1 %>%
   saveRDS(file = '../../data/main/interim/16_pDat.rds')
+```
+
+# SessionInfo
+
+
+```r
+sessionInfo()
+```
+
+```
+## R version 3.5.1 (2018-07-02)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+## Running under: Windows Server x64 (build 14393)
+## 
+## Matrix products: default
+## 
+## locale:
+## [1] LC_COLLATE=English_Canada.1252  LC_CTYPE=English_Canada.1252   
+## [3] LC_MONETARY=English_Canada.1252 LC_NUMERIC=C                   
+## [5] LC_TIME=English_Canada.1252    
+## 
+## attached base packages:
+## [1] stats4    parallel  stats     graphics  grDevices utils     datasets 
+## [8] methods   base     
+## 
+## other attached packages:
+##  [1] egg_0.4.2                                         
+##  [2] gridExtra_2.3                                     
+##  [3] dplyr_0.8.0.1                                     
+##  [4] IlluminaHumanMethylationEPICmanifest_0.3.0        
+##  [5] wateRmelon_1.26.0                                 
+##  [6] illuminaio_0.24.0                                 
+##  [7] IlluminaHumanMethylation450kanno.ilmn12.hg19_0.6.0
+##  [8] ROC_1.58.0                                        
+##  [9] lumi_2.34.0                                       
+## [10] methylumi_2.28.0                                  
+## [11] FDb.InfiniumMethylation.hg19_2.2.0                
+## [12] org.Hs.eg.db_3.7.0                                
+## [13] TxDb.Hsapiens.UCSC.hg19.knownGene_3.2.2           
+## [14] GenomicFeatures_1.34.3                            
+## [15] AnnotationDbi_1.44.0                              
+## [16] ggplot2_3.1.0                                     
+## [17] reshape2_1.4.3                                    
+## [18] scales_1.0.0                                      
+## [19] limma_3.38.3                                      
+## [20] minfi_1.28.3                                      
+## [21] bumphunter_1.24.5                                 
+## [22] locfit_1.5-9.1                                    
+## [23] iterators_1.0.10                                  
+## [24] foreach_1.4.4                                     
+## [25] Biostrings_2.50.2                                 
+## [26] XVector_0.22.0                                    
+## [27] SummarizedExperiment_1.12.0                       
+## [28] DelayedArray_0.8.0                                
+## [29] BiocParallel_1.16.6                               
+## [30] matrixStats_0.54.0                                
+## [31] Biobase_2.42.0                                    
+## [32] GenomicRanges_1.34.0                              
+## [33] GenomeInfoDb_1.18.2                               
+## [34] IRanges_2.16.0                                    
+## [35] S4Vectors_0.20.1                                  
+## [36] BiocGenerics_0.28.0                               
+## [37] planet_0.0.1                                      
+## 
+## loaded via a namespace (and not attached):
+##  [1] colorspace_1.4-0         siggenes_1.56.0         
+##  [3] mclust_5.4.2             base64_2.0              
+##  [5] affyio_1.52.0            bit64_0.9-7             
+##  [7] fansi_0.4.0              xml2_1.2.0              
+##  [9] codetools_0.2-16         splines_3.5.1           
+## [11] knitr_1.21               Rsamtools_1.34.1        
+## [13] annotate_1.60.0          HDF5Array_1.10.1        
+## [15] BiocManager_1.30.4       readr_1.3.1             
+## [17] compiler_3.5.1           httr_1.4.0              
+## [19] assertthat_0.2.0         Matrix_1.2-15           
+## [21] lazyeval_0.2.1           cli_1.0.1               
+## [23] htmltools_0.3.6          prettyunits_1.0.2       
+## [25] tools_3.5.1              affy_1.60.0             
+## [27] gtable_0.2.0             glue_1.3.0              
+## [29] GenomeInfoDbData_1.2.0   doRNG_1.7.1             
+## [31] Rcpp_1.0.0               multtest_2.38.0         
+## [33] preprocessCore_1.44.0    nlme_3.1-137            
+## [35] rtracklayer_1.42.2       DelayedMatrixStats_1.4.0
+## [37] xfun_0.5                 stringr_1.4.0           
+## [39] rngtools_1.3.1           XML_3.98-1.18           
+## [41] beanplot_1.2             nleqslv_3.3.2           
+## [43] zlibbioc_1.28.0          MASS_7.3-51.1           
+## [45] hms_0.4.2                rhdf5_2.26.2            
+## [47] GEOquery_2.50.5          RColorBrewer_1.1-2      
+## [49] yaml_2.2.0               memoise_1.1.0           
+## [51] pkgmaker_0.27            biomaRt_2.38.0          
+## [53] reshape_0.8.8            stringi_1.3.1           
+## [55] RSQLite_2.1.1            genefilter_1.64.0       
+## [57] bibtex_0.4.2             rlang_0.3.1             
+## [59] pkgconfig_2.0.2          bitops_1.0-6            
+## [61] nor1mix_1.2-3            evaluate_0.13           
+## [63] lattice_0.20-38          purrr_0.3.0             
+## [65] Rhdf5lib_1.4.2           labeling_0.3            
+## [67] GenomicAlignments_1.18.1 bit_1.1-14              
+## [69] tidyselect_0.2.5         plyr_1.8.4              
+## [71] magrittr_1.5             R6_2.4.0                
+## [73] DBI_1.0.0                pillar_1.3.1            
+## [75] withr_2.1.2              mgcv_1.8-27             
+## [77] survival_2.43-3          RCurl_1.95-4.12         
+## [79] tibble_2.0.1             crayon_1.3.4            
+## [81] utf8_1.1.4               KernSmooth_2.23-15      
+## [83] rmarkdown_1.11           progress_1.2.0          
+## [85] grid_3.5.1               data.table_1.12.0       
+## [87] blob_1.1.1               digest_0.6.18           
+## [89] xtable_1.8-3             tidyr_0.8.3             
+## [91] glmnet_2.0-16            openssl_1.2.2           
+## [93] munsell_0.5.0            registry_0.5-1          
+## [95] askpass_1.1              quadprog_1.5-5
 ```

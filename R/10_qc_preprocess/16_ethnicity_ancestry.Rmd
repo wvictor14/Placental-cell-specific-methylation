@@ -16,7 +16,7 @@ editor_options:
 
 For adding ethnicity/ancestry information to the samples, 
 
-```{r}
+```{r message = F}
 library(planet)
 library(minfi)
 library(wateRmelon)
@@ -114,9 +114,20 @@ pDat_1 <- readRDS('../../data/main/interim/21_pDat_term_cells.rds')
 
 res <- pDat %>% 
   filter(Trimester == 'Third', Tissue == 'Villi') %>% 
-  select(Case_ID, contains('ethnicity'), Prob_African, Prob_Asian, Prob_Caucasian)
+  select(Case_ID, contains('ethnicity'), Prob_African, Prob_Asian, Prob_Caucasian)%>%
+  # AVERAGE PROBABILITY BETWEEN REPLICATES
+  group_by(Case_ID) %>% 
+  mutate(Prob_African = mean(Prob_African),
+         Prob_Caucasian = mean(Prob_Caucasian),
+         Prob_Asian = mean(Prob_Asian)) %>%
+  ungroup() %>%
+  distinct() # filter out the replicate entries
 
-pDat_1 <- pDat_1 %>% left_join(res, by = 'Case_ID')
+n1 <- nrow(pDat_1)
+pDat_1 <- pDat_1 %>% 
+  left_join(res, by = 'Case_ID') 
+n2 <- nrow(pDat_1)
+n1 == n2 # make sure no new rows are added, Needs to be TRUE
 
 p3 <- ggplot(pDat_1, aes(x = Prob_Asian, y = Prob_Caucasian)) +
   geom_point() + theme_bw() 
@@ -136,4 +147,10 @@ pDat %>%
 # results for term, using villi as final predicted ethnicity
 pDat_1 %>%
   saveRDS(file = '../../data/main/interim/16_pDat.rds')
+```
+
+# SessionInfo
+
+```{r}
+sessionInfo()
 ```
