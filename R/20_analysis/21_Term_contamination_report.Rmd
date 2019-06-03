@@ -1,5 +1,5 @@
 ---
-title: "PM364_hofb_cs"
+title: "Removing contaminated term samples"
 output:
   html_document:
     keep_md: false
@@ -13,8 +13,20 @@ editor_options:
   chunk_output_type: console
 ---
 
+May 31st, 2018 update:
+Originally this report was to document the reasons for removal of PM364_hofb. However, I am now
+removing 2 additional hofbauer samples, so I have added some additional analysis at the end of this report explaining the removal of these samples. Everything up to that point is unedited.
+
+# May 31st Summary
+* remove PM364_hofb, because contaminated with HOFBAEUR cells
+* remove PM381_hofb, PM366_hofb because contaminated with maternal cells
+* PM374_endo_cs, may be contaminated with endothelial cells from another sample, retaining.
+
 PM364_hofb is an 'odd' sample compared to other third trimester cell samples. So I'm wondering if 
 this sample should be removed.
+
+# PM364_hofb_cs
+*begin original report*
 
 **Main observations:**
 
@@ -218,8 +230,16 @@ Pairwise correlations on the processed DNAme data also show PM364_hofb clusters 
 villi/trophoblast samples:
 
 ```{r}
+rownames(pheatmap_data$annotation) <- pDat_1$Sample_Name
+
+pheatmap_data$annotation$PM374_endo <- ifelse(rownames(pheatmap_data$annotation) == 'PM374_endo_cs',
+                                              'T',
+                                              'F')
+pheatmap_data$anno_colors$PM374_endo <- setNames(c('Red', 'Grey'), c('T', 'F'))
+
 # pheatmap
 pheatmap(pheatmap_data$cor_betas, annotation_col = pheatmap_data$annotation, 
+         annotation_row = pheatmap_data$annotation[,c('Tissue'), drop = F],
          show_rownames = F, show_colnames = F,
          labels_col = pheatmap_data$x$Sample_number, labels_row = pheatmap_data$x$Sample_number,
          angle_col = 45, fontsize_row = 6, fontsize_col = 6,
@@ -227,3 +247,91 @@ pheatmap(pheatmap_data$cor_betas, annotation_col = pheatmap_data$annotation,
          color = viridis(100, option = 'B'),
          cutree_cols = 6)
 ```
+
+Then we can average each samples average correlation to all samples on a per-tissue basis.
+
+```{r}
+p1 <- pheatmap_data$cor_tissue %>%
+  arrange(Tissue1, Tissue2, Average_cor) %>%
+  mutate(Sample1 = factor(Sample1, levels = unique(Sample1))) %>% 
+  ggplot(aes(x = Sample1, y = Average_cor, fill = Tissue1)) +
+  geom_point(shape = 21, color = 'black') +
+  facet_wrap(~Tissue2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  scale_x_discrete(labels = NULL) +
+  theme_bw() + theme(panel.grid.major.x = element_blank()) +
+  labs(x = 'Samples', y = 'Correlation', 
+       title = 'Average tissue-specific correlation', fill = '')
+p1
+```
+
+# Maternal -contaminated samples
+
+At this point, I have decided to remove PM364_hofb_cs. 
+
+We previously noticed a few term sorted samples had maternal contamination. So here I return to this
+analysis and decide on which samples to remove. 
+
+```{r}
+p3 <- pDat_1 %>%
+  arrange(Tissue, cor_to_reference) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = cor_to_reference, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_text_repel(data = pDat_1 %>% filter(Sample_Name == 'PM364_hofb_cs'| 
+                                             cor_to_reference < 0.96),
+                  aes(x = Sample_Name, y = cor_to_reference, label = Sample_Name),
+                  nudge_y = -0.01, force = 15) +
+  labs(x = 'Samples', y =expression(rho),  title = 'Correlation to villi', color = '')+
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+
+p4 <- pDat_1 %>%
+  arrange(Tissue, Prob_SNP_outlier) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = Prob_SNP_outlier, fill = Tissue)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) + 
+  geom_text_repel(data = pDat_1 %>% filter(Sample_Name == 'PM364_hofb_cs'| 
+                                             Sample_Name == 'PM374_endo_cs' |
+                                             Prob_SNP_outlier > 0.3),
+                  aes(x = Sample_Name, y = Prob_SNP_outlier, label = Sample_Name),
+                  nudge_y = -0.01) +
+  labs(x = 'Samples', y ='P',  title = 'Probability SNP is an outlier', color = '')+
+  scale_fill_manual(values = color_code_tissue[unique(pDat_1$Tissue)]) +
+  theme_bw()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+
+ggarrange(p3, p4)
+```
+
+Samples PM366_hofb, PM381_hofb, and PM374_endo have a low correlation to villi. However, only PM381_hofb, PM366_hofb have a high probability of being an outlier. This suggests that either PM374_endo is mainly maternal endothelial cells or is contaminated with another sample. 
+
+
+Becayse PM374_endo is a male sample we can confirmt his based on XY intensity:
+
+```{r}
+contam_samps <- c('PM364_hofb_cs', 'PM374_endo_cs', 'PM381_hofb_cs', 'PM366_hofb_cs')
+
+p5 <-ggplot(pDat_1, aes(x = normalized_X_intensity, y = normalized_Y_intensity, fill = Sex)) +
+  geom_point(shape = 21, col = 'black', size = 2.5) +theme_bw() +
+  geom_text_repel(data = pDat %>% filter(Sample_Name %in% contam_samps),
+                  aes(label = Sample_Name), size = 3, force = 15, nudge_x = -0.1, nudge_y = -0.1) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', col = '#9B9B9B') + 
+  geom_vline(xintercept = 0.95, linetype = 'dashed', col = '#9B9B9B')
+p5
+```
+
+Surprisingly, PM374_endo looks 100% male on this plot, suggesting that it is not contaminated with 
+maternal cells. The low correlation to villi then suggests it is contaminated. Another possibility 
+is it is poor quality, but it was not flagged in previous analyses. We leave it in for now...
+
+So in summary I remove the following samples:
+
+* remove PM364_hofb, because contaminated with HOFBAEUR cells
+* remove PM381_hofb, PM366_hofb because contaminated with maternal cells
+* PM374_endo_cs, may be contaminated with endothelial cells from another sample, retaining.
