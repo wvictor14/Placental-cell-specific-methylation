@@ -1,0 +1,705 @@
+---
+title: "22_Term"
+author: "Victor Yuan"
+date: "31/05/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+This is part 2 of the term analysis.
+
+In part 1, 21_Term.Rmd, I found a 4 contaminated samples. Here I reproduce
+some of plots without contaminated samples, and continue with linear modelling analysis.
+
+# Setup
+
+## Load libraries and data
+
+```{r message = F, warning = F}
+# libraries and data
+library(ggplot2)
+library(tidyverse)
+library(ggrepel)
+library(viridis)
+library(scales)
+library(RColorBrewer)
+library(pheatmap)
+library(irlba)
+library(yahew) # 0.1.1 github/wvictor14/yahew
+library(GGally)
+library(cowplot)
+library(umap)
+library(dendextend)
+library(stringr)
+library(minfi)
+library(limma)
+library(biobroom)
+```
+
+## Data
+
+Here I call 'syncytiotrophoblasts' into 'Trophoblasts enz' and add 'cs' suffixes to the cell sorted
+samples.
+
+```{r}
+# pdata
+pDat_term  <- readRDS('../../data/main/interim/16_pDat.rds')
+pDat_term <- pDat_term %>% 
+  mutate(Tissue = case_when(
+    Tissue %in% c('Endothelial', 'Hofbauer', 'Stromal', 'Trophoblasts') ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) %>%
+  
+  # REMOVE CONTAMINED HOFBAUER SAMPLES
+  filter(!Sample_Name %in% c('PM364_hofb_cs', 'PM381_hofb_cs', 'PM366_hofb_cs'))
+
+# methylation data
+betas <- readRDS('../../data/main/interim/14_betas_noob_filt.rds')
+betas_term <- betas[,pDat_term$Sentrix]
+colnames(betas_term) <- pDat_term$Sample_Name
+
+# get m values and filter to term samples
+mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
+mvals_term <- getM(mset_noob)
+colnames(mvals_term) <- pData(mset_noob)$Sample_Name
+mvals_term <- mvals_term[rownames(betas_term),pDat_term$Sample_Name]
+
+# probe annotation
+probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+
+# snp data
+snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+
+# annotation
+anno <- getAnnotation(readRDS('../../data/main/interim/01_rgset_raw.rds'))
+# filter to filtered betas cpgs
+anno <- anno %>%
+  as_tibble() %>%
+  filter(Name %in% rownames(betas_term))
+
+# color key
+color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+color_code[[1]] <- color_code[[1]]  %>%
+  mutate(Tissue = case_when(
+    Tissue %in% c('Endothelial', 'Hofbauer', 'Stromal', 'Trophoblasts', 
+                  'Dead Cells and Lymphocytes') ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  ))
+color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
+
+# correlation data 
+cor_data <- readRDS('../../data/main/interim/21_pheatmap_data.rds')
+```
+
+# 1.0 FACS markers
+
+Cell stains used:
+
+7-AAD – Live Stain
+CD235a – Red Blood Cells (Gate out)
+CD45+/CD14+ – Hofbauer Cells
+CD34+ – Endothelial
+EGFR+ – Trophoblasts
+All negative for markers – Stromal
+
+
+### EGFR - trophoblast
+
+```{r}
+# filter to EGFR
+anno_EGFR <- anno %>%filter(grepl('NM_201284', UCSC_RefGene_Accession)) %>%
+  arrange(pos)
+
+# subset EGFR cpgs in data
+betas_EGFR <- t(betas_term[anno_EGFR$Name,]) %>% as_tibble %>% 
+  mutate(Sample_Name = colnames(betas_term)) %>%
+  
+  # melt/gather
+  gather(key = 'CpG', value = 'beta', -Sample_Name)  %>%
+  
+  # add tissue info
+  left_join(pDat_term %>% select(Sample_Name, Tissue)) %>%
+  
+  # add cpg coords
+  left_join(anno_EGFR %>% select(Name, pos, UCSC_RefGene_Group), by = c('CpG' = 'Name')) %>%
+  mutate(gene_element = str_extract(UCSC_RefGene_Group, "^[A-z0-9\\']+")) %>%
+  
+  # calculate median tissue value
+  group_by(Tissue, CpG) %>%
+  mutate(beta_med = median(beta)) %>%
+  
+  # order on cpg position
+  ungroup() %>%
+  arrange(pos) %>%
+  mutate(CpG = factor(CpG, levels = unique(CpG)),
+         
+         # create an annotation column          
+         Annotation_gene_element = 'Gene_element',
+         
+         # ExonBnd should be body
+         gene_element = ifelse(gene_element == 'ExonBnd', 'Body', gene_element) )
+
+#plot
+# bar plot
+betas_EGFR %>%
+  mutate(y = 0) %>%
+  ggplot() +
+  geom_segment(aes(x = pos, xend = pos, y = y, yend  = beta_med, col = gene_element)) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0,0.5,1)) +
+  theme_bw() +
+  facet_wrap(~Tissue, ncol = 1, strip.position = 'right')
+
+# line plot
+colors <- color_code_tissue[unique(pDat_term$Tissue)]
+colors[c('Endothelial cs', 'Hofbauer cs', 'Stromal cs')] <- 'Grey'
+ggplot(betas_EGFR, aes(x = pos, y = beta_med, color = Tissue)) +
+  geom_point() + theme_bw() +
+  scale_y_continuous(limits = c(0,1), breaks = c(0,0.5,1)) +
+  scale_color_manual(values= colors) +
+  geom_smooth()
+
+p1 <- betas_EGFR %>%
+  ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
+  geom_tile() +
+  scale_fill_viridis(breaks = c(0, 0.5, 1), limits = c(0,1)) + coord_equal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(fill = '% methylation', y = '', x= '', title = 'EGFR cpgs')
+
+p2 <- betas_EGFR %>%
+  ggplot(aes(x = CpG, y = Annotation_gene_element, fill = gene_element)) +
+  geom_tile() +
+  coord_equal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(fill = '', y = '', x = 'CpG') +
+  scale_fill_brewer(palette = 'Set2')
+
+egg::ggarrange(p1, p2, ncol = 1)
+```
+
+### CD14+
+
+```{R}
+# filter to EGFR
+anno_CD14 <- anno %>%filter(grepl('NM_000591', UCSC_RefGene_Accession)) %>%
+  arrange(pos)
+
+# subset EGFR cpgs in data
+betas_CD14 <- t(betas_term[anno_CD14$Name,]) %>% as_tibble %>% 
+  mutate(Sample_Name = colnames(betas_term)) %>%
+  
+  # melt/gather
+  gather(key = 'CpG', value = 'beta', -Sample_Name)  %>%
+  
+  # add tissue info
+  left_join(pDat_term %>% select(Sample_Name, Tissue)) %>%
+  
+  # add cpg coords
+  left_join(anno_CD14 %>% select(Name, pos, UCSC_RefGene_Group), by = c('CpG' = 'Name')) %>%
+  mutate(gene_element = str_extract(UCSC_RefGene_Group, "^[A-z0-9\\']+")) %>%
+  
+  # calculate median tissue value
+  group_by(Tissue, CpG) %>%
+  mutate(beta_med = median(beta)) %>%
+  
+  # order on cpg position
+  ungroup() %>%
+  arrange(pos) %>%
+  mutate(CpG = factor(CpG, levels = unique(CpG)),
+         
+         # create an annotation column          
+         Annotation_gene_element = 'Gene_element')
+         
+
+p3 <- betas_CD14 %>%
+  ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
+  geom_tile() +
+  scale_fill_viridis(breaks = c(0, 0.5, 1), limits = c(0,1)) +
+  coord_equal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(fill = '% methylation', y = '', x= '', title = 'CD14 cpgs')
+
+p4 <- betas_CD14 %>%
+  ggplot(aes(x = CpG, y = Annotation_gene_element, fill = gene_element)) +
+  geom_tile() +
+  coord_equal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(fill = '', y = '', x = 'CpG') +
+  scale_fill_brewer(palette = 'Set2')
+
+egg::ggarrange(p3, p4, ncol = 1)
+```
+
+### CD34
+
+```{R}
+# filter to EGFR
+anno_CD34 <- anno %>%filter(grepl('NM_001773', UCSC_RefGene_Accession)) %>%
+  arrange(pos)
+
+# subset EGFR cpgs in data
+betas_CD34 <- t(betas_term[anno_CD34$Name,]) %>% as_tibble %>% 
+  mutate(Sample_Name = colnames(betas_term)) %>%
+  
+  # melt/gather
+  gather(key = 'CpG', value = 'beta', -Sample_Name)  %>%
+  
+  # add tissue info
+  left_join(pDat_term %>% select(Sample_Name, Tissue)) %>%
+  
+  # add cpg coords
+  left_join(anno_CD34 %>% select(Name, pos, UCSC_RefGene_Group), by = c('CpG' = 'Name')) %>%
+  mutate(gene_element = str_extract(UCSC_RefGene_Group, "^[A-z0-9\\']+")) %>%
+  
+  # calculate median tissue value
+  group_by(Tissue, CpG) %>%
+  mutate(beta_med = median(beta)) %>%
+  
+  # order on cpg position
+  ungroup() %>%
+  arrange(pos) %>%
+  mutate(CpG = factor(CpG, levels = unique(CpG)),
+         
+         # create an annotation column          
+         Annotation_gene_element = 'Gene_element',
+         
+         # ExonBnd should be body
+         gene_element = ifelse(gene_element == '1stExon', "5'UTR", 
+                               ifelse(gene_element == 'ExonBnd', 'Body', gene_element)))
+
+p5 <- betas_CD34 %>%
+  ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
+  geom_tile() +
+  scale_fill_viridis(breaks = c(0, 0.5, 1), limits = c(0,1)) +
+  coord_equal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(fill = '% methylation', y = '', x= '', title = 'CD34 cpgs')
+
+p6 <- betas_CD34 %>%
+  ggplot(aes(x = CpG, y = Annotation_gene_element, fill = gene_element)) +
+  geom_tile() +
+  coord_equal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(fill = '', y = '', x = 'CpG') +
+  scale_fill_brewer(palette = 'Set2')
+
+egg::ggarrange(p5, p6, ncol = 1)
+```
+
+# 2.0 Global methylation
+
+## Density distributions
+
+Here we plot the density distributions of the betas across each tissue
+
+```{r}
+# pull out sample names for each tissue
+list <- list()
+for (i in unique(pDat_term$Tissue)) {
+  list[[i]] <- pDat_term %>% filter(Tissue == i) %>% pull(Sample_Name)
+}
+
+# for each tissue estimate the density
+densities <- tibble(Tissue = names(list),
+       betas = lapply(list, function(x) as.vector(betas_term[,x]))) %>%
+  mutate(densities = map(betas, ~ density(.))) %>%
+  
+   # pull out x and y coordinates
+  mutate(x = map(densities, 'x'),
+         y = map(densities, 'y')) %>%
+
+  # remove input data, and unnest
+  select(-betas, -densities) %>%
+  unnest()
+
+# plot
+ggplot(densities, 
+       aes(x = x, y = y, color = Tissue)) +
+  geom_line(size = 2, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +#facet_wrap(~Tissue) +
+  scale_color_manual(values= color_code_tissue[unique(pDat_term$Tissue)])
+```
+
+Density for each sample:
+
+```{r}
+sample_densities <- pDat_term %>%
+  select(Sample_Name, Tissue) %>%
+  mutate(densities = apply(betas_term, 2, density)) %>%
+  mutate(x = map(densities, 'x'),
+         y = map(densities, 'y')) %>%
+  select(-densities) %>%
+  unnest()
+
+ggplot(sample_densities, aes(x = x, y = y, color = Tissue, group = Sample_Name)) +
+  geom_line(size = 1, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1))  +
+  facet_wrap(~Tissue) +
+  scale_color_manual(values = color_code_tissue[unique(pDat_term$Tissue)]) +
+  geom_text_repel(data = sample_densities %>% 
+                    filter(Sample_Name == 'PM364_hofb_cs', x > 0.55, x < 0.6) %>%
+                    dplyr::slice(1),
+                  aes(x = x, y = y, label = Sample_Name), inherit.aes = F,
+                  nudge_y = 1, nudge_x = -0.1) +
+  labs(x = '% methylation', y = 'density')
+```
+
+TODO:: Apply mixture modelling to determine hyper, hypomethylated, and hemi-methylated CpGs. Compare
+number of CpGs falling to each distribution. 3 component mixture: 2 beta distributions and one 
+uniform
+
+## PCA
+
+```{r}
+# compute pca
+set.seed(1)
+pca <- prcomp_irlba(t(betas_term), n = 20, center = T, scale = F)
+
+# add pc scores to pdata
+pca_scores <- pca$x[,1:20] %>% as.data.frame()
+colnames(pca_scores) <- paste0(colnames(pca_scores), '_processed')
+pDat_term <- pDat_term %>% 
+  select(-contains('processed')) %>%
+  bind_cols(pca_scores)
+
+# create proportion variance explained data frame
+pc_info <- summary(pca)$importance %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var = 'variable') %>%
+  gather(key = 'PC', value = 'value', -variable) %>%
+  as_tibble() %>%
+  mutate(PC = factor(as.character(PC), levels = paste0('PC', 1:20)),
+         Label = ifelse(variable == 'Proportion of Variance',
+                        paste0(PC, ' (', prettyNum(value*100, digits = 2), '%)'),
+                        as.character(PC))) %>%
+  arrange(variable, PC)
+
+  
+# correlate PCs with phenodata
+pc_cor <- lmmatrix(dep = pca$x[,1:20, drop = F],
+                   ind = pDat_term %>%
+                   dplyr::select(Case_ID, Tissue, Sex, Predicted_ethnicity_nothresh,#bio
+                                 Prob_African, Prob_Asian, Prob_Caucasian,
+                                 Week, Chip_number, Row_numeric, Row_factor, Batch_BSC, # batch
+                                 DNA_loaded, 
+                                 failed_probes,
+                                 cor_to_reference, Prob_SNP_outlier),
+                   metric = 'Pvalue')
+# plot data
+pc_cor <- pc_cor %>% as.data.frame() %>% 
+  
+  # add dep variables
+  mutate(dep = rownames(pc_cor)) %>%
+  
+  # reshape
+  gather(PC, pval, -dep) %>%
+  
+  # pvalue categories
+  mutate(pval_cat = factor(case_when(
+    pval > 0.05  ~ '> 0.05',
+    pval < 0.05 & pval > 0.01 ~ '< 0.05',
+    pval < 0.01 & pval > 0.001 ~ '< 0.01',
+    pval < 0.001 ~ '< 0.001'
+  ), levels = c('> 0.05', '< 0.05','< 0.01', '< 0.001')),
+  
+  # make PC is encoded with proper levels!!!
+  PC = factor(PC, levels = paste0('PC', 1:20))) %>% as_tibble()
+
+# create color palette
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pc_cor$pval_cat)
+
+# relevel
+pc_cor <- pc_cor %>% 
+  mutate(dep = factor(dep, levels = c('Case_ID', 'Tissue', 'Sex', 'Predicted_ethnicity_nothresh',#bio
+                                     'Prob_African', 'Prob_Asian', 'Prob_Caucasian',
+                                     'Week', 'Chip_number', 'Row_numeric', 'Row_factor', 
+                                     'Batch_BSC', # batch
+                                     'DNA_loaded',
+                                     'failed_probes',
+                                     'cor_to_reference', 'Prob_SNP_outlier')))
+                                     
+p7 <- ggplot(pc_cor, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+p8 <- ggplot(pc_info %>% filter(variable == 'Proportion of Variance') %>%
+               mutate(value = value*100), 
+             aes(x = PC, y = value)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() + 
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(y = '% variance explained')
+
+egg::ggarrange(p7, p8, heights = c(3,1))
+
+
+# create another without all variables
+var_interest <- c('Tissue', 'Sex', 'Prob_Caucasian', 'Prob_Asian', 'Prob_African','Case_ID',
+                  'Week', 'Chip_number', 'Row_numeric', 'Row_factor', 'Batch_BSC')
+
+p9 <- pc_cor %>% 
+  filter(dep %in% var_interest) %>%
+  mutate(dep = ifelse(dep %in% var_interest[7:11], paste0('TECH_', dep), as.character(dep))) %>%
+  mutate(dep = factor(dep, levels = c('TECH_Week', 'TECH_Chip_number', 'TECH_Row_numeric',
+                                      'TECH_Row_factor', 'TECH_Batch_BSC', 
+                                      'Prob_Caucasian', 'Prob_Asian', 'Prob_African',  'Sex',
+                                      'Case_ID', 'Tissue'))) %>%
+  ggplot(aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+egg::ggarrange(p9, p8, heights = c(3,1))
+```
+
+Scatterplots
+
+```{r message = F}
+scatter <- function(x, y, fill, point_size = 1){
+  xlab <- pc_info %>% filter(variable == 'Proportion of Variance', PC == x) %>% pull(Label)
+  ylab <- pc_info %>% filter(variable == 'Proportion of Variance', PC == y) %>% pull(Label)
+  
+  x <- paste0(x, '_processed')
+  y <- paste0(y, '_processed')
+  
+  out <- ggplot(pDat_term, aes_string(x = x, y = y, fill = fill)) +
+    geom_point(shape = 21, size = point_size) + theme_bw() + labs(x = xlab, y = ylab) 
+  
+  if (is.numeric(as.data.frame(pDat_term)[,fill])){
+    out <- out +
+      scale_fill_viridis()
+  } else {
+    out <- out + 
+      scale_fill_brewer(palette = 'Set1')
+  }
+    
+  out
+}
+
+scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_term$Tissue)])  +
+  labs(fill = '')
+scatter(x = 'PC3', y = 'PC4', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_term$Tissue)]) +
+  labs(fill = '')
+scatter(x = 'PC5', y = 'PC6', fill = 'Tissue', point_size = 2) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_term$Tissue)]) +
+  labs(fill = '')
+
+ggplot(pDat_term, aes(x = PC5_processed, y = PC6_processed, color = Case_ID)) +
+  geom_point() + theme_bw()
+
+ggplot(pDat_term, aes(x = PC4_processed, y = PC5_processed, color = Prob_Asian)) +
+  geom_point()
+```
+
+## Pairwise correlations
+
+Computed this is 22_Term_contamination.Rmd, just loaded it back in and filter to our final samples.
+
+```{r}
+# filter to our samples
+cor_betas <- cor_data$cor_betas[pDat_term$Sample_Name,pDat_term$Sample_Name]
+rownames(cor_data$annotation) <-  cor_data$x$Sample_Name
+pheatmap_anno <- cor_data$annotation[rownames(cor_betas),] 
+
+# pheatmap
+pheatmap(cor_betas, annotation_col = pheatmap_anno, 
+         annotation_row = pheatmap_anno[,c('Tissue'), drop = F],
+         show_rownames = F, show_colnames = F,
+         angle_col = 45, fontsize_row = 6, fontsize_col = 6,
+         annotation_colors = cor_data$anno_colors,
+         color = viridis(100, option = 'B'),
+         cutree_cols = 6)
+```
+
+# 3.0 Linear modelling
+
+## fit pairwise comparisons
+
+Include Case_ID to adjust for the individual effect.
+Drop the villi replicates
+
+*	PM366_vc_R1 - keep, less failed probes
+* PM366_vc_R2 - drop
+* PM77_vc - drop, interbatch replicate
+* PM139_vc - drop, interbatch replicate
+
+```{r}
+# drop villi replicates
+n1 <- nrow(pDat_term)
+pDat_term <- pDat_term %>% filter(!Sample_Name %in% c('PM366_vc_R2', 'PM77_vc', 'PM139_vc'))
+n2 <- nrow(pDat_term)
+print(paste(n1, 'samples filtered down to', n2))
+
+betas_term <- betas_term[,pDat_term$Sample_Name]
+mvals_term <- mvals_term[,pDat_term$Sample_Name]
+ncol(betas_term) == n2
+ncol(mvals_term) == n2
+
+# create a design matrix
+design <- model.matrix(~0+Tissue + Case_ID, 
+                       data = pDat_term)
+colnames(design) <- gsub('Tissue', '', gsub('Case_ID', '', colnames(design)))
+colnames(design) <- case_when(
+  colnames(design) == 'Endothelial cs' ~ 'Endo_cs',
+  colnames(design) == 'Hofbauer cs' ~ 'Hofb_cs',
+  colnames(design) == 'Trophoblasts cs' ~ 'Troph_cs',
+  colnames(design) == 'Trophoblasts enz' ~ 'Troph_enz',
+  colnames(design) == 'Stromal cs' ~ 'Strom_cs',
+  colnames(design) == 'Villi' ~ 'Villi',
+  TRUE ~ colnames(design)
+)
+
+
+# fit the linear model 
+fit <- lmFit(mvals_term, design)
+
+# create a contrast matrix for specific comparisons
+contMatrix <- makeContrasts(Endo_cs-Hofb_cs,
+                           Endo_cs-Strom_cs,
+                           Endo_cs-Troph_cs,
+                           Endo_cs-Troph_enz,
+                           Endo_cs-Villi,
+                           
+                           Hofb_cs-Strom_cs,
+                           Hofb_cs-Troph_cs,
+                           Hofb_cs-Troph_enz,
+                           Hofb_cs-Villi,
+                           
+                           Strom_cs-Troph_cs,
+                           Strom_cs-Troph_enz,
+                           Strom_cs-Villi,
+                           
+                           Troph_cs-Troph_enz,
+                           Troph_cs-Villi,
+                           
+                           Troph_enz-Villi,
+                           
+                           levels=design)
+# fit contrasts
+fit2 <- contrasts.fit(fit, contMatrix)
+fit2 <- eBayes(fit2) # moderate t stats
+
+# pull out dmcs
+dmcs <- broom::tidy(fit2) %>%
+  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s', remove = F) %>%
+  group_by(Group1, Group2) %>%
+  mutate(fdr = p.adjust(p.value, method = "fdr"),
+         bonferroni = p.adjust(p.value, method = 'bonferroni')) %>%
+  ungroup()
+```
+
+We need to conver the effect sizes in terms of beta values. To do this we fit the linear models over
+the beta values and join that to the mvalue results.
+
+Basically, we are using the p values and other stats calculated on m values. And using the effect 
+sizes from the beta values.
+
+
+```{r}
+fit_b <- lmFit(betas_term, design)
+fit_b2 <- contrasts.fit(fit_b, contMatrix)
+fit_b2 <- eBayes(fit_b2) # moderate t stats
+
+# pull out effect sizes
+effect_sizes <- broom::tidy(fit_b2) %>% 
+  dplyr::rename(estimate_b = estimate) %>%
+  select(gene, term, estimate_b) # join on term and gene, add in estimate
+
+# join
+dmcs <- dmcs %>% dplyr::rename(estimate_m = estimate) %>%
+  left_join(effect_sizes)
+```
+
+estimate_b -> effect size based on beta values
+estimate_m -> effect size based on m values
+
+## analyze model results
+
+It takes too long to plot all points ,so I  subsetted to 150000 points, which is around 10,000
+plots per comparison
+
+I also use bonferroni adjusted p values, because almost everything is significant
+
+```{r}
+# view p value histogram
+ggplot(dmcs, aes(x = p.value)) +
+  geom_histogram() +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0,0.5,1)) +
+  facet_wrap(~ term, scales = 'free_y')
+
+#volcano
+dmcs %>%
+  sample_n(150000) %>%
+  ggplot(aes(estimate_b, bonferroni)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~ term, scales = "free") +
+  geom_hline(yintercept = 0.05, col = 'blue', linetype = 'dashed') +
+  scale_y_log10()  +
+  scale_x_continuous(limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1)) +
+  labs(title = '10000 points per plot shown',  y= 'log10 of bonferroni-adjusted\np value')
+
+
+stat_thresholds <- dmcs %>%
+  group_by(term) %>%
+  summarize(fdr01_deltb05 = sum(fdr < 0.01 & abs(estimate_b) > 0.05),
+            fdr01_deltb10 = sum(fdr < 0.01 & abs(estimate_b) > 0.1),
+            fdr01_deltb15 = sum(fdr < 0.01 & abs(estimate_b) > 0.15),
+            fdr01_deltb20 = sum(fdr < 0.01 & abs(estimate_b) > 0.2))
+stat_thresholds
+```
+
+## Upset plot
+
+```{r}
+dmcs_wide <- dmcs %>%
+  mutate(significant = ifelse(fdr < 0.01 & abs(estimate_b) > 0.1, 1, 0)) %>%
+  select(gene, term, significant) %>%
+  mutate(term = gsub('\\s-\\s', '_', term)) %>%
+  spread(key = term, value = significant) 
+dmcs_wide
+
+
+upset(nsets = 15, data.frame(dmcs_wide))
+```
+
+
+## top 1000 DMCs
+
+```{r}
+dmcs_top1000 <- dmcs %>%
+  group_by(term) %>%
+  arrange(fdr) %>%
+  dplyr::slice(1:1000) %>%
+  ungroup()
+
+# widen
+dmcs_top1000 %>% select(-estimate_m:-estimate_b) %>% mutate()
+
+# join to genes, first filter to selected columns
+anno_reduced <- anno %>% 
+  select(Name, chr, pos, strand, Islands_Name, Relation_to_Island, contains('UCSC'), 
+         contains('Phantom'), 'DMR', 'Methyl450_Loci')
+
+dmcs_top1000 <- dmcs_top1000 %>%
+  ungroup() %>%
+  left_join(anno_reduced, by = c('gene' = 'Name'), order.by = 'freq')
+```
