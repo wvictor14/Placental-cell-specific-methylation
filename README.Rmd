@@ -24,6 +24,16 @@ library(kableExtra)
 
 For NIH EPIC cells project
 
+R scripts and folders are named in the following system:
+
+* Directories are numbered by the order their contained scripts in the workflow. For example, scripts
+in `0_data` are ran before `1_qc_preprocess`, which is before `2_analysis.`
+* Scripts are numbered by their directory and workflow order as well. `0_1_load_data.Rmd` is in the 
+`0_data` directory and is ran before `0_2_check_data.Rmd.`
+* Output from scripts is stored in either `main/interim` or `main/processed`. Output is prefixed by the
+same prefix of the script used to generate them. For example, `0_1_load_data.Rmd` produces 
+`0_1_rgset.rds`, which is stored in `main/interim`.
+
 # Directory structure
 
 ```
@@ -40,9 +50,9 @@ Placental Cell DNA Methylation
 │           └───processed         <- The final, canonical data sets for analysis/sharing
 |
 └───R
-|   └───00_data                   <- Downloading & loading data into R
-|   └───10_qc_preprocess          <- Quality control and preprocessing data
-|   └───20_analysis               <- Analyzing processed data
+|   └───0_data                   <- Downloading & loading data into R
+|   └───1_qc_preprocess          <- Quality control and preprocessing data
+|   └───2_analysis               <- Analyzing processed data
 |   └───functions                 
 |
 └───outs                          <- Figures, tables, reports
