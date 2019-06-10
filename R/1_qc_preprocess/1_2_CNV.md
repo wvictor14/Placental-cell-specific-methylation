@@ -29,10 +29,11 @@ library(tidyr)
 library(conumee)
 library(doParallel)
 
-rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
-pDat <- readRDS('../../data/main/interim/11_pDat.rds')
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
-
+rgset <- readRDS('../../data/main/interim/0_1_rgset_raw.rds')
+pDat <- readRDS('../../data/main/interim/1_1_pDat.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+  
+  
 all(pDat$Sentrix == colnames(rgset)) # T
 ```
 
@@ -209,7 +210,7 @@ names(CNV_calls) <- pDat$Sample_Name
 CNV.genomeplot(CNV_calls[[1]])
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
 
 ```r
 # visualize 
@@ -397,7 +398,7 @@ ggplot(plot_data_melt[1:900000,],
 ## Warning: Removed 886120 rows containing missing values (geom_point).
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
 Too sensitive
 TRy with segments
@@ -450,39 +451,39 @@ plot_cnv <- function(data) {
 plot_cnv(data = CNV_segments %>% filter(ID %in% Second))
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
 
 ```r
 #First trimester
 plot_cnv(CNV_segments %>% filter(ID %in% First[1:25])) 
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-8-2.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-8-2.png)<!-- -->
 
 ```r
 plot_cnv(CNV_segments %>% filter(ID %in% First[26:50])) 
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-8-3.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-8-3.png)<!-- -->
 
 ```r
 # third trimester
 plot_cnv(CNV_segments %>% filter(ID %in% Third[1:42]))
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-8-4.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-8-4.png)<!-- -->
 
 ```r
 plot_cnv(CNV_segments %>% filter(ID %in% Third[43:85]))
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-8-5.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-8-5.png)<!-- -->
 
 ```r
 plot_cnv(CNV_segments %>% filter(ID %in% Third[86:126])) 
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-8-6.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-8-6.png)<!-- -->
 
 Save
 
@@ -530,7 +531,7 @@ plot_cnv_bin <- function(data) {
 plot_cnv_bin(CNV_bins %>% filter(Sample%in%Second[1:8]))
 ```
 
-![](12_CNV_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+![](1_2_CNV_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
 
 ```r
 # First
@@ -538,45 +539,113 @@ plot_cnv_bin(CNV_bins %>% filter(Sample%in%Second[1:8]))
 # Third
 ```
 
-# extra stuff
-
-
-```r
-ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity, 
-                 fill = Prob_SNP_outlier)) +
-  geom_point(aes(shape = Sex), size = 2.5, alpha = 0.95) +
-  scale_shape_manual(values = c('M' = 21, 'F' = 22)) +
-  theme_bw() +
-  scale_fill_viridis_c(option = 'inferno')
-```
-
-![](12_CNV_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
-
-```r
-ggplot(pDat %>% filter(Sex == 'M'), 
-       aes(x = normalized_Y_intensity, y = Prob_SNP_outlier, fill = Average_SNP_cor_within_donor)) +
-  geom_point(shape = 21, color = 'black', size = 3) + 
-  geom_smooth(method = 'loess')+
-  theme_bw() +
-  scale_fill_viridis_c(option = 'inferno') 
-```
-
-![](12_CNV_files/figure-html/unnamed-chunk-10-2.png)<!-- -->
-
-```r
-ggplot(pDat %>% filter(Sex == 'M'), 
-       aes(x = normalized_Y_intensity, y = Prob_SNP_outlier)) +
-  geom_smooth(method = 'loess')+
-  geom_point(shape = 21, color = 'black', size = 3, aes(fill = Tissue)) + 
-  theme_bw() +
-  scale_fill_brewer(palette = 'Set1')
-```
-
-![](12_CNV_files/figure-html/unnamed-chunk-10-3.png)<!-- -->
-
-# TODO
+# Future improvements
 
 Determine better cutofss to call deletions and gains
+
+# SessionInfo
+
+
+```r
+sessionInfo()
+```
+
+```
+## R version 3.6.0 (2019-04-26)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+## Running under: Windows Server x64 (build 14393)
+## 
+## Matrix products: default
+## 
+## locale:
+## [1] LC_COLLATE=English_Canada.1252  LC_CTYPE=English_Canada.1252   
+## [3] LC_MONETARY=English_Canada.1252 LC_NUMERIC=C                   
+## [5] LC_TIME=English_Canada.1252    
+## 
+## attached base packages:
+## [1] stats4    parallel  stats     graphics  grDevices utils     datasets 
+## [8] methods   base     
+## 
+## other attached packages:
+##  [1] IlluminaHumanMethylationEPICanno.ilm10b4.hg19_0.6.0
+##  [2] doParallel_1.0.14                                  
+##  [3] conumee_1.18.0                                     
+##  [4] IlluminaHumanMethylationEPICmanifest_0.3.0         
+##  [5] IlluminaHumanMethylationEPICanno.ilm10b2.hg19_0.6.0
+##  [6] IlluminaHumanMethylation450kmanifest_0.4.0         
+##  [7] IlluminaHumanMethylation450kanno.ilmn12.hg19_0.6.0 
+##  [8] tidyr_0.8.3                                        
+##  [9] dplyr_0.8.1                                        
+## [10] ggplot2_3.1.1                                      
+## [11] minfi_1.30.0                                       
+## [12] bumphunter_1.26.0                                  
+## [13] locfit_1.5-9.1                                     
+## [14] iterators_1.0.10                                   
+## [15] foreach_1.4.4                                      
+## [16] Biostrings_2.52.0                                  
+## [17] XVector_0.24.0                                     
+## [18] SummarizedExperiment_1.14.0                        
+## [19] DelayedArray_0.10.0                                
+## [20] BiocParallel_1.17.18                               
+## [21] matrixStats_0.54.0                                 
+## [22] Biobase_2.43.1                                     
+## [23] GenomicRanges_1.36.0                               
+## [24] GenomeInfoDb_1.20.0                                
+## [25] IRanges_2.18.0                                     
+## [26] S4Vectors_0.22.0                                   
+## [27] BiocGenerics_0.29.2                                
+## 
+## loaded via a namespace (and not attached):
+##  [1] colorspace_1.4-1         siggenes_1.58.0         
+##  [3] mclust_5.4.3             DNAcopy_1.58.0          
+##  [5] base64_2.0               bit64_0.9-7             
+##  [7] fansi_0.4.0              AnnotationDbi_1.46.0    
+##  [9] xml2_1.2.0               codetools_0.2-16        
+## [11] splines_3.6.0            scrime_1.3.5            
+## [13] knitr_1.22               zeallot_0.1.0           
+## [15] Rsamtools_2.0.0          annotate_1.62.0         
+## [17] HDF5Array_1.12.1         readr_1.3.1             
+## [19] compiler_3.6.0           httr_1.4.0              
+## [21] backports_1.1.4          assertthat_0.2.1        
+## [23] Matrix_1.2-17            lazyeval_0.2.2          
+## [25] cli_1.1.0                limma_3.40.0            
+## [27] htmltools_0.3.6          prettyunits_1.0.2       
+## [29] tools_3.6.0              gtable_0.3.0            
+## [31] glue_1.3.1               GenomeInfoDbData_1.2.1  
+## [33] doRNG_1.7.1              Rcpp_1.0.1              
+## [35] vctrs_0.1.0              multtest_2.40.0         
+## [37] preprocessCore_1.46.0    nlme_3.1-140            
+## [39] rtracklayer_1.44.0       DelayedMatrixStats_1.6.0
+## [41] xfun_0.6                 stringr_1.4.0           
+## [43] rngtools_1.3.1.1         XML_3.98-1.19           
+## [45] beanplot_1.2             zlibbioc_1.30.0         
+## [47] MASS_7.3-51.4            scales_1.0.0            
+## [49] hms_0.4.2                rhdf5_2.28.0            
+## [51] GEOquery_2.52.0          RColorBrewer_1.1-2      
+## [53] yaml_2.2.0               memoise_1.1.0           
+## [55] pkgmaker_0.27            biomaRt_2.40.0          
+## [57] reshape_0.8.8            stringi_1.4.3           
+## [59] RSQLite_2.1.1            genefilter_1.66.0       
+## [61] GenomicFeatures_1.36.0   bibtex_0.4.2            
+## [63] rlang_0.3.4              pkgconfig_2.0.2         
+## [65] bitops_1.0-6             nor1mix_1.2-3           
+## [67] evaluate_0.13            lattice_0.20-38         
+## [69] purrr_0.3.2              Rhdf5lib_1.6.0          
+## [71] labeling_0.3             GenomicAlignments_1.20.0
+## [73] bit_1.1-14               tidyselect_0.2.5        
+## [75] plyr_1.8.4               magrittr_1.5            
+## [77] R6_2.4.0                 DBI_1.0.0               
+## [79] pillar_1.4.0             withr_2.1.2             
+## [81] survival_2.44-1.1        RCurl_1.95-4.12         
+## [83] tibble_2.1.1             crayon_1.3.4            
+## [85] utf8_1.1.4               rmarkdown_1.12.7        
+## [87] progress_1.2.0           grid_3.6.0              
+## [89] data.table_1.12.2        blob_1.1.1              
+## [91] digest_0.6.18            xtable_1.8-4            
+## [93] illuminaio_0.26.0        openssl_1.3             
+## [95] munsell_0.5.0            registry_0.5-1          
+## [97] askpass_1.1              quadprog_1.5-7
+```
 
 # Save data
 
@@ -588,8 +657,8 @@ names(CNV_probes) <- names(CNV_calls)
 CNV_probes <- bind_cols(CNV.write(CNV_calls[[1]], what = 'probes')[,1:4],
                       CNV_probes) %>% as_tibble()
 
-saveRDS(CNV_probes, '../../data/main/interim/12_CNV_probes.rds')
-saveRDS(CNV_segments_save, '../../data/main/interim/12_CNV_segments.rds')
-saveRDS(CNV_bins_save, '../../data/main/interim/12_CNV_bins.rds')
-saveRDS(chrom_lengths, '../../data/main/interim/12_chrom_lengths.rds')
+saveRDS(CNV_probes, '../../data/main/interim/1_2_CNV_probes.rds')
+saveRDS(CNV_segments_save, '../../data/main/interim/1_2_CNV_segments.rds')
+saveRDS(CNV_bins_save, '../../data/main/interim/1_2_CNV_bins.rds')
+saveRDS(chrom_lengths, '../../data/main/interim/1_2_chrom_lengths.rds')
 ```

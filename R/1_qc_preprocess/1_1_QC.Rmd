@@ -50,8 +50,8 @@ library(egg)
 Load the data in
 
 ```{r}
-rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
-et_meth <- readRDS('../../data/main/interim/01_ewastools_loaded_idats.rds')
+rgset <- readRDS('../../data/main/interim/0_1_rgset_raw.rds')
+et_meth <- readRDS('../../data/main/interim/0_1_ewastools_loaded_idats.rds')
 pDat <- pData(rgset) %>% as_tibble()
 ```
 
@@ -1265,10 +1265,10 @@ ggplot(pDat, aes(x = PC1_norm, y = PC2_norm, col = Tissue, shape = Trimester)) +
 
 ```{r eval = F}
 # save color code
-saveRDS(color_code, '../../data/main/interim/11_color_code.rds')
+saveRDS(color_code, '../../data/main/interim/1_1_color_code.rds')
 
 # Save all QC metric with pData, except UMAP projections we will only save from the cells data
-saveRDS(pDat %>% select(-contains('UMAP')), '../../data/main/interim/11_pDat.rds')
+saveRDS(pDat %>% select(-contains('UMAP')), '../../data/main/interim/1_1_pDat.rds')
 
 
 # save UMAP and TSNE coordinates
@@ -1276,23 +1276,23 @@ saveRDS(pDat_sub1 %>% select(Sample_Name, Tissue, Trimester, contains('UMAP'), c
         '../../data/main/interim/11_dimreduc.rds')
 
 #snp betas
-saveRDS(snp_betas, '../../data/main/interim/11_snp_betas.rds')
+saveRDS(snp_betas, '../../data/main/interim/1_1_snp_betas.rds')
 
 # called genotypes
-saveRDS(snps_called, '../../data/main/interim/11_snps_called.rds')
+saveRDS(snps_called, '../../data/main/interim/1_1_snps_called.rds')
 
 # probe QC results
-saveRDS(probe_anno, '../../data/main/interim/11_probe_anno.rds')
+saveRDS(probe_anno, '../../data/main/interim/1_1_probe_anno.rds')
 
 # control probes
 saveRDS(list('Data' = controls_melt, 'Thresholds' = controls_thresholds),
-        '../../data/main/interim/11_control_probes.rds')
+        '../../data/main/interim/1_1_control_probes.rds')
 
 # save pairwise snp correlation matrix
-saveRDS(C_save, '../../data/main/interim/11_cor_matrix_snp_betas.rds')
+saveRDS(C_save, '../../data/main/interim/1_1_cor_matrix_snp_betas.rds')
 
 # PCA association data for plotting
 saveRDS(list("Plot_data" = pca_raw_plot,
              "PC_variance" = prop_var),
-        '../../data/main/interim/11_pca_association_plot.rds')
+        '../../data/main/interim/1_1_pca_association_plot.rds')
 ```

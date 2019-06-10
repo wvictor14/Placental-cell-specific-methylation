@@ -28,9 +28,9 @@ library(tidyr)
 library(conumee)
 library(doParallel)
 
-rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
-pDat <- readRDS('../../data/main/interim/11_pDat.rds')
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+rgset <- readRDS('../../data/main/interim/0_1_rgset_raw.rds')
+pDat <- readRDS('../../data/main/interim/1_1_pDat.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
   
   
 all(pDat$Sentrix == colnames(rgset)) # T
@@ -349,8 +349,8 @@ names(CNV_probes) <- names(CNV_calls)
 CNV_probes <- bind_cols(CNV.write(CNV_calls[[1]], what = 'probes')[,1:4],
                       CNV_probes) %>% as_tibble()
 
-saveRDS(CNV_probes, '../../data/main/interim/12_CNV_probes.rds')
-saveRDS(CNV_segments_save, '../../data/main/interim/12_CNV_segments.rds')
-saveRDS(CNV_bins_save, '../../data/main/interim/12_CNV_bins.rds')
-saveRDS(chrom_lengths, '../../data/main/interim/12_chrom_lengths.rds')
+saveRDS(CNV_probes, '../../data/main/interim/1_2_CNV_probes.rds')
+saveRDS(CNV_segments_save, '../../data/main/interim/1_2_CNV_segments.rds')
+saveRDS(CNV_bins_save, '../../data/main/interim/1_2_CNV_bins.rds')
+saveRDS(chrom_lengths, '../../data/main/interim/1_2_chrom_lengths.rds')
 ```

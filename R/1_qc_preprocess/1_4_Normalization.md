@@ -37,15 +37,15 @@ library(IlluminaHumanMethylationEPICmanifest)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 
 # pdata
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 
 # raw methylation data
-rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
+rgset <- readRDS('../../data/main/interim/0_1_rgset_raw.rds')
 betas_raw <- getBeta(rgset)
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
 
 # snp data
-snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
 
 # annotation
 zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
@@ -65,11 +65,11 @@ mset_noob <- preprocessNoob(rgset)
 betas_noob <- getBeta(mset_noob)
 ```
 
-saveRDS(mset_noob, '../../data/main/interim/14_mset_noob.rds')
+saveRDS(mset_noob, '../../data/main/interim/1_4_mset_noob.rds')
 
 
 ```r
-mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds')
 betas_noob <- getBeta(mset_noob)
 ```
 
@@ -166,7 +166,7 @@ ggplot(densities, aes(x = value, col = stage)) +
 ## Warning: Removed 711 rows containing non-finite values (stat_density).
 ```
 
-![](14_Normalization_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+![](1_4_Normalization_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
 
 ## Replicates
 
@@ -197,21 +197,21 @@ pheatmap(cor_raw, annotation_row = pheatmap_anno,
          annotation_colors = heatmap_cols)
 ```
 
-![](14_Normalization_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+![](1_4_Normalization_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ```r
 pheatmap(cor_noob_unfilt, annotation_row = pheatmap_anno,
          annotation_colors = heatmap_cols)
 ```
 
-![](14_Normalization_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
+![](1_4_Normalization_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
 
 ```r
 pheatmap(cor_noob_filt, annotation_row = pheatmap_anno,
          annotation_colors = heatmap_cols)
 ```
 
-![](14_Normalization_files/figure-html/unnamed-chunk-6-3.png)<!-- -->
+![](1_4_Normalization_files/figure-html/unnamed-chunk-6-3.png)<!-- -->
 
 ```r
 cor_raw['PL293_v_R1','PL293_v_R2'] # 0.9900
@@ -273,17 +273,12 @@ pca_norm_filt <- prcomp_irlba(t(na.omit(betas_noob_filt)), n = 20)
 pca_norm_filt_scores <-pca_norm_filt$x %>% as_tibble() %>% mutate(Sample_Name = pDat$Sample_Name) 
 colnames(pca_norm_filt_scores)[1:20] <- paste0(colnames(pca_norm_filt_scores)[1:20], '_norm_filt')
 
-# factorize some variables encoded as numeric
-pDat <- pDat %>%
-  mutate(Week = as.factor(as.character(Week)),
-         Chip_number = as.factor(as.character(Chip_number)),
-         Row = as.factor(as.character(Row)))
   
 # correlate with phenodata
 pca_norm_filt_cor <- lmmatrix(dep = pca_norm_filt_scores[,1:20],
                         ind = pDat %>% 
                           dplyr::select(Case_ID, Tissue, Sex, Trimester, #bio
-                                        Week, Chip_number, Row, Batch_BSC, # batch 
+                                        Week, Chip_number, Row_numeric, Row_factor, Batch_BSC, # batch 
                                         DNA_conc_BSC_adjusted, DNA_conc_before_load, DNA_loaded,
                                         failed_probes, Flag_Sex, Flag_genotype,
                                         Agreement_to_donor_villi), 
@@ -320,7 +315,7 @@ p1 <- ggplot(pca_norm_filt_plot, aes(x = PC, y = dep, fill = pval_cat)) +
   labs(y = '', fill = 'P value') + coord_equal();p1
 ```
 
-![](14_Normalization_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](1_4_Normalization_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
 ```r
 # calculate proportion variance
@@ -331,13 +326,13 @@ p1b <- ggplot(prop_var, aes(x = PC, y = Prop_var_norm_filt)) +
   scale_x_continuous(breaks = 1:20);p1b
 ```
 
-![](14_Normalization_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+![](1_4_Normalization_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
 
 # 4.0 Save data
 
 
 ```r
-saveRDS(betas_noob_filt, '../../data/main/interim/14_betas_noob_filt.rds')
+saveRDS(betas_noob_filt, '../../data/main/interim/1_4_betas_noob_filt.rds')
 ```
 
 # SessionInfo
@@ -366,7 +361,7 @@ sessionInfo()
 ## other attached packages:
 ##  [1] IlluminaHumanMethylationEPICanno.ilm10b4.hg19_0.6.0
 ##  [2] IlluminaHumanMethylationEPICmanifest_0.3.0         
-##  [3] yahew_0.1.0                                        
+##  [3] yahew_0.1.1                                        
 ##  [4] irlba_2.3.3                                        
 ##  [5] Matrix_1.2-17                                      
 ##  [6] pheatmap_1.0.12                                    
@@ -404,44 +399,45 @@ sessionInfo()
 ##  [7] xml2_1.2.0               codetools_0.2-16        
 ##  [9] splines_3.6.0            scrime_1.3.5            
 ## [11] knitr_1.22               Rsamtools_2.0.0         
-## [13] annotate_1.62.0          HDF5Array_1.12.1        
-## [15] readr_1.3.1              compiler_3.6.0          
-## [17] httr_1.4.0               assertthat_0.2.1        
-## [19] lazyeval_0.2.2           limma_3.40.0            
-## [21] htmltools_0.3.6          prettyunits_1.0.2       
-## [23] tools_3.6.0              gtable_0.3.0            
-## [25] glue_1.3.1               GenomeInfoDbData_1.2.1  
-## [27] reshape2_1.4.3           doRNG_1.7.1             
-## [29] Rcpp_1.0.1               multtest_2.40.0         
-## [31] preprocessCore_1.46.0    nlme_3.1-140            
-## [33] rtracklayer_1.44.0       DelayedMatrixStats_1.6.0
-## [35] xfun_0.6                 stringr_1.4.0           
-## [37] rngtools_1.3.1.1         XML_3.98-1.19           
-## [39] beanplot_1.2             zlibbioc_1.30.0         
-## [41] MASS_7.3-51.4            scales_1.0.0            
-## [43] hms_0.4.2                rhdf5_2.28.0            
-## [45] GEOquery_2.52.0          yaml_2.2.0              
-## [47] memoise_1.1.0            gridExtra_2.3           
-## [49] pkgmaker_0.27            biomaRt_2.40.0          
-## [51] reshape_0.8.8            stringi_1.4.3           
-## [53] RSQLite_2.1.1            genefilter_1.66.0       
-## [55] GenomicFeatures_1.36.0   bibtex_0.4.2            
-## [57] rlang_0.3.4              pkgconfig_2.0.2         
-## [59] bitops_1.0-6             nor1mix_1.2-3           
-## [61] evaluate_0.13            lattice_0.20-38         
-## [63] purrr_0.3.2              Rhdf5lib_1.6.0          
-## [65] labeling_0.3             GenomicAlignments_1.20.0
-## [67] bit_1.1-14               tidyselect_0.2.5        
-## [69] plyr_1.8.4               magrittr_1.5            
-## [71] R6_2.4.0                 DBI_1.0.0               
-## [73] pillar_1.4.0             withr_2.1.2             
-## [75] survival_2.44-1.1        RCurl_1.95-4.12         
-## [77] tibble_2.1.1             crayon_1.3.4            
-## [79] rmarkdown_1.12.7         progress_1.2.0          
-## [81] grid_3.6.0               data.table_1.12.2       
-## [83] blob_1.1.1               digest_0.6.18           
-## [85] xtable_1.8-4             illuminaio_0.26.0       
-## [87] openssl_1.3              munsell_0.5.0           
-## [89] registry_0.5-1           askpass_1.1             
-## [91] quadprog_1.5-7
+## [13] broom_0.5.2              annotate_1.62.0         
+## [15] HDF5Array_1.12.1         readr_1.3.1             
+## [17] compiler_3.6.0           httr_1.4.0              
+## [19] backports_1.1.4          assertthat_0.2.1        
+## [21] lazyeval_0.2.2           limma_3.40.0            
+## [23] htmltools_0.3.6          prettyunits_1.0.2       
+## [25] tools_3.6.0              gtable_0.3.0            
+## [27] glue_1.3.1               GenomeInfoDbData_1.2.1  
+## [29] reshape2_1.4.3           doRNG_1.7.1             
+## [31] Rcpp_1.0.1               multtest_2.40.0         
+## [33] preprocessCore_1.46.0    nlme_3.1-140            
+## [35] rtracklayer_1.44.0       DelayedMatrixStats_1.6.0
+## [37] xfun_0.6                 stringr_1.4.0           
+## [39] rngtools_1.3.1.1         XML_3.98-1.19           
+## [41] beanplot_1.2             zlibbioc_1.30.0         
+## [43] MASS_7.3-51.4            scales_1.0.0            
+## [45] hms_0.4.2                rhdf5_2.28.0            
+## [47] GEOquery_2.52.0          yaml_2.2.0              
+## [49] memoise_1.1.0            gridExtra_2.3           
+## [51] pkgmaker_0.27            biomaRt_2.40.0          
+## [53] reshape_0.8.8            stringi_1.4.3           
+## [55] RSQLite_2.1.1            genefilter_1.66.0       
+## [57] GenomicFeatures_1.36.0   bibtex_0.4.2            
+## [59] rlang_0.3.4              pkgconfig_2.0.2         
+## [61] bitops_1.0-6             nor1mix_1.2-3           
+## [63] evaluate_0.13            lattice_0.20-38         
+## [65] purrr_0.3.2              Rhdf5lib_1.6.0          
+## [67] labeling_0.3             GenomicAlignments_1.20.0
+## [69] bit_1.1-14               tidyselect_0.2.5        
+## [71] plyr_1.8.4               magrittr_1.5            
+## [73] R6_2.4.0                 generics_0.0.2          
+## [75] DBI_1.0.0                pillar_1.4.0            
+## [77] withr_2.1.2              survival_2.44-1.1       
+## [79] RCurl_1.95-4.12          tibble_2.1.1            
+## [81] crayon_1.3.4             rmarkdown_1.12.7        
+## [83] progress_1.2.0           grid_3.6.0              
+## [85] data.table_1.12.2        blob_1.1.1              
+## [87] digest_0.6.18            xtable_1.8-4            
+## [89] illuminaio_0.26.0        openssl_1.3             
+## [91] munsell_0.5.0            registry_0.5-1          
+## [93] askpass_1.1              quadprog_1.5-7
 ```

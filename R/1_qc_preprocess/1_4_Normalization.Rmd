@@ -36,15 +36,15 @@ library(IlluminaHumanMethylationEPICmanifest)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 
 # pdata
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 
 # raw methylation data
-rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
+rgset <- readRDS('../../data/main/interim/0_1_rgset_raw.rds')
 betas_raw <- getBeta(rgset)
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
 
 # snp data
-snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
 
 # annotation
 zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
@@ -63,10 +63,10 @@ mset_noob <- preprocessNoob(rgset)
 betas_noob <- getBeta(mset_noob)
 ```
 
-saveRDS(mset_noob, '../../data/main/interim/14_mset_noob.rds')
+saveRDS(mset_noob, '../../data/main/interim/1_4_mset_noob.rds')
 
 ```{r}
-mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds')
 betas_noob <- getBeta(mset_noob)
 ```
 
@@ -201,17 +201,12 @@ pca_norm_filt <- prcomp_irlba(t(na.omit(betas_noob_filt)), n = 20)
 pca_norm_filt_scores <-pca_norm_filt$x %>% as_tibble() %>% mutate(Sample_Name = pDat$Sample_Name) 
 colnames(pca_norm_filt_scores)[1:20] <- paste0(colnames(pca_norm_filt_scores)[1:20], '_norm_filt')
 
-# factorize some variables encoded as numeric
-pDat <- pDat %>%
-  mutate(Week = as.factor(as.character(Week)),
-         Chip_number = as.factor(as.character(Chip_number)),
-         Row = as.factor(as.character(Row)))
   
 # correlate with phenodata
 pca_norm_filt_cor <- lmmatrix(dep = pca_norm_filt_scores[,1:20],
                         ind = pDat %>% 
                           dplyr::select(Case_ID, Tissue, Sex, Trimester, #bio
-                                        Week, Chip_number, Row, Batch_BSC, # batch 
+                                        Week, Chip_number, Row_numeric, Row_factor, Batch_BSC, # batch 
                                         DNA_conc_BSC_adjusted, DNA_conc_before_load, DNA_loaded,
                                         failed_probes, Flag_Sex, Flag_genotype,
                                         Agreement_to_donor_villi), 
@@ -259,7 +254,7 @@ p1b <- ggplot(prop_var, aes(x = PC, y = Prop_var_norm_filt)) +
 # 4.0 Save data
 
 ```{r eval = F}
-saveRDS(betas_noob_filt, '../../data/main/interim/14_betas_noob_filt.rds')
+saveRDS(betas_noob_filt, '../../data/main/interim/1_4_betas_noob_filt.rds')
 ```
 
 # SessionInfo

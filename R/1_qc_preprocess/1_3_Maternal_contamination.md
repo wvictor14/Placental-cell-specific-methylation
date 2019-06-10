@@ -28,13 +28,13 @@ library(viridis)
 library(GGally) # for ggcorr
 source('../check_snp_agreement2.R') # code to return all agreement scores
 
-pDat <- readRDS('../../data/main/interim/11_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_1_pDat.rds')
 
 # called genotypes
-snps_called <- readRDS('../../data/main/interim/11_snps_called.rds')
+snps_called <- readRDS('../../data/main/interim/1_1_snps_called.rds')
 
 
-cor_snp <- readRDS('../../data/main/interim/11_cor_matrix_snp_betas.rds')
+cor_snp <- readRDS('../../data/main/interim/1_1_cor_matrix_snp_betas.rds')
 ```
 
 # Limitations of inferring contamination
@@ -52,7 +52,7 @@ ggplot(pDat, aes(x = normalized_X_intensity, y = normalized_Y_intensity,
   scale_fill_viridis_c(option = 'inferno')
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-2-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-2-1.png)<!-- -->
 
 ```r
 ggplot(pDat %>% filter(Sex == 'M'), 
@@ -63,7 +63,7 @@ ggplot(pDat %>% filter(Sex == 'M'),
   scale_fill_viridis_c(option = 'inferno') 
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-2-2.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-2-2.png)<!-- -->
 
 ```r
 ggplot(pDat %>% filter(Sex == 'M'), 
@@ -74,7 +74,7 @@ ggplot(pDat %>% filter(Sex == 'M'),
   scale_fill_brewer(palette = 'Set1')
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-2-3.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-2-3.png)<!-- -->
 
 # Agreement between inferred snps
 
@@ -323,7 +323,7 @@ pDat %>% arrange(Tissue, desc(Agreement_to_donor_villi)) %>%
 ## Warning: Removed 11 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
 
 How does this compare to previous measures of contamination?
 
@@ -342,7 +342,7 @@ ggplot(pDat, aes(x = Agreement_to_donor_villi, y = normalized_Y_intensity, color
 ## Warning: Removed 11 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
 
 ```r
 ggplot(pDat, aes(x = Agreement_to_donor_villi, y = Prob_SNP_outlier, color = Sex)) +
@@ -353,7 +353,7 @@ ggplot(pDat, aes(x = Agreement_to_donor_villi, y = Prob_SNP_outlier, color = Sex
 ## Warning: Removed 11 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
 
 In males, SNP agreement to villi is highly correlated with normalized Y intensity.
 
@@ -374,7 +374,7 @@ ggplot(pDat, aes(x = normalized_X_intensity, y= normalized_Y_intensity, color = 
              color = 'black')
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ## Correlation to donor villi
 
@@ -418,7 +418,7 @@ pDat %>% select(cor_to_donor_villi, cor_to_unrelated) %>% gather() %>%
 ## Warning: Removed 11 rows containing non-finite values (stat_boxplot).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
 ```r
 # correlation to other measures of contamination
@@ -434,7 +434,7 @@ ggplot(pDat, aes(x = cor_to_donor_villi, y = Agreement_to_donor_villi)) +
 ## Warning: Removed 11 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
 
 ```r
 fit <- lm(cor_to_donor_villi ~ normalized_Y_intensity, data = pDat %>% filter(Sex == 'M'))
@@ -452,7 +452,7 @@ ggplot(pDat, aes(x = cor_to_donor_villi, y = normalized_Y_intensity, color = Sex
 ## Warning: Removed 11 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
 
 ```r
 pDat %>% arrange(Tissue, desc(cor_to_donor_villi)) %>% 
@@ -473,7 +473,7 @@ pDat %>% arrange(Tissue, desc(cor_to_donor_villi)) %>%
 ## Warning: Removed 11 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-7-4.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-7-4.png)<!-- -->
 
 Because we are missing villi samples for two first trimester cases, we are also missing inferred
 contamination information. However, if we inspect the pairwise correlations, we can see it's likely
@@ -505,14 +505,14 @@ ggcorr(data = NULL, cor_matrix = cor_snp[ind,ind],
                         limits = r_limit, na.value = 'white')
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
 
 ```r
 ggplot(pDat %>% filter(Sample_Name %in% ind), aes(x = Sample_Name, y = Prob_SNP_outlier)) +
   geom_bar(stat = 'identity')
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-8-2.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-8-2.png)<!-- -->
 
 ```r
 # check to agreement scores
@@ -583,7 +583,7 @@ pDat %>% arrange(Tissue, desc(cor_to_reference)) %>%
 ## Warning: Removed 3 rows containing missing values (geom_point).
 ```
 
-![](13_Maternal_contamination_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+![](1_3_Maternal_contamination_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
 
 # SessionINfo
 
@@ -680,5 +680,5 @@ pDat <- pDat %>%
   select(Sample_Name:Prob_SNP_outlier_Logodds, 
          Agreement_to_donor_villi:cor_to_reference,
          PC1_raw:PC20_raw)
-saveRDS(pDat, '../../data/main/interim/13_pDat.rds')
+saveRDS(pDat, '../../data/main/interim/1_3_pDat.rds')
 ```

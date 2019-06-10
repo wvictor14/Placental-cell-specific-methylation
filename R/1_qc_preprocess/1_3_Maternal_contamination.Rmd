@@ -27,13 +27,13 @@ library(viridis)
 library(GGally) # for ggcorr
 source('../check_snp_agreement2.R') # code to return all agreement scores
 
-pDat <- readRDS('../../data/main/interim/11_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_1_pDat.rds')
 
 # called genotypes
-snps_called <- readRDS('../../data/main/interim/11_snps_called.rds')
+snps_called <- readRDS('../../data/main/interim/1_1_snps_called.rds')
 
 
-cor_snp <- readRDS('../../data/main/interim/11_cor_matrix_snp_betas.rds')
+cor_snp <- readRDS('../../data/main/interim/1_1_cor_matrix_snp_betas.rds')
 ```
 
 # Limitations of inferring contamination
@@ -336,5 +336,5 @@ pDat <- pDat %>%
   select(Sample_Name:Prob_SNP_outlier_Logodds, 
          Agreement_to_donor_villi:cor_to_reference,
          PC1_raw:PC20_raw)
-saveRDS(pDat, '../../data/main/interim/13_pDat.rds')
+saveRDS(pDat, '../../data/main/interim/1_3_pDat.rds')
 ```
