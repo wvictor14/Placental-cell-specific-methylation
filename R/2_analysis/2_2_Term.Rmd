@@ -567,10 +567,6 @@ colnames(design) <- case_when(
   TRUE ~ colnames(design)
 )
 
-
-# fit the linear model 
-fit <- lmFit(mvals_term, design)
-
 # create a contrast matrix for specific comparisons
 contMatrix <- makeContrasts(Endo_cs-Hofb_cs,
                            Endo_cs-Strom_cs,
@@ -593,6 +589,14 @@ contMatrix <- makeContrasts(Endo_cs-Hofb_cs,
                            Troph_enz-Villi,
                            
                            levels=design)
+```
+
+
+
+```{r}
+# fit the linear model 
+fit <- lmFit(mvals_term, design)
+
 # fit contrasts
 fit2 <- contrasts.fit(fit, contMatrix)
 fit2 <- eBayes(fit2) # moderate t stats
@@ -667,7 +671,7 @@ stat_thresholds <- dmcs %>%
 stat_thresholds
 ```
 
-## Upset plot
+### Upset plot
 
 ```{r}
 dmcs_wide <- dmcs %>%
@@ -682,7 +686,7 @@ upset(nsets = 15, data.frame(dmcs_wide))
 ```
 
 
-## top 1000 DMCs
+### top 1000 DMCs
 
 ```{r}
 dmcs_top1000 <- dmcs %>%
@@ -703,3 +707,71 @@ dmcs_top1000 <- dmcs_top1000 %>%
   ungroup() %>%
   left_join(anno_reduced, by = c('gene' = 'Name'), order.by = 'freq')
 ```
+
+
+## fit 1 vs all comparisons
+
+1 cell type vs all other cell types
+
+excluding villi and troph enz
+
+```{r}
+contMatrix_1vAll <- makeContrasts(Endo_cs - (Hofb_cs + Strom_cs + Troph_cs)/3,
+                            Hofb_cs - (Endo_cs + Strom_cs + Troph_cs)/3,
+                            Strom_cs - (Endo_cs + Hofb_cs + Troph_cs)/3,
+                            Troph_cs - (Endo_cs + Hofb_cs + Strom_cs)/3,
+                            levels=design)
+# fit contrasts
+fit3 <- contrasts.fit(fit, contMatrix_1vAll)
+fit3 <- eBayes(fit3) # moderate t stats
+
+# pull out dmcs
+dmcs_1vall <- broom::tidy(fit3) %>%
+  mutate(term = gsub('\\(.*', 'All', term)) %>%
+  dplyr::rename(estimate_m = estimate) %>%
+  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s', remove = F) %>%
+  group_by(Group1, Group2) %>%
+  mutate(fdr = p.adjust(p.value, method = "fdr"),
+         bonferroni = p.adjust(p.value, method = 'bonferroni')) %>%
+  ungroup()
+
+# join effect sizes information based on betas
+fit_b3 <- contrasts.fit(fit_b, contMatrix_1vAll)
+fit_b3 <- eBayes(fit_b3) # moderate t stats
+
+effect_sizes_1vall <- broom::tidy(fit_b3) %>% 
+  dplyr::rename(estimate_b = estimate)  %>%
+  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s', remove = F) %>%
+  select(gene, Group1, estimate_b)
+
+dmcs_1vall <- dmcs_1vall  %>%
+  left_join(effect_sizes_1vall)
+```
+
+```{r}
+dmcs_1vall %>%
+  ggplot(aes(x = p.value)) +
+  geom_histogram() +
+  theme_bw() +
+  facet_wrap(~Group1)
+
+dmcs_1vall %>%
+  sample_n(400000) %>%
+  ggplot(aes(x = estimate_b, y = fdr)) +
+  geom_point(alpha = 0.1) +
+  facet_wrap(~Group1)+
+  geom_hline(yintercept = 0.01, col = 'blue', linetype = 'dashed') +
+  scale_y_log10()  +
+  scale_x_continuous(limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1)) +
+  labs(title = '100,000 points per plot shown',  y= 'log10 of bonferroni-adjusted\np value')
+```
+
+
+
+
+
+
+
+
+
+
