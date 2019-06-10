@@ -32,16 +32,16 @@ library(viridis)
 library(GGally) # for ggcorr
 
 # pdata
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 
 # snp data
-snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
-cor_snp <- readRDS('../../data/main/interim/11_cor_matrix_snp_betas.rds')
+snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
+cor_snp <- readRDS('../../data/main/interim/1_1_cor_matrix_snp_betas.rds')
 
 # CNV calling output
-CNV_segments <- readRDS('../../data/main/interim/12_CNV_segments.rds')
-CNV_bins <- readRDS('../../data/main/interim/12_CNV_bins.rds')
-chrom_lengths <- readRDS('../../data/main/interim/12_chrom_lengths.rds')
+CNV_segments <- readRDS('../../data/main/interim/1_2_CNV_segments.rds')
+CNV_bins <- readRDS('../../data/main/interim/1_2_CNV_bins.rds')
+chrom_lengths <- readRDS('../../data/main/interim/1_2_chrom_lengths.rds')
 ```
 
 # Follow-up on contamination
@@ -198,6 +198,17 @@ pDat %>% arrange(Tissue, desc(cor_to_donor_villi)) %>%
         panel.grid.minor.x = element_blank(),
         panel.grid.major.x = element_blank()) +
   geom_hline(yintercept = mean(pDat$cor_to_unrelated), linetype = 'dashed', color = 'red')
+
+pDat %>% arrange(Tissue, desc(cor_to_donor_villi)) %>% 
+  filter(Tissue != 'Villi') %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = cor_to_reference, fill = Tissue)) +
+  geom_dotplot(binwidth = 0.01, stackdir = 'center')+
+  scale_fill_brewer(palette = 'Set1') +
+  facet_grid(Tissue~Trimester) +
+  theme_bw() +
+  theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
 ```
 
 The average correlation to unrelated samples represents a conservative estimate of the  lower-bound 
