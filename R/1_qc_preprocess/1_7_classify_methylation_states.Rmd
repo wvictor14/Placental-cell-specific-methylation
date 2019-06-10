@@ -34,69 +34,255 @@ library(purrr)
 
 ```{r}
 pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
-betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
 et_meth <- readRDS('../../data/main/interim/0_1_ewastools_loaded_idats.rds')
-dim(betas)
-dim(pDat)
-all(pDat$Sentrix == colnames(betas))
-colnames(betas) <- pDat$Sample_Name 
+snps <- et_meth$manifest[probe_type=="rs",index]
+et_betas <- dont_normalize(et_meth)
+snps <- et_betas[snps,]
+
+
+testdata <- snps[,1]
 ```
 
-# 2 component gamma
+## test data
 
-Model components:
-1. Gamma
-2. Gamma
-
-Input:
-betas
+compare to ewastools
 
 ```{r}
-# subset to 1000
-testdat <- sample(betas, size = 10000)
-
-# plot empirical 
-qplot(x = testdat) + geom_histogram()
-
-fit_gamma <- gammamixEM(testdat,
-                        lambda = c(0.5, 0.5),# initial mixing proportions
-                        verb = T) 
-
-fit_gamma$all.loglik
-
-plot(fit_gamma)
-
-densities <- tibble(quantiles = seq(0,1,0.01)) %>%
-  mutate(component1 = fit_gamma$lambda[1]*dgamma(quantiles,
-                                                 shape =  fit_gamma$gamma.pars[1,1],
-                                                 scale = fit_gamma$gamma.pars[2,1]),
-         component2 = fit_gamma$lambda[2]*dgamma(quantiles,
-                                                 shape =  fit_gamma$gamma.pars[1,2],
-                                                 scale = fit_gamma$gamma.pars[2,2]))
-tibble(data = testdat) %>%
-  ggplot(aes(x = data)) + 
-  geom_histogram(aes(y = ..density..)) +
-  geom_density() +
-  geom_line(data = densities, aes(x = quantiles, y =component1), color = 'red') +
-  geom_line(data = densities, aes(x = quantiles, y = component2), color = 'blue')
+#ewastools pipeline
+snps_called <- call_genotypes(testdata, learn = T)
+mxm_(snps_called)
+snps_called$par
 ```
 
+$pi
+[1] 0.3146189 0.4458035 0.2395776
 
-# 2 component normals
+$shapes1
+[1]   5.06776  30.45717 137.50934
+
+$shapes2
+[1] 139.09278  41.33075   7.94062
+
+$alpha
+[1] 0.04319594
+
+# 3 component beta
+
+```{r eval = F}
+# Expectation
+# obtain posteriors
+e_step1 <- function(data, shape1, shape2, alpha){
+  
+  input_data <- tibble(data = data)
+  
+  # input parameter dataframe
+  calculations <- tibble(k = as.character(1:3),
+         shape1 = shape1,
+         shape2 = shape2,
+         alpha = alpha) %>%
+    
+    # calculate numerator
+    mutate(px_given_kj = map2(shape1, shape2, ~dbeta(x = input_data$data,
+                                                     shape1 = .x,
+                                                     shape2 = .y))) %>%
+  
+    mutate(px_given_kj_alpha = map2(px_given_kj, alpha, ~ .x * .y)) 
+  
+  # calculate denominator
+  input_data <- input_data %>%
+    mutate(prob_x = purrr::reduce(calculations$px_given_kj_alpha, `+`))
+  
+  # solve for posterior
+  calculations <-  calculations %>%
+    mutate(posterior = map(px_given_kj_alpha, ~ .x / input_data$prob_x))
+  
+  # solve for log likelihood
+  log_likelihood <- sum(log(input_data$prob_x))
+  
+  return(list('Log_likelihood' = log_likelihood,
+              'Posterior' = calculations %>% select(k, posterior)))
+}
+
+# maximization
+# update parameters
+m_step1 <- function(data, posterior_df){
+  # calculate mean (mu) and variance (var) using posteriors
+  # number of samples in each class, and overall
+  
+  n_all <- length(data) # number of observations
+  
+  parameters <- posterior_df %>%
+    
+    # weighted n's by their posterior probs
+    mutate(n = map_dbl(posterior, sum)) %>%  
+    
+    # mean: sum over x weighted by posterior probs
+    mutate(mu = map2_dbl(posterior, n, ~ (1/.y) * sum(data * .x))) %>% 
+    
+    # variance 
+    # (mean(w*x^2)-sample.mean^2) * n/(n-1)
+    mutate(var = map2_dbl(n, posterior, ~ mean(data^2 * .y* n_all/ .x))) %>%
+    mutate(var =  (var-mu^2) * n_all/(n_all-1)) %>%
+    
+    
+    # shape1 shape2 (alpha,beta)
+    mutate(shape1 = mu * (((mu * (1 - mu)) / var)-1),
+           shape2 = (1 - mu) * (((mu * (1 - mu)) / var) - 1)) %>%
+    
+    # alpha
+    mutate(alpha = n/sum(n))
+  
+  return(parameters)
+}
+
+# put it all into a loop:
+call_meth_state <- function(x, converge_n_iter = 20,  converge_diff = 1e-6, k = 3){
+  
+  # x is a vector of the data
+  # converge_n_iter is the number of maximum EM iterations
+  # converge_diff is the minimum difference in log likelihood between iterations before stopping
+  
+  # 1. Initial parameters
+  shape1 <- c(10, 80, 80)
+  shape2 <- c(80, 80, 10)
+  alpha <- c(1/3, 1/3, 1/3) # mixing proportions
+  
+  # 2. expectation
+  e_step_out <- e_step1(data = x, shape1, shape2, alpha)
+  
+  # 3. maximization
+  updated_parameters <- m_step1(data = x, posterior_df = e_step_out$Posterior)
+  
+  Log_likelihood <- e_step_out$Log_likelihood
+
+  # Repeat 2. and 3. until convergence
+  for (i in 1:converge_n_iter) {
+    e_step_out <- e_step1(data = x, 
+                         shape1 = updated_parameters$shape1, 
+                         shape2 = updated_parameters$shape2,
+                         alpha = updated_parameters$alpha)
+    updated_parameters <- m_step1(data = x, posterior_df = e_step_out$Posterior)
+    
+    Log_likelihood <- c(Log_likelihood, e_step_out$Log_likelihood)
+    
+    if (abs(Log_likelihood[i+1]-Log_likelihood[i]) < converge_diff){
+      break
+    }    
+  }
+  
+  out <- list()
+  out[['Parameters']] <- updated_parameters
+  out[['Posterior']] <- e_step_out$Posteriors
+  out[['Log_likelihood']] <- Log_likelihood
+  
+  return(out)
+
+}
+```
+
+Try it out
 
 ```{r}
-mvals <- logit2(betas)
+snps_called_pl <- call_meth_state(x = testdata)
+snps_called_pl
 
-mvals_test <- sample(mvals, size = 1000000)
+plot_meth_states <- function(called_states, data = x) {
+  
+  # generate density line
+  density <- called_states$Parameters %>% 
+    crossing(x = seq(0.01, 1, 0.01)) %>% 
+    mutate(y = alpha*dbeta(x = x, shape1 = shape1, shape2 = shape2),
+           k = as.character(k))
+  
+  ggplot(data.frame(x = data), aes(x = x)) +
+    geom_histogram(binwidth = 0.01, aes(y = ..density..)) +
+    geom_density(col = 'blue', linetype = 'dashed', size = 1) +
+    geom_line(data = density, aes(x = x, y = y, color = k), size = 1)
+}
+plot_meth_states(snps_called_pl)
+```
+
+# ewastools
+
+```{r}
+eBeta = function(x,w){
+	
+	n = length(w)
+	#nw <- n/sum(w)
+	
+	w = n*w/sum(w)
+	sample.mean =  mean(w*x)
+    sample.var  = (mean(w*x^2)-sample.mean^2) * n/(n-1)
+    v = sample.mean * (1-sample.mean)
+    
+    if (sample.var < v){
+        shape1 = sample.mean * (v/sample.var - 1)
+        shape2 = (1 - sample.mean) * (v/sample.var - 1)
+    } else {
+        shape2 = sample.mean * (v/sample.var - 1)
+        shape1 = (1 - sample.mean) * (v/sample.var - 1)
+    }
+    
+    list(shape1 = shape1, shape2 = shape2)
+}
+
+pi = c(1/3,1/3,1/3) # Class probabilities
+shapes1 = c(10,80,80) 
+shapes2 = c(80,80,10)
+gamma = NA
+
+e_step = function(){
+	gamma = cbind(
+		 pi[1] * dbeta(testdata,shape1=shapes1[1],shape2=shapes2[1])
+		,pi[2] * dbeta(testdata,shape1=shapes1[2],shape2=shapes2[2])
+		,pi[3] * dbeta(testdata,shape1=shapes1[3],shape2=shapes2[3])
+		)
+
+	tmp = rowSums(gamma)
+	gamma <- gamma/tmp
+
+	loglik = tmp
+	loglik = sum(log(loglik))
+
+	return(loglik)
+}
+
+m_step = function(){
+
+	# MLE
+	s1 = eBeta(testdata,gamma[,1])
+	s2 = eBeta(testdata,gamma[,2])
+	s3 = eBeta(testdata,gamma[,3])
+
+	shapes1 <<- c(s1$shape1,s2$shape1,s3$shape1)
+	shapes2 <<- c(s1$shape2,s2$shape2,s3$shape2)
+
+	# MLE of class priors
+	pi = apply(gamma,2,sum)
+	pi <- pi/sum(pi)
+	
+	invisible(NULL)
+}
+
+loglik = rep(NA_real_,5)
+loglik[1] = e_step()
+
+i = 2; gain=Inf;
+
+while(i<5 & gain>1e-4){
+	m_step()
+	loglik[i] = e_step()
+	gain = loglik[i]-loglik[i-1]
+	i=i+1
+}
+
+loglik=loglik[1:(i-1)]
 
 
-data.frame(mvals = mvals_test) %>%
-  ggplot(aes(x = mvals)) +
-  geom_histogram(aes(y = ..density..)) +
-  geom_density()
 ```
 
 
+# Step by step
 # 2 component beta
 
 ## Initialization
@@ -254,260 +440,6 @@ parameters <- parameters %>%
   mutate(shape1 = mu * (((mu * (1 - mu)) / var)-1),
          shape2 = (1 - mu) * (((mu * (1 - mu)) / var) - 1))
 ```
-
-## put it all together
-
-wrap it in a function
-
-```{r eval = F}
-#shape1 and shape2
-shape1 <- c(10, 80)
-shape2 <- c(80, 10)
-
-# mixing proportions
-alpha <- c(0.5, 0.5)
-
-# Expectation
-# obtain posteriors
-e_step <- function(data, shape1, shape2, alpha, k){
-  
-  # input parameter dataframe
-  calculations <- tibble(k = 1:length(shape1),
-         shape1 = shape1,
-         shape2 = shape2,
-         alpha = alpha) %>%
-    
-    # calculate numerator
-    mutate(px_given_kj = lapply(k, function(x) dbeta(data, shape1 = shape1[x], 
-                                                           shape2 = shape2[x]))) %>%
-    mutate(px_given_kj_alpha = purrr::map(px_given_kj, ~ .x * alpha)) 
-  
-  # calculate denominator
-  prob_x <- calculations %>% 
-    pull(px_given_kj_alpha) %>%
-    purrr::reduce(`+`)
-  
-  # solve for posterior
-  calculations <-  calculations %>%
-    mutate(posterior = purrr::map(px_given_kj_alpha, ~ .x / prob_x))
-  
-  # solve for log likelihood
-  log_likelihood <- sum(log(prob_x))
-  
-  return(list('Log_likelihood' = log_likelihood,
-              'Posterior' = calculations %>% select(k, posterior)))
-  
-  prob_x_given_from_k1 <- dbeta(x = data, shape1 = shape1[1], shape2 = shape2[1])
-  prob_x_given_from_k2 <- dbeta(x = data, shape1 = shape1[2], shape2 = shape2[2])
-  
-  prob_x <- (prob_x_given_from_k1 * alpha[1]) + (prob_x_given_from_k2 * alpha[2])
-  
-  posterior_k1 <- (prob_x_given_from_k1 * alpha[1]) / prob_x
-  posterior_k2 <- (prob_x_given_from_k2 * alpha[2]) / prob_x
-  
-  # return log likelihood and posterior probs
-  out <- list()
-  out[['Log_likelihood']] <- sum(log(prob_x))
-  out[['Posteriors']] <- tibble(k1 = posterior_k1,
-                                k2 = posterior_k2)
-  
-  return(out)
-}
-
-
-
-# maximization
-# update parameters
-m_step <- function(data, p1, p2){
-  # calculate mean (mu) and variance (var) using posteriors
-  
-  # number of samples in each class, and overall
-  n <- length(p1)
-  n1 <- sum(p1) 
-  n2 <- sum(p2) # n1+n2 = n
-  
-  mu_1 <- 1/n1 * sum(data*p1)
-  mu_2 <- 1/n2 * sum(data*p2)
-  mu <- c(mu_1, mu_2)
-  
-  var_1 <- ((1/(n1-1)) * sum(p1 * data^2) - mu_1^2)
-  var_2 <- ((1/(n2-1)) * sum(p2 * data^2) - mu_2^2)
-  var <- c(var_1, var_2)
-  
-  parameters <- tibble(
-    component = c('1', '2'),
-    alpha = c(mean(p1), mean(p2)), 
-    mu = c(mu_1, mu_2),
-    var = c(var_1, var_2)
-  ) %>%
-    
-    # calculate shape1 shape2 based on definition of beta distribution 
-    dplyr::mutate(shape1 = mu * (((mu * (1 - mu)) / var)-1),
-                  shape2 = (1 - mu) * (((mu * (1 - mu)) / var) - 1))
-  
-  return(parameters)
-}
-
-# put it all into a loop:
-
-call_meth_state <- function(x, converge_n_iter = 50,  converge_diff = 1e-6) {
-  
-  # x is a vector of the data
-  # converge_n_iter is the number of maximum EM iterations
-  # converge_diff is the minimum difference in log likelihood between iterations before stopping
-  
-  # 1. Initial parameters
-  shape1 <- c(10, 80)
-  shape2 <- c(80, 10)
-
-  # mixing proportions
-  alpha <- c(0.5, 0.5)
-  
-  # 2. expectation
-  e_step_out <- e_step(data = x, shape1, shape2, alpha)
-  
-  # 3. maximization
-  updated_parameters <- m_step(data = x, 
-       p1 = e_step_out$Posteriors$k1, 
-       p2 = e_step_out$Posteriors$k2)
-  
-  Log_likelihood <- e_step_out$Log_likelihood
-
-  # Repeat 2. and 3. until convergence
-  for (i in 1:converge_n_iter) {
-    e_step_out <- e_step(data = x, 
-                         shape1 = updated_parameters$shape1, 
-                         shape2 = updated_parameters$shape2,
-                         alpha = updated_parameters$alpha)
-    updated_parameters <- m_step(data = x,
-                                 p1 = e_step_out$Posteriors$k1,
-                                 p2 = e_step_out$Posteriors$k2)
-    
-    Log_likelihood <- c(Log_likelihood, e_step_out$Log_likelihood)
-    
-    if (abs(Log_likelihood[i+1]-Log_likelihood[i]) < converge_diff){
-      break
-    }    
-  }
-  
-  out <- list()
-  out[['Parameters']] <- updated_parameters
-  out[['Posterior']] <- e_step_out$Posteriors
-  out[['Log_likelihood']] <- Log_likelihood
-  
-  return(out)
-
-}
-```
-
-Test on 1000 cpgs
-
-```{r}
-testdata <- sample(betas, size = 1000)
-results_1000 <- call_meth_state(x = testdata, converge_n_iter = 50)
-results_1000
-
-# generate density lines for plotting
-p_density <- results_1000$Parameters %>% 
-  select(component, alpha, shape1, shape2) %>%
-   # 1. Initial parameters
-  rbind(tibble(
-    component = c('1_i', '2_i'),
-    alpha = c(0.5, 0.5),
-    shape1 = c(10, 80),
-    shape2 = c(80, 10))) %>%
-  # compute density over quantiles x
-  crossing(x = seq(0.01, 1, 0.01)) %>% 
-  mutate(y = dbeta(x = x, shape1 = shape1, shape2 = shape2))
-                              
-pp1 <- ggplot(data.frame(x = testdata), aes(x = x)) +
-  geom_histogram(binwidth = 0.02, aes(y = ..density..))  +
-  geom_density(col = 'blue', linetype = 'dashed', size = 1) +
-  geom_line(data = p_density, aes(x = x, y = y, color = component), size = 2) +
-  theme_bw() +
-  labs(title = '1000 cpgs');pp1
-```
-
-
-```{r}
-testdata <- sample(betas, size = 10000)
-results_10000 <- call_meth_state(x = testdata, converge_n_iter = 50)
-results_10000
-
-
-# generate density lines for plotting
-p_density <- results_10000$Parameters %>% crossing(x = seq(0.01, 1, 0.01)) %>% 
-  mutate(y = dbeta(x = x, shape1 = shape1, shape2 = shape2))
-                              
-pp2 <- ggplot(data.frame(x = testdata), aes(x = x)) +
-  geom_histogram(binwidth = 0.02, aes(y = ..density..))  +
-  geom_density(col = 'blue', linetype = 'dashed', size = 1) +
-  geom_line(data = p_density, aes(x = x, y = y, color = component), size = 2) +
-  theme_bw() +
-  labs(title = '10000 cpgs')
-```
-
-```{r}
-testdata <- sample(betas, size = 100000)
-results_100000 <- call_meth_state(x = testdata, converge_n_iter = 50)
-results_100000
-
-
-# generate density lines for plotting
-p_density <- results_100000$Parameters %>% crossing(x = seq(0.01, 1, 0.01)) %>% 
-  mutate(y = dbeta(x = x, shape1 = shape1, shape2 = shape2))
-                              
-pp3 <- ggplot(data.frame(x = testdata), aes(x = x)) +
-  geom_histogram(binwidth = 0.02, aes(y = ..density..))  +
-  geom_density(col = 'blue', linetype = 'dashed', size = 1) +
-  geom_line(data = p_density, aes(x = x, y = y, color = component), size = 2) +
-  theme_bw() +
-  labs(title = '100000 cpgs')
-```
-
-Test it again for 1 sample
-
-```{r}
-results_1samp <- call_meth_state(x = betas[,1], converge_n_iter = 50)
-results_1samp
-
-
-# generate density lines for plotting
-p_density_1samp <- results_1samp$Parameters %>% crossing(x = seq(0.01, 1, 0.01)) %>% 
-  mutate(y = dbeta(x = x, shape1 = shape1, shape2 = shape2))
-                              
-pp4 <- ggplot(data.frame(x = betas[,1]), aes(x = x)) +
-  geom_histogram(binwidth = 0.02, aes(y = ..density..))  +
-  geom_density(col = 'blue', linetype = 'dashed', size = 1) +
-  geom_line(data = p_density_1samp, aes(x = x, y = y, color = component), size = 2) +
-  theme_bw() +
-  labs(title = '700 000 cpgs')
-```
-
-
-
-
-```{r}
-cowplot::plot_grid(pp1, pp2, pp3, pp4)
-```
-
-
-# 3 component beta
-
-Let me try a 3 component beta distribution and compare to ewastools
-
-```{r}
-#ewastools pipeline
-snps <- et_meth$manifest[probe_type=="rs",index]
-et_betas <- dont_normalize(et_meth)
-snps <- et_betas[snps,]
-
-# fit mixture model to call genotypes
-snps_called <- call_genotypes(snps, learn = T)
-```
-
-
-
 
 
 
