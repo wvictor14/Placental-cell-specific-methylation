@@ -17,7 +17,7 @@ editor_options:
 I realized some variables were had an incorrect class (e.g. factor when should be numeric), and some
 observations needed to be replaced with NAs (0 for DNA concentration means we did not measure).
 
-I made edits in my 11_QC script to address these issues. 
+I made edits in my 1_1_QC script to address these issues. 
 I also forgot to test for confounders / relationships between sample characteristics.
 
 
@@ -33,9 +33,9 @@ library(viridis)
 library(yahew)
 library(egg)
 
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 # PCA association data for plotting
-pca <- readRDS('../../data/main/interim/11_pca_association_plot.rds')
+pca <- readRDS('../../data/main/interim/1_1_pca_association_plot.rds')
 ```
 
 # Relationships between variables
@@ -143,7 +143,7 @@ ggplot(cov_tests, aes(x=Column, y = Row, fill = pval_cat)) +
   coord_equal()
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-2-1.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-2-1.png)<!-- -->
 
 
 ```r
@@ -154,7 +154,7 @@ qplot(data = pDat,x = DNA_loaded, y = failed_probes) + geom_smooth()
 ## `geom_smooth()` using method = 'loess' and formula 'y ~ x'
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
 
 ```r
 qplot(data = pDat,x = DNA_conc_before_load, y = failed_probes) + geom_smooth()
@@ -164,7 +164,7 @@ qplot(data = pDat,x = DNA_conc_before_load, y = failed_probes) + geom_smooth()
 ## `geom_smooth()` using method = 'loess' and formula 'y ~ x'
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-2.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-2.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = failed_probes) + geom_smooth()
@@ -174,7 +174,7 @@ qplot(data = pDat, x = Row_numeric, y = failed_probes) + geom_smooth()
 ## `geom_smooth()` using method = 'loess' and formula 'y ~ x'
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-3.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-3.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = detP_01_minfi) + geom_smooth()
@@ -184,13 +184,13 @@ qplot(data = pDat, x = Row_numeric, y = detP_01_minfi) + geom_smooth()
 ## `geom_smooth()` using method = 'loess' and formula 'y ~ x'
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-4.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-4.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Week, y = detP_01_minfi, geom = 'boxplot') 
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-5.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-5.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = Average_intensity) + geom_smooth()
@@ -200,7 +200,7 @@ qplot(data = pDat, x = Row_numeric, y = Average_intensity) + geom_smooth()
 ## `geom_smooth()` using method = 'loess' and formula 'y ~ x'
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-6.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-6.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = as.numeric(as.factor(Batch_BSC)), y =Average_intensity) + 
@@ -209,7 +209,7 @@ qplot(data = pDat, x = as.numeric(as.factor(Batch_BSC)), y =Average_intensity) +
   scale_y_continuous(limits = c(0, 14500))
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-7.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-7.png)<!-- -->
 
 ```r
   labs(x = 'BSC Batch')
@@ -227,25 +227,25 @@ qplot(data = pDat, x = as.numeric(as.factor(Batch_BSC)), y =Average_intensity) +
 qplot(data = pDat, x = Average_intensity, y = detP_01_minfi)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-8.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-8.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Average_intensity, y = beadcount)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-9.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-9.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Sex, y = detP_01_minfi)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-10.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-10.png)<!-- -->
 
 ```r
 ggplot(pDat, aes(x = Tissue, fill = Batch_BSC)) + geom_bar(position = 'dodge')
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-3-11.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-3-11.png)<!-- -->
 
 # PCA
 
@@ -269,35 +269,35 @@ p1b <- ggplot(pca$PC_variance, aes(x = PC, y = Prop_var_raw)) +
 ggarrange(p1, p1b, heights = c(3,1))
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
 
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = PC5_raw)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = PC6_raw)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = PC7_raw)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-5-3.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-5-3.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = PC8_raw)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-5-4.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-5-4.png)<!-- -->
 
 ```r
 qplot(data = pDat, x = Row_numeric, y = PC10_raw)
 ```
 
-![](15_Sample_characteristics_files/figure-html/unnamed-chunk-5-5.png)<!-- -->
+![](1_5_Sample_characteristics_files/figure-html/unnamed-chunk-5-5.png)<!-- -->

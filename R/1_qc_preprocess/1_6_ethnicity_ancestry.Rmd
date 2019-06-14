@@ -1,5 +1,5 @@
 ---
-title: "16_Ethnicity_ancestry"
+title: "1_6_Ethnicity_ancestry"
 author: "Victor Yuan"
 date: "29/05/2019"
 output:
@@ -24,10 +24,10 @@ library(IlluminaHumanMethylationEPICmanifest)
 library(dplyr)
 library(egg)
 
-mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
-rgset <- readRDS('../../data/main/interim/01_rgset_raw.rds')
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
-color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds')
+rgset <- readRDS('../../data/main/interim/0_1_rgset_raw.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
+color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
 color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
 ```
 
@@ -36,10 +36,10 @@ set.seed(1)
 betas_bmiq <- BMIQ(mset_noob, nfit = 100000)
 ```
 
-saveRDS(betas_bmiq, '../../data/main/interim/16_bmiq.rds')
+saveRDS(betas_bmiq, '../../data/main/interim/1_6_bmiq.rds')
 
 ```{r eval = T}
-betas_bmiq <- readRDS('../../data/main/interim/16_bmiq.rds')
+betas_bmiq <- readRDS('../../data/main/interim/1_6_bmiq.rds')
 ```
 
 ```{r}
@@ -142,11 +142,11 @@ ggarrange(p2, p3) # should look the same
 # results for all samples
 pDat %>% 
   select(contains('Predicted_ethnicity_nothresh'), Prob_African, Prob_Asian, Prob_Caucasian) %>%
-  saveRDS(file = '../../data/main/interim/16_ethnicity_results_all.rds')
+  saveRDS(file = '../../data/main/interim/1_6_ethnicity_results_all.rds')
 
 # results for term, using villi as final predicted ethnicity
 pDat_1 %>%
-  saveRDS(file = '../../data/main/interim/16_pDat.rds')
+  saveRDS(file = '../../data/main/interim/1_6_pDat.rds')
 ```
 
 # SessionInfo

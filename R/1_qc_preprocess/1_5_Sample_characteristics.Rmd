@@ -1,5 +1,5 @@
 ---
-title: "15_Sample_Characteristics"
+title: "1_5_Sample_Characteristics"
 author: "Victor Yuan"
 date: "29/05/2019"
 output:
@@ -17,7 +17,7 @@ editor_options:
 I realized some variables were had an incorrect class (e.g. factor when should be numeric), and some
 observations needed to be replaced with NAs (0 for DNA concentration means we did not measure).
 
-I made edits in my 11_QC script to address these issues. 
+I made edits in my 1_1_QC script to address these issues. 
 I also forgot to test for confounders / relationships between sample characteristics.
 
 
@@ -32,9 +32,9 @@ library(viridis)
 library(yahew)
 library(egg)
 
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 # PCA association data for plotting
-pca <- readRDS('../../data/main/interim/11_pca_association_plot.rds')
+pca <- readRDS('../../data/main/interim/1_1_pca_association_plot.rds')
 ```
 
 # Relationships between variables
