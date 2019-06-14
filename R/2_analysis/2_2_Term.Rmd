@@ -42,6 +42,7 @@ library(stringr)
 library(minfi)
 library(limma)
 library(biobroom)
+library(missMethyl)
 ```
 
 ## Data
@@ -51,7 +52,7 @@ samples.
 
 ```{r}
 # pdata
-pDat_term  <- readRDS('../../data/main/interim/16_pDat.rds')
+pDat_term  <- readRDS('../../data/main/interim/1_6_pDat.rds')
 pDat_term <- pDat_term %>% 
   mutate(Tissue = case_when(
     Tissue %in% c('Endothelial', 'Hofbauer', 'Stromal', 'Trophoblasts') ~ paste(Tissue, 'cs'),
@@ -63,42 +64,43 @@ pDat_term <- pDat_term %>%
   filter(!Sample_Name %in% c('PM364_hofb_cs', 'PM381_hofb_cs', 'PM366_hofb_cs'))
 
 # methylation data
-betas <- readRDS('../../data/main/interim/14_betas_noob_filt.rds')
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
 betas_term <- betas[,pDat_term$Sentrix]
 colnames(betas_term) <- pDat_term$Sample_Name
 
 # get m values and filter to term samples
-mset_noob <- readRDS('../../data/main/interim/14_mset_noob.rds')
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds')
 mvals_term <- getM(mset_noob)
 colnames(mvals_term) <- pData(mset_noob)$Sample_Name
 mvals_term <- mvals_term[rownames(betas_term),pDat_term$Sample_Name]
 
 # probe annotation
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
 
 # snp data
-snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
 
 # annotation
-anno <- getAnnotation(readRDS('../../data/main/interim/01_rgset_raw.rds'))
+anno <- getAnnotation(readRDS('../../data/main/interim/0_1_rgset_raw.rds'))
 # filter to filtered betas cpgs
 anno <- anno %>%
   as_tibble() %>%
   filter(Name %in% rownames(betas_term))
 
 # color key
-color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
 color_code[[1]] <- color_code[[1]]  %>%
-  mutate(Tissue = case_when(
-    Tissue %in% c('Endothelial', 'Hofbauer', 'Stromal', 'Trophoblasts', 
-                  'Dead Cells and Lymphocytes') ~ paste(Tissue, 'cs'),
-    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
-    TRUE ~ Tissue
-  ))
+  mutate(Tissue = case_when(Tissue %in% c('Endothelial', 'Hofbauer', 'Stromal', 'Trophoblasts', 
+                                          'Dead Cells and Lymphocytes') ~ paste(Tissue, 'cs'),
+                                          Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+                                          TRUE ~ Tissue),
+         Colors_Tissue = ifelse(Tissue == 'Villi', '#911515', 
+                                ifelse(Tissue == 'Villi maternal', '#e072d7', Colors_Tissue)))
+
 color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
 
 # correlation data 
-cor_data <- readRDS('../../data/main/interim/21_pheatmap_data.rds')
+cor_data <- readRDS('../../data/main/interim/2_1_pheatmap_data.rds')
 ```
 
 # 1.0 FACS markers
@@ -147,7 +149,8 @@ betas_EGFR <- t(betas_term[anno_EGFR$Name,]) %>% as_tibble %>%
          Annotation_gene_element = 'Gene_element',
          
          # ExonBnd should be body
-         gene_element = ifelse(gene_element == 'ExonBnd', 'Body', gene_element) )
+         gene_element = ifelse(gene_element == 'ExonBnd', 'Body', gene_element) )%>%
+  mutate(gene_element = factor(as.character(gene_element), levels = c("TSS1500", "5'UTR", "Body", "3'UTR"))) 
 
 #plot
 # bar plot
@@ -206,6 +209,7 @@ betas_CD14 <- t(betas_term[anno_CD14$Name,]) %>% as_tibble %>%
   # add cpg coords
   left_join(anno_CD14 %>% select(Name, pos, UCSC_RefGene_Group), by = c('CpG' = 'Name')) %>%
   mutate(gene_element = str_extract(UCSC_RefGene_Group, "^[A-z0-9\\']+")) %>%
+  mutate(gene_element = factor(gene_element, levels = c('TSS1500', "1stExon", "Body", "3'UTR"))) %>%
   
   # calculate median tissue value
   group_by(Tissue, CpG) %>%
@@ -213,7 +217,7 @@ betas_CD14 <- t(betas_term[anno_CD14$Name,]) %>% as_tibble %>%
   
   # order on cpg position
   ungroup() %>%
-  arrange(pos) %>%
+  arrange(desc(pos)) %>%
   mutate(CpG = factor(CpG, levels = unique(CpG)),
          
          # create an annotation column          
@@ -266,7 +270,7 @@ betas_CD34 <- t(betas_term[anno_CD34$Name,]) %>% as_tibble %>%
   
   # order on cpg position
   ungroup() %>%
-  arrange(pos) %>%
+  arrange(desc(pos)) %>%
   mutate(CpG = factor(CpG, levels = unique(CpG)),
          
          # create an annotation column          
@@ -274,7 +278,9 @@ betas_CD34 <- t(betas_term[anno_CD34$Name,]) %>% as_tibble %>%
          
          # ExonBnd should be body
          gene_element = ifelse(gene_element == '1stExon', "5'UTR", 
-                               ifelse(gene_element == 'ExonBnd', 'Body', gene_element)))
+                               ifelse(gene_element == 'ExonBnd', 'Body', gene_element))) %>%
+  # change factor level ordering for plot
+  mutate(gene_element = factor(gene_element, levels = c("TSS1500", "TSS200", "5'UTR", "Body", "3'UTR"))) 
 
 p5 <- betas_CD34 %>%
   ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
@@ -635,6 +641,14 @@ dmcs <- dmcs %>% dplyr::rename(estimate_m = estimate) %>%
 estimate_b -> effect size based on beta values
 estimate_m -> effect size based on m values
 
+
+Last thing to do is to get a list of cpgs that vary between cell types using the f stat
+
+```{r}
+summary(decideTests(fit2), method = 'nestedF', adjust.method = 'fdr', p.value = 0.05)
+
+```
+
 ## analyze model results
 
 It takes too long to plot all points ,so I  subsetted to 150000 points, which is around 10,000
@@ -725,6 +739,14 @@ contMatrix_1vAll <- makeContrasts(Endo_cs - (Hofb_cs + Strom_cs + Troph_cs)/3,
 fit3 <- contrasts.fit(fit, contMatrix_1vAll)
 fit3 <- eBayes(fit3) # moderate t stats
 
+# how many are significant
+ntests <- nrow(fit3$p.value)
+fdr_thresh <- 0.001
+nfsig <- sum(topTableF(fit3, n = ntests, adjust.method = 'BH', p.value = 0.05)$adj.P.Val < fdr_thresh)
+
+print(paste(nfsig, 'out of', ntests, 'CpGs were found significant at an FDR <', fdr_thresh))
+# 573821 CpGs
+
 # pull out dmcs
 dmcs_1vall <- broom::tidy(fit3) %>%
   mutate(term = gsub('\\(.*', 'All', term)) %>%
@@ -748,13 +770,17 @@ dmcs_1vall <- dmcs_1vall  %>%
   left_join(effect_sizes_1vall)
 ```
 
+column estimate_b refers to the effect size in terms of beta value
+
 ```{r}
+# p value histogram
 dmcs_1vall %>%
   ggplot(aes(x = p.value)) +
   geom_histogram() +
   theme_bw() +
   facet_wrap(~Group1)
 
+# volcano plot
 dmcs_1vall %>%
   sample_n(400000) %>%
   ggplot(aes(x = estimate_b, y = fdr)) +
@@ -764,11 +790,383 @@ dmcs_1vall %>%
   scale_y_log10()  +
   scale_x_continuous(limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1)) +
   labs(title = '100,000 points per plot shown',  y= 'log10 of bonferroni-adjusted\np value')
+
+
+```
+
+# 4.0 Densities of DMCs
+
+## hyper / hypo
+
+```{r}
+# number of significant cpgs per cell
+dmcs_1vall_sig <- dmcs_1vall %>% 
+  group_by(Group1) %>% 
+  summarize(b001db50_all = sum(bonferroni < 0.001 & abs(estimate_b) > 0.5), 
+            b001db50_hypo = 
+              sum(bonferroni < 0.001 & abs(estimate_b) > 0.5 & estimate_m < 0),
+            b001db50_hyper = 
+              sum(bonferroni < 0.001 & abs(estimate_b) > 0.5 & estimate_m > 0)) %>%
+  gather('group', 'n_cpg', -Group1) %>%
+  separate(group, into = c('pvalue', 'delta_b')) %>%
+  mutate(Group1_label = case_when(
+    Group1 == 'Endo_cs' ~ 'Endothelial cs',
+    Group1 == 'Hofb_cs' ~ 'Hofbauer cs',
+    Group1 == 'Strom_cs' ~ 'Stromal cs',
+    Group1 == 'Troph_cs' ~ 'Trophoblasts cs'
+  ))
+
+dmcs_1vall_sig %>% 
+  
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  mutate(hyper_p = hyper/all,
+         hypo_p = hypo/all) %>%
+  gather(key = cpg, value = n_cpg, -(Group1:Group1_label), -(hyper_p:hypo_p)) %>%
+  mutate(p_cpg = prettyNum(digits = 2, 
+                           100*case_when(
+    cpg == 'hyper' ~ hyper_p,
+    cpg == 'hypo' ~ hypo_p,
+    cpg == 'all' ~ 1))) %>%
+  select(-hyper_p, -hypo_p) %>%
+  filter(cpg != 'all') %>%
+  arrange(Group1, cpg) %>%
+  mutate(label = paste0(p_cpg, '%')) %>%
+  
+  #plot
+  ggplot(aes(x = Group1_label, y = n_cpg, fill = cpg)) +
+  geom_bar(stat = 'identity', position = 'stack', color = 'black') +
+  geom_text(aes(label = label, y = n_cpg), position = position_stack(vjust = 0.5)) +
+  labs(y = 'Number DMCs (in thousands)', x = '', fill = '')  +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust =1)) +
+  scale_y_continuous(limits = c(0, 20000),
+                     breaks = seq(0, 20000, 5000), 
+                     labels = as.character(seq(0,20,5)),
+                     expand = c(0,0)) +
+  scale_fill_manual(values = c('#6BAED6', '#DEEBF7'))
+```
+
+Here I use the density distribution code from above to calculate tissue densities again, but over
+tissue specific CpGs
+
+I also compute a background density line for each tissue, which is the the density over all betas
+for a given tissue (not just dmcs).
+
+```{r}
+dmcs_1vall_densities <- dmcs_1vall %>%
+  
+  # filter to significant cpgs (dmcs)
+  filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>%
+  mutate(Group1_label = case_when(
+    Group1 == 'Endo_cs' ~ 'Endothelial cs',
+    Group1 == 'Hofb_cs' ~ 'Hofbauer cs',
+    Group1 == 'Strom_cs' ~ 'Stromal cs',
+    Group1 == 'Troph_cs' ~ 'Trophoblasts cs')) %>% 
+  
+  # get dmcs in list colu,m
+  group_by(Group1, Group1_label) %>% 
+  nest(gene) %>% mutate(dmcs = map(data, ~.$gene)) %>% select(-data) %>%
+  
+  # get sample names for each tissue
+  mutate(samples = lapply(Group1_label, function(x) pDat_term %>% 
+                            filter(Tissue == x) %>% 
+                            pull(Sample_Name)),
+         
+         # 1. get betas for each tissue, filtering to mdmcs
+         betas = map2(dmcs, samples, ~as.vector(betas_term[.x,.y])),
+         
+         # 2. get x and y coordinates for densites on these betas
+         densities = map(betas, ~ density(.)),
+         x = map(densities, 'x'),
+         y = map(densities, 'y'),
+         
+         # Repeat 1. and 2. but for all cpgs, not just dmcs
+         betas_all = map(samples, ~as.vector(betas_term[,.y])),
+         densities_all = map(betas_all, ~ density(.)),
+         x_all = map(densities_all, 'x'),
+         y_all = map(densities_all, 'y')) %>%
+  
+  # remove input data
+  select(contains('Group1'), x, y, x_all, y_all) %>%
+  unnest()
+  
+
+ggplot(dmcs_1vall_densities) +
+  geom_line(aes(x = x_all, y = y_all, color = 'All CpGs'),
+            linetype = 'longdash', alpha = 0.8, size = 2) +
+  geom_line(size = 2,aes(x = x, y = y, color = Group1_label)) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  facet_wrap(~Group1_label) +
+  scale_color_manual(values= c(color_code_tissue[unique(dmcs_1vall_densities$Group1_label)],
+                               'All CpGs' = 'grey')) +
+  labs(x = '% methylation', y = 'density', color = '')
 ```
 
 
+# 5.0 Enrichment
+
+## Chromosome enrichment
 
 
+First I add genome variables for each cpg, then I count cpgs per genomic location.
+
+```{r}
+# add gene annotation to cpgs
+dmcs_1vall <- dmcs_1vall %>% left_join(anno, by = c('gene' = 'Name'))
+
+# tabulate the frequency per genomic element
+all_tested_cpgs <-  
+  
+  ## Relation to gene bodies
+  table(unlist(str_extract(anno$UCSC_RefGene_Group, "^[A-z0-9']+"))) %>% 
+  as.data.frame %>%
+  mutate(relation = 'Relation to genes') %>%
+  
+  ## Is it an enhancer?
+  rbind(data.frame(Var1 = c('Enhancer', 'Not Enhancer'), 
+                   Freq = c(sum(anno$Phantom5_Enhancers != '', na.rm = T), 
+                            sum(anno$Phantom5_Enhancers == '', na.rm =T)),
+                   relation = 'Relation to Enhancers')) %>%
+  mutate(probeset = paste0('All analyzed CpGs (n=', nrow(betas), ')')) %>%
+
+  ## relation to cpg islands
+  rbind(anno$Relation_to_Island %>% table %>% as.data.frame() %>% dplyr::rename(Var1 = '.') %>%
+          mutate(probeset = paste0('All analyzed CpGs (n=', nrow(betas), ')'),
+                 relation = 'Relation to CpG islands'))
+
+# do the same for only significant CpGs
+enrich_df <- dmcs_1vall %>% 
+  filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>%   
+  
+  # created nested column by cell type-dmcs
+  group_by(Group1) %>% 
+  select(Group1, UCSC_RefGene_Group, Phantom5_Enhancers, Relation_to_Island) %>%
+  nest(.key = 'anno') %>%
+  mutate(Group1_label = case_when(
+    Group1 == 'Endo_cs' ~ 'Endothelial cs',
+    Group1 == 'Hofb_cs' ~ 'Hofbauer cs',
+    Group1 == 'Strom_cs' ~ 'Stromal cs',
+    Group1 == 'Troph_cs' ~ 'Trophoblasts cs')) %>% 
+  
+  # tally up the locations
+  mutate(UCSC_RefGene_Group = map2(anno, Group1_label, 
+                                   ~as.data.frame(table(unlist(str_extract(
+                                      .x$UCSC_RefGene_Group, "^[A-z0-9']+")))) %>%
+                                    mutate(probeset = paste0(.y, ' DMCs (n=', nrow(.x), ')'),
+                                           relation =  paste0('Relation to genes'))),
+         Phantom5_Enhancers = map2(anno, Group1_label, 
+                                   ~data.frame(Var1 = c('Enhancer', 'Not Enhancer'),
+                                               Freq = c(sum(.x$Phantom5_Enhancers != "", na.rm = T),
+                                                        sum(.x$Phantom5_Enhancers == '', na.rm = T)),
+                                               probeset = paste0(.y, ' DMCs (n=', nrow(.x),')'),
+                                               relation = 'Relation to Enhancers')),
+         Relation_to_Island = map2(anno, Group1_label,
+                                   ~as.data.frame(table(.x$Relation_to_Island)) %>%
+                                    mutate(probeset = paste0(.y, ' DMCs (n=', nrow(.x),')'),
+                                           relation = paste0('Relation to CpG islands'))))
+
+# combine each data frame
+enrich_df <- bind_rows(all_tested_cpgs,
+                       bind_rows(enrich_df$UCSC_RefGene_Group),
+                       bind_rows(enrich_df$Phantom5_Enhancers),
+                       bind_rows(enrich_df$Relation_to_Island)) %>% 
+  as_tibble %>%
+  
+  # calculate frequency
+  group_by(probeset, relation) %>%
+  mutate(Proportion = Freq/sum(Freq))
+```
+
+Now I calculate fishers test
+
+```{r}
+# fisher's test for enrichment
+# (1) # of DMCs on var1 (already calcualted, 'Freq')
+# (2) # of non-DMCs on var1
+# (3) # of DMCs not on var1
+# (4) # of non-DMCs not on var1
+
+# all cpgs dataframe necessary to calculate (2) and (4)
+all_cpgs <- enrich_df %>% filter(probeset == 'All analyzed CpGs (n=737050)') %>%
+  ungroup()%>%
+  dplyr::rename(Freq_all_in = Freq, # total cpgs tested that are in var1 location
+                Expected = Proportion) %>% 
+  mutate(Freq_all = as.numeric(str_extract(probeset, '[0-9]+')), # total cpgs tested
+         Freq_all_out = Freq_all - Freq_all_in) %>%              # total cpgs tested, not in var1
+  select(Var1, Expected, Freq_all_in, Freq_all_out, Freq_all)
+
+
+# calculate (2) (3) (4), and test enrichment
+enrich_results <- enrich_df %>% filter(probeset != 'All analyzed CpGs (n=737050)') %>%
+  ungroup() %>%
+  # rename to make more informative
+  dplyr::rename(Observed = Proportion,
+                Freq_DMC_in = Freq) %>%  #(1) # of DMCs in Var1
+  
+  # add in all_cpgs datarfame for calculations
+  left_join(all_cpgs, by = 'Var1') %>%
+  select(probeset, relation, Var1, Observed, Expected, 
+         Freq_all, Freq_all_in, Freq_all_out, Freq_DMC_in) %>%
+  
+  # calculate (2), (3), (4)
+  mutate(Freq_notDMC_in = Freq_all_in - Freq_DMC_in,   #(2) # non-DMCs in var1
+         
+         # for (3)
+         Freq_DMC = as.numeric(str_extract(probeset, '[0-9]+')), # total # of DMCs
+         Freq_DMC_out = Freq_DMC - Freq_DMC_in,  # of DMCs not on Var1
+         
+         # for (4)
+         Freq_notDMC_out = Freq_all_out - Freq_DMC_out) %>% 
+  
+  # test enrichment
+  rowwise() %>%
+  mutate(fisher_in = list(matrix(c(Freq_DMC_in, Freq_notDMC_in, 
+                                   Freq_DMC_out, Freq_notDMC_out),2,2))) %>%
+  ungroup() %>%
+  mutate(fisher_out = map(fisher_in, ~fisher.test(., alternative = 'greater')),
+         p = map_dbl(fisher_out, 'p.value'),
+         odds_ratio = map_dbl(fisher_out, 'estimate'),
+         FDR = p.adjust(p, method = 'fdr'),
+         bonferroni = p.adjust(p, method = 'bonferroni'),
+         FDR01 = ifelse(FDR < 0.01, T, F)) %>% 
+  select(FDR, FDR01, bonferroni, p, odds_ratio, everything()) %>% # add back in the all cpgs probeset
+  
+  bind_rows(data.frame(probeset = 'All analyzed CpGs (n=737050)',
+                       Observed = .$Expected,
+                       relation = .$relation,
+                       Var1 = .$Var1))
+  
+# color code
+colors <- color_code[[1]] %>% 
+  filter(Tissue %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
+colors <- setNames(c(colors$Colors_Tissue, '#525252'), unique(enrich_results$probeset))
+
+enrich_results %>% 
+  ggplot() +
+  geom_bar(aes(x = Var1, y = Observed, fill = probeset),
+           stat = 'identity', position = position_dodge(width = 0.75), color = 'black', 
+           width = 0.8) +
+  scale_fill_manual(values = colors)  + 
+  facet_grid(relation ~., scales = 'free_y', space = 'free',
+             labeller = as_labeller(
+               setNames(c('Relation to CpG islands', 'Enhancers', 'Relation to genes'),
+                        c('Relation to CpG islands', 'Relation to Enhancers', 'Relation to genes'))
+               )) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  theme_bw(base_size = 14) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), 
+        legend.position = 'right', legend.direction = 'vertical',
+        legend.spacing.y = unit(-0.2, 'cm')) +
+  labs(fill = '', x = '', y = 'Frequency', shape = '') +
+  
+  # add significance
+  geom_point(aes(x = Var1, y = Observed + 0.03, group = probeset, shape = FDR01),
+             position = position_dodge(0.75), size = 4) +
+  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
+                     labels = c('', 'Enriched (FDR < 0.01)'))
+         
+## TODO change the genomic location axes to numeric, so that I can nudge the asterisks over a slight
+##amount
+```
+
+## functional enrichment missmethyl 
+
+### GO
+
+```{r}
+#GO
+gst <- dmcs_1vall %>% group_by(Group1) %>%
+  nest(.key = lm_summary) %>%
+  mutate(GO_results = map(lm_summary, . %>% 
+                            filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>%
+                            pull(gene) %>% 
+                            gometh(all.cpg= rownames(betas_term), 
+                                   collection = 'GO',
+                                   array.type = 'EPIC') %>%
+                            mutate(ID = rownames(.)) %>%
+                            arrange(FDR)),
+         # number significnat at FDR < 0.05
+         FDR05_signif = map_dbl(GO_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+```
+
+Since some tissue DMCs do not produce any statistically significant pathways, I examine the 20 top-
+ranked for each tissue.
+
+```{r}
+top_GO <- gst %>% 
+  mutate(top_GO = map(GO_results, . %>% 
+                       arrange(P.DE) %>% 
+                       dplyr::slice(1:10))) %>%
+  select(Group1, top_GO) %>%
+  unnest() %>%
+  mutate(Generatio = DE/N) %>% # number of differentially methylated genes out of total per go term
+  
+  # set up ordering of terms for plotting
+  arrange(Group1, Generatio) %>%
+  mutate(Order = row_number(),
+         neg_log_P = -log(P.DE, base = 10))
+
+ggplot(top_GO, aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(~Group1, scales = 'free_y', ncol = 1) +
+  scale_x_continuous(breaks = top_GO$Order,
+                     labels = top_GO$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'A', direction = 1, 
+                       limits = c(0, 5), breaks = 1:5, na.value = viridis(option = 'A', 10)[10]) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+```
+
+### KEGG
+
+
+# 6.0 CpG plots
+
+Here I show some top hit for each cell type
+
+```{r}
+cpgs_ex <- dmcs_1vall %>% filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>% group_by(Group1) %>%
+  arrange(bonferroni) %>%
+  dplyr::slice(1) %>% pull(gene)
+
+cbind(pDat_term %>% select(Sample_Name, Tissue),
+      t(betas_term[cpgs_ex,])) %>% as_tibble  %>%
+  gather(key = cpg, value = beta, -Sample_Name, -Tissue) %>% {
+    ggplot(., aes(x = Tissue, y = beta, fill = Tissue)) +
+      geom_violin(color = 'black') +
+      geom_jitter(alpha = 0.5, shape = 21, color = 'black', show.legend = F) +
+      facet_wrap(~cpg) +
+      scale_fill_manual(values= color_code_tissue[unique(.$Tissue)]) +
+      scale_color_manual(values= color_code_tissue[unique(.$Tissue)]) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+      labs(x = '')+
+      scale_y_continuous(limits = c(0,1)) 
+  }
+```
+
+
+# Save data
+
+```{r eval = F}
+dmcs_1vall %>% filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>% 
+  dplyr::rename(cpg = gene, Cell_type = Group1) %>%
+  select(cpg, Cell_type, p.value, fdr, bonferroni:strand, Islands_Name, Relation_to_Island, 
+         contains('UCSC'), Phantom5_Enhancers, HMM_Island) %>%
+  write.table('../../data/main/processed/2_2_Term_DMCs.txt', sep = '\t', quote = F, row.names = F)
+```
+
+# SessionInfo
+
+```{r}
+sessionInfo()
+```
 
 
 
