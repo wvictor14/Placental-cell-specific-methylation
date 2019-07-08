@@ -1,5 +1,5 @@
 ---
-title: "2_3_Firsttrim_DMCs"
+title: "2_3_Measuring_absolute_contamination"
 author: "Victor Yuan"
 date: "17/06/2019"
 output:
@@ -13,6 +13,10 @@ output:
 editor_options: 
   chunk_output_type: console
 ---
+
+I'ved decided to analyze both first and third trimester samples together, after removing severely contaminated samples.
+
+First it's important to consider the level of maternal contamination. Previously I hadn't been able to quantify the absolute levels of contamination. So first I develop and approach to do so, and then I do linear modelling.
 
 # Setup
 
@@ -279,7 +283,33 @@ pDat %>% arrange(Tissue, maternal_contamination_norm_flip) %>%
 
 ggplot(pDat, aes(y = maternal_contamination_norm_flip, x = Prob_SNP_outlier)) +
   geom_point() 
+
+pDat %>% arrange(Tissue, maternal_contamination_norm_flip) %>% 
+  filter(maternal_contamination_norm_flip < 0.5) %>%
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = maternal_contamination_norm_flip, color = Tissue)) +
+  geom_point() + 
+  geom_segment(aes(y = 0, yend = maternal_contamination_norm_flip, 
+                   x = Sample_Name, xend = Sample_Name))+
+  scale_color_brewer(palette = 'Set1') +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0), breaks = seq(0,1, 0.1)) +
+  scale_x_discrete(expand = c(0.05, 0.05)) +
+  facet_grid(.~Trimester, scales = 'free_x', space = 'free_x') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank()) 
+
+ggplot(pDat, aes(y = maternal_contamination_norm_flip, x = Prob_SNP_outlier)) +
+  geom_point() 
+
+
+# join to subsets first rtimester pdat
+pDat_first <- pDat_first %>%
+  left_join(pDat %>% select(Sample_Name, maternal_contamination_norm_flip))
 ```
+
+maternal_contamination_norm_flip: final measure of absolute contamination
 
 ## Predict on mat blood
 
@@ -407,7 +437,7 @@ res %>%
 
 ```
 
-TODO KEEP THIS SEPARATE FROM DMC ANALYSIS
+TODO: KEEP THIS SEPARATE FROM DMC ANALYSIS
 
 
 # 1.0 Global methylation
@@ -491,7 +521,7 @@ pc_cor <- lmmatrix(dep = pca$x[,1:20, drop = F],
                                  Week, Chip_number, Row_numeric, Row_factor, Batch_BSC, # batch
                                  DNA_loaded, 
                                  failed_probes,
-                                 cor_to_reference, Prob_SNP_outlier),
+                                 maternal_contamination_norm_flip),
                    metric = 'Pvalue')
 # plot data
 pc_cor <- pc_cor %>% as.data.frame() %>% 
@@ -524,7 +554,7 @@ pc_cor <- pc_cor %>%
                                      'Batch_BSC', # batch
                                      'DNA_loaded',
                                      'failed_probes',
-                                     'cor_to_reference', 'Prob_SNP_outlier')))
+                                     'maternal_contamination_norm_flip')))
                                      
 p7 <- ggplot(pc_cor, aes(x = PC, y = dep, fill = pval_cat)) +
   geom_tile(col = 'lightgrey') + theme_bw() +
@@ -546,15 +576,16 @@ egg::ggarrange(p7, p8, heights = c(3,1))
 
 
 # create another without all variables
-var_interest <- c('Tissue', 'Sex', 'cor_to_reference','Case_ID',
+var_interest <- c('Tissue', 'Sex', 'maternal_contamination_norm_flip','Case_ID',
                   'Week', 'Chip_number', 'Row_numeric', 'Row_factor', 'Batch_BSC')
 
 p9 <- pc_cor %>% 
   filter(dep %in% var_interest) %>%
-  mutate(dep = ifelse(dep %in% var_interest[5:10], paste0('TECH_', dep), as.character(dep))) %>%
+  mutate(dep = ifelse(dep %in% var_interest[5:10], paste0('TECH_', dep), as.character(dep)),
+         dep = gsub('maternal_contamination_norm_flip', 'Mat_contamination', dep)) %>%
   mutate(dep = factor(dep, levels = c('TECH_Week', 'TECH_Chip_number', 'TECH_Row_numeric',
                                       'TECH_Row_factor', 'TECH_Batch_BSC', 
-                                      'cor_to_reference',  'Sex',
+                                      'Mat_contamination',  'Sex',
                                       'Case_ID', 'Tissue'))) %>%
   ggplot(aes(x = PC, y = dep, fill = pval_cat)) +
   geom_tile(col = 'lightgrey') + theme_bw() +
@@ -672,7 +703,7 @@ pheatmap(cor_betas, annotation_col = annotation, annotation_row = annotation[,'T
 
 # Remove P131_hofb_cs
 
-Based 
+Based on global DNa methylation differences P131 hofbauer cs was removed
 
 ```{r}
 pDat_first <- pDat_first %>% filter(Sample_Name != 'P131_hofb_cs')
@@ -822,7 +853,7 @@ scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
   labs(fill = '') +
   geom_text_repel(data = pDat_first %>% filter(Tissue == 'Hofbauer cs', PC1_processed > -50), 
             aes(label = Sample_Name))
-scatter(x = 'PC1', y = 'PC2', fill = 'cor_to_reference', point_size = 2) 
+scatter(x = 'PC1', y = 'PC2', fill = 'maternal_contamination_norm_flip', point_size = 2) 
 
 scatter2(x = 'PC1')+
   geom_text_repel(data = pDat_first %>% filter(Tissue == 'Hofbauer cs', PC1_processed > -50), 
