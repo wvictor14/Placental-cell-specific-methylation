@@ -80,38 +80,83 @@ main_interim <- data.frame(
   File = list.files('./data/main/interim/'),
   Description = c('IDATs parsed/loaded using ewastools',
                   'IDATs parsed/loaded using minfi',
+                  'Color code for plots',
                   'Control probes data parsed/loaded using ewastools',
-                  'Correlation matrix on snp betas',
-                  'UMAP and TSNE coordinates computed on raw betas', #5
+                  'Correlation matrix on snp betas', #5
+                  
+                  'UMAP and TSNE coordinates computed on raw betas', 
                   'PCA association plot data',
                   'Phenodata with QC info',
                   'Probe QC information',
-                  'SNP probe data',
-                  'Called genotypes on SNP data using ewastools', #10
+                  'SNP probe data', #10
+                  
+                  'Called genotypes on SNP data using ewastools', 
                   'Custom Chromosome lengths',
                   'Conumee determined binned probes for CNV calling',
                   'Probes output from conumee::CNV.write',
-                  'Segments output from conumee::CNV.write',
-                  'pData with maternal contamination info', # 15
+                  'Segments output from conumee::CNV.write', #15
+                  
+                  'pData with maternal contamination info', 
                   'Noob-normalized filtered autosomal probes',
-                  'Noob-normalized mset object'),
+                  'Noob-normalized mset object',
+                  'bmiq normalized betas',
+                  'predicted ethnicity from planet on all samples', #20
+                  
+                  'pData with predicted ethnicity',
+                  'associations between covariates, for plotting',
+                  'distance matrix',
+                  'pca results',
+                  'pData for term samples', #25
+                  
+                  'data to produce pheatmap',
+                  'densities on betas for term samples',
+                  'Term DMCs, all contrasts',
+                  'updated color code key',
+                  'First trimester DMCs with adjustment for mat contam', #30
+                  
+                  'Comparison of with/without adjustment',
+                  'absolute maternal contamination estimated on "test" samples',
+                  'pData for all samples, with absolute maternal contamination added'
+                  ),
   Object = c('list',
              'rgchannelset',
+             'list',
              'dataframe',
-             'matrix',
-             'dataframe', #5
+             'matrix', #5
+             
+             'dataframe', 
              'dataframe',
              'dataframe',
              'dataframe',
-             'matrix',
-             'list', # 10
+             'matrix', #10
+             
+             'list', 
              'dataframe?',
              'dataframe',
              'dataframe',
-             'dataframe',
-             'dataframe', # 15
+             'dataframe', #15
+             
+             'dataframe', 
              'matrix',
-             'methylset') 
+             'methylset',
+             'matrix',
+             'data.frame?',#20
+             
+             'dataframe',
+             '',
+             '',
+             '',
+             '', # 25
+             
+             '',
+             '',
+             '',
+             '',
+             '', # 30
+             
+             '',
+             'dataframe',
+             'dataframe') 
 )
 
 kable(main_interim)  %>%
