@@ -23,7 +23,8 @@ some of plots without contaminated samples, and continue with linear modelling a
 
 ## Load libraries and data
 
-```{r message = F, warning = F}
+
+```r
 # libraries and data
 library(ggplot2)
 library(tidyverse)
@@ -53,7 +54,8 @@ library(egg)
 Here I call 'syncytiotrophoblasts' into 'Trophoblasts enz' and add 'cs' suffixes to the cell sorted
 samples.
 
-```{r}
+
+```r
 # pdata
 pDat_term  <- readRDS('../../data/main/interim/1_6_pDat.rds')
 pDat_term <- pDat_term %>% 
@@ -85,6 +87,13 @@ snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
 
 # annotation
 anno <- getAnnotation(readRDS('../../data/main/interim/0_1_rgset_raw.rds'))
+```
+
+```
+## Loading required package: IlluminaHumanMethylationEPICanno.ilm10b4.hg19
+```
+
+```r
 # filter to filtered betas cpgs
 anno <- anno %>%
   as_tibble() %>%
@@ -100,7 +109,40 @@ color_code[[1]] <- color_code[[1]]  %>%
          Colors_Tissue = ifelse(Tissue == 'Villi', '#911515', 
                                 ifelse(Tissue == 'Villi maternal', '#e072d7', Colors_Tissue)))
 color_code
+```
 
+```
+## [[1]]
+## # A tibble: 9 x 2
+##   Tissue                        Colors_Tissue
+##   <chr>                         <chr>        
+## 1 Dead Cells and Lymphocytes cs #424242      
+## 2 Endothelial cs                #6A1B9A      
+## 3 Hofbauer cs                   #1565C0      
+## 4 Mixture                       #546E7A      
+## 5 Stromal cs                    #388E3C      
+## 6 Trophoblasts enz              #E64A19      
+## 7 Trophoblasts cs               #FBC02D      
+## 8 Villi                         #911515      
+## 9 Villi maternal                #e072d7      
+## 
+## [[2]]
+## # A tibble: 2 x 2
+##   Sex   Colors_Sex
+##   <chr> <chr>     
+## 1 F     #F8BBD0   
+## 2 M     #BBDEFB   
+## 
+## [[3]]
+## # A tibble: 3 x 2
+##   Trimester Colors_Trimester
+##   <chr>     <chr>           
+## 1 First     #E0E0E0         
+## 2 Second    #616161         
+## 3 Third     #212121
+```
+
+```r
 color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
 
 # correlation data 
@@ -121,7 +163,8 @@ All negative for markers – Stromal
 
 ### EGFR - trophoblast
 
-```{r}
+
+```r
 # filter to EGFR
 anno_EGFR <- anno %>%filter(grepl('NM_201284', UCSC_RefGene_Accession)) %>%
   arrange(pos)
@@ -155,7 +198,13 @@ betas_EGFR <- t(betas_term[anno_EGFR$Name,]) %>% as_tibble %>%
          # ExonBnd should be body
          gene_element = ifelse(gene_element == 'ExonBnd', 'Body', gene_element) )%>%
   mutate(gene_element = factor(as.character(gene_element), levels = c("TSS1500", "5'UTR", "Body", "3'UTR"))) 
+```
 
+```
+## Joining, by = "Sample_Name"
+```
+
+```r
 #plot
 # bar plot
 betas_EGFR %>%
@@ -165,7 +214,11 @@ betas_EGFR %>%
   scale_y_continuous(limits = c(0,1), breaks = c(0,0.5,1)) +
   theme_bw() +
   facet_wrap(~Tissue, ncol = 1, strip.position = 'right')
+```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
+
+```r
 # line plot
 colors <- color_code_tissue[unique(pDat_term$Tissue)]
 colors[c('Endothelial cs', 'Hofbauer cs', 'Stromal cs')] <- 'Grey'
@@ -174,7 +227,19 @@ ggplot(betas_EGFR, aes(x = pos, y = beta_med, color = Tissue)) +
   scale_y_continuous(limits = c(0,1), breaks = c(0,0.5,1)) +
   scale_color_manual(values= colors) +
   geom_smooth()
+```
 
+```
+## `geom_smooth()` using method = 'gam' and formula 'y ~ s(x, bs = "cs")'
+```
+
+```
+## Warning: Removed 4 rows containing missing values (geom_smooth).
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-3-2.png)<!-- -->
+
+```r
 p1 <- betas_EGFR %>%
   ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
   geom_tile() +
@@ -193,9 +258,12 @@ p2 <- betas_EGFR %>%
 egg::ggarrange(p1, p2, ncol = 1)
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-3-3.png)<!-- -->
+
 ### CD14+
 
-```{R}
+
+```r
 # filter to EGFR
 anno_CD14 <- anno %>%filter(grepl('NM_000591', UCSC_RefGene_Accession)) %>%
   arrange(pos)
@@ -226,8 +294,13 @@ betas_CD14 <- t(betas_term[anno_CD14$Name,]) %>% as_tibble %>%
          
          # create an annotation column          
          Annotation_gene_element = 'Gene_element')
-         
+```
 
+```
+## Joining, by = "Sample_Name"
+```
+
+```r
 p3 <- betas_CD14 %>%
   ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
   geom_tile() +
@@ -247,9 +320,12 @@ p4 <- betas_CD14 %>%
 egg::ggarrange(p3, p4, ncol = 1)
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+
 ### CD34
 
-```{R}
+
+```r
 # filter to EGFR
 anno_CD34 <- anno %>%filter(grepl('NM_001773', UCSC_RefGene_Accession)) %>%
   arrange(pos)
@@ -285,7 +361,13 @@ betas_CD34 <- t(betas_term[anno_CD34$Name,]) %>% as_tibble %>%
                                ifelse(gene_element == 'ExonBnd', 'Body', gene_element))) %>%
   # change factor level ordering for plot
   mutate(gene_element = factor(gene_element, levels = c("TSS1500", "TSS200", "5'UTR", "Body", "3'UTR"))) 
+```
 
+```
+## Joining, by = "Sample_Name"
+```
+
+```r
 p5 <- betas_CD34 %>%
   ggplot(aes(x = CpG, y = Tissue, fill = beta_med)) +
   geom_tile() +
@@ -305,13 +387,16 @@ p6 <- betas_CD34 %>%
 egg::ggarrange(p5, p6, ncol = 1)
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+
 # 2.0 Global methylation
 
 ## Density distributions
 
 Here we plot the density distributions of the betas across each tissue
 
-```{r}
+
+```r
 # pull out sample names for each tissue
 list <- list()
 for (i in unique(pDat_term$Tissue)) {
@@ -339,9 +424,12 @@ ggplot(densities,
   scale_color_manual(values= color_code_tissue[unique(pDat_term$Tissue)])
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+
 Density for each sample:
 
-```{r}
+
+```r
 sample_densities <- pDat_term %>%
   select(Sample_Name, Tissue) %>%
   mutate(densities = apply(betas_term, 2, density)) %>%
@@ -363,13 +451,16 @@ ggplot(sample_densities, aes(x = x, y = y, color = Tissue, group = Sample_Name))
   labs(x = '% methylation', y = 'density')
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+
 TODO:: Apply mixture modelling to determine hyper, hypomethylated, and hemi-methylated CpGs. Compare
 number of CpGs falling to each distribution. 3 component mixture: 2 beta distributions and one 
 uniform
 
 ## PCA
 
-```{r}
+
+```r
 # compute pca
 set.seed(1)
 pca <- prcomp_irlba(t(betas_term), n = 20, center = T, scale = F)
@@ -455,8 +546,11 @@ p8 <- ggplot(pc_info %>% filter(variable == 'Proportion of Variance') %>%
   labs(y = '% variance explained')
 
 egg::ggarrange(p7, p8, heights = c(3,1))
+```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
 
+```r
 # create another without all variables
 var_interest <- c('Tissue', 'Sex', 'Prob_Caucasian', 'Prob_Asian', 'Prob_African','Case_ID',
                   'Week', 'Chip_number', 'Row_numeric', 'Row_factor', 'Batch_BSC')
@@ -478,9 +572,12 @@ p9 <- pc_cor %>%
 egg::ggarrange(p9, p8, heights = c(3,1))
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-8-2.png)<!-- -->
+
 Scatterplots
 
-```{r message = F}
+
+```r
 scatter <- function(x, y, fill, point_size = 1){
   xlab <- pc_info %>% filter(variable == 'Proportion of Variance', PC == x) %>% pull(Label)
   ylab <- pc_info %>% filter(variable == 'Proportion of Variance', PC == y) %>% pull(Label)
@@ -505,25 +602,46 @@ scatter <- function(x, y, fill, point_size = 1){
 scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
   scale_fill_manual(values = color_code_tissue[unique(pDat_term$Tissue)])  +
   labs(fill = '')
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+
+```r
 scatter(x = 'PC3', y = 'PC4', fill = 'Tissue', point_size = 2) +
   scale_fill_manual(values = color_code_tissue[unique(pDat_term$Tissue)]) +
   labs(fill = '')
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-9-2.png)<!-- -->
+
+```r
 scatter(x = 'PC5', y = 'PC6', fill = 'Tissue', point_size = 2) +
   scale_fill_manual(values = color_code_tissue[unique(pDat_term$Tissue)]) +
   labs(fill = '')
+```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-9-3.png)<!-- -->
+
+```r
 ggplot(pDat_term, aes(x = PC5_processed, y = PC6_processed, color = Case_ID)) +
   geom_point() + theme_bw()
+```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-9-4.png)<!-- -->
+
+```r
 ggplot(pDat_term, aes(x = PC4_processed, y = PC5_processed, color = Prob_Asian)) +
   geom_point()
 ```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-9-5.png)<!-- -->
 
 ## Pairwise correlations
 
 Computed this is 22_Term_contamination.Rmd, just loaded it back in and filter to our final samples.
 
-```{r}
+
+```r
 # filter to our samples
 cor_betas <- cor_data$cor_betas[pDat_term$Sample_Name,pDat_term$Sample_Name]
 rownames(cor_data$annotation) <-  cor_data$x$Sample_Name
@@ -547,6 +665,8 @@ pheatmap(cor_betas, annotation_col = pheatmap_anno,
          cutree_cols = 6)
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
+
 # 3.0 Linear modelling
 
 ## fit pairwise comparisons
@@ -559,18 +679,38 @@ Drop the villi replicates
 * PM77_vc - drop, interbatch replicate
 * PM139_vc - drop, interbatch replicate
 
-```{r}
+
+```r
 # drop villi replicates
 n1 <- nrow(pDat_term)
 pDat_term <- pDat_term %>% filter(!Sample_Name %in% c('PM366_vc_R2', 'PM77_vc', 'PM139_vc'))
 n2 <- nrow(pDat_term)
 print(paste(n1, 'samples filtered down to', n2))
+```
 
+```
+## [1] "100 samples filtered down to 97"
+```
+
+```r
 betas_term <- betas_term[,pDat_term$Sample_Name]
 mvals_term <- mvals_term[,pDat_term$Sample_Name]
 ncol(betas_term) == n2
-ncol(mvals_term) == n2
+```
 
+```
+## [1] TRUE
+```
+
+```r
+ncol(mvals_term) == n2
+```
+
+```
+## [1] TRUE
+```
+
+```r
 # create a design matrix
 design <- model.matrix(~0+Tissue + Case_ID, 
                        data = pDat_term)
@@ -611,7 +751,8 @@ contMatrix <- makeContrasts(Endo_cs-Hofb_cs,
 
 
 
-```{r}
+
+```r
 # fit the linear model 
 fit <- lmFit(mvals_term, design)
 
@@ -635,7 +776,8 @@ Basically, we are using the p values and other stats calculated on m values. And
 sizes from the beta values.
 
 
-```{r}
+
+```r
 fit_b <- lmFit(betas_term, design)
 fit_b2 <- contrasts.fit(fit_b, contMatrix)
 fit_b2 <- eBayes(fit_b2) # moderate t stats
@@ -650,14 +792,42 @@ dmcs <- dmcs %>% dplyr::rename(estimate_m = estimate) %>%
   left_join(effect_sizes)
 ```
 
+```
+## Joining, by = c("gene", "term")
+```
+
 estimate_b -> effect size based on beta values
 estimate_m -> effect size based on m values
 
 
 Last thing to do is to get a list of cpgs that vary between cell types using the f stat
 
-```{r}
+
+```r
 summary(decideTests(fit2), method = 'nestedF', adjust.method = 'fdr', p.value = 0.05)
+```
+
+```
+##        Endo_cs - Hofb_cs Endo_cs - Strom_cs Endo_cs - Troph_cs
+## Down              349182             207162             245372
+## NotSig            269221             339788             244848
+## Up                118647             190100             246830
+##        Endo_cs - Troph_enz Endo_cs - Villi Hofb_cs - Strom_cs
+## Down                242190          248357             137038
+## NotSig              295922          260984             270099
+## Up                  198938          227709             329913
+##        Hofb_cs - Troph_cs Hofb_cs - Troph_enz Hofb_cs - Villi
+## Down               168079              165023          168629
+## NotSig             198107              299798          196787
+## Up                 370864              272229          371634
+##        Strom_cs - Troph_cs Strom_cs - Troph_enz Strom_cs - Villi
+## Down                254524               244300           258138
+## NotSig              219275               286351           231747
+## Up                  263251               206399           247165
+##        Troph_cs - Troph_enz Troph_cs - Villi Troph_enz - Villi
+## Down                  48418           119507             91034
+## NotSig               665362           557759            546316
+## Up                    23270            59784             99700
 ```
 
 ## analyze model results
@@ -667,14 +837,23 @@ plots per comparison
 
 I also use bonferroni adjusted p values, because almost everything is significant
 
-```{r}
+
+```r
 # view p value histogram
 ggplot(dmcs, aes(x = p.value)) +
   geom_histogram() +
   theme_bw() +
   scale_x_continuous(breaks = c(0,0.5,1)) +
   facet_wrap(~ term, scales = 'free_y')
+```
 
+```
+## `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
+
+```r
 #volcano
 dmcs %>%
   sample_n(150000) %>%
@@ -685,8 +864,11 @@ dmcs %>%
   scale_y_log10()  +
   scale_x_continuous(limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1)) +
   labs(title = '10000 points per plot shown',  y= 'log10 of bonferroni-adjusted\np value')
+```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
 
+```r
 stat_thresholds <- dmcs %>%
   group_by(term) %>%
   summarize(fdr01_deltb05 = sum(fdr < 0.01 & abs(estimate_b) > 0.05),
@@ -696,23 +878,70 @@ stat_thresholds <- dmcs %>%
 stat_thresholds
 ```
 
+```
+## # A tibble: 15 x 5
+##    term             fdr01_deltb05 fdr01_deltb10 fdr01_deltb15 fdr01_deltb20
+##    <fct>                    <int>         <int>         <int>         <int>
+##  1 Endo_cs - Hofb_~        354174        271072        208921        163162
+##  2 Endo_cs - Strom~        292902        213908        159518        121637
+##  3 Endo_cs - Troph~        380978        300775        239960        190716
+##  4 Endo_cs - Troph~        375571        320804        265263        217167
+##  5 Endo_cs - Villi         365269        280527        212524        159792
+##  6 Hofb_cs - Strom~        364520        285412        225549        179671
+##  7 Hofb_cs - Troph~        401600        317539        260739        218463
+##  8 Hofb_cs - Troph~        368937        319719        273504        233230
+##  9 Hofb_cs - Villi         395723        313817        253704        204836
+## 10 Strom_cs - Trop~        387698        302781        239995        189255
+## 11 Strom_cs - Trop~        379950        323631        268189        219498
+## 12 Strom_cs - Villi        367237        279693        210622        156329
+## 13 Troph_cs - Trop~         33485         24819         15617          9278
+## 14 Troph_cs - Villi         93660         38515         13644          6660
+## 15 Troph_enz - Vil~        113670         83273         44590         16795
+```
+
 ### Upset plot
 
-```{r}
+
+```r
 dmcs_wide <- dmcs %>%
   mutate(significant = ifelse(fdr < 0.01 & abs(estimate_b) > 0.1, 1, 0)) %>%
   select(gene, term, significant) %>%
   mutate(term = gsub('\\s-\\s', '_', term)) %>%
   spread(key = term, value = significant) 
 dmcs_wide
+```
 
+```
+## # A tibble: 737,050 x 16
+##    gene  Endo_cs_Hofb_cs Endo_cs_Strom_cs Endo_cs_Troph_cs Endo_cs_Troph_e~
+##    <chr>           <dbl>            <dbl>            <dbl>            <dbl>
+##  1 cg00~               0                0                0                0
+##  2 cg00~               0                0                0                0
+##  3 cg00~               0                0                0                0
+##  4 cg00~               0                0                0                0
+##  5 cg00~               0                0                1                1
+##  6 cg00~               0                0                0                0
+##  7 cg00~               1                1                1                1
+##  8 cg00~               0                0                0                0
+##  9 cg00~               1                0                1                0
+## 10 cg00~               1                0                0                0
+## # ... with 737,040 more rows, and 11 more variables: Endo_cs_Villi <dbl>,
+## #   Hofb_cs_Strom_cs <dbl>, Hofb_cs_Troph_cs <dbl>,
+## #   Hofb_cs_Troph_enz <dbl>, Hofb_cs_Villi <dbl>, Strom_cs_Troph_cs <dbl>,
+## #   Strom_cs_Troph_enz <dbl>, Strom_cs_Villi <dbl>,
+## #   Troph_cs_Troph_enz <dbl>, Troph_cs_Villi <dbl>, Troph_enz_Villi <dbl>
+```
 
+```r
 upset(nsets = 15, data.frame(dmcs_wide))
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
+
 ### top 1000 DMCs
 
-```{r}
+
+```r
 dmcs_top1000 <- dmcs %>%
   group_by(term) %>%
   arrange(fdr) %>%
@@ -721,7 +950,26 @@ dmcs_top1000 <- dmcs %>%
 
 # widen
 dmcs_top1000 %>% select(-estimate_m:-estimate_b) %>% mutate()
+```
 
+```
+## # A tibble: 15,000 x 4
+##    gene       term              Group1  Group2 
+##    <chr>      <fct>             <chr>   <chr>  
+##  1 cg26543150 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  2 cg13980609 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  3 cg05926358 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  4 cg00482162 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  5 cg06971029 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  6 cg19256314 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  7 cg11118690 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  8 cg18356123 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+##  9 cg25073689 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+## 10 cg23475787 Endo_cs - Hofb_cs Endo_cs Hofb_cs
+## # ... with 14,990 more rows
+```
+
+```r
 # join to genes, first filter to selected columns
 anno_reduced <- anno %>% 
   select(Name, chr, pos, strand, Islands_Name, Relation_to_Island, contains('UCSC'), 
@@ -739,7 +987,8 @@ dmcs_top1000 <- dmcs_top1000 %>%
 
 excluding villi and troph enz
 
-```{r}
+
+```r
 contMatrix_1vAll <- makeContrasts(Endo_cs - (Hofb_cs + Strom_cs + Troph_cs)/3,
                             Hofb_cs - (Endo_cs + Strom_cs + Troph_cs)/3,
                             Strom_cs - (Endo_cs + Hofb_cs + Troph_cs)/3,
@@ -755,6 +1004,13 @@ fdr_thresh <- 0.001
 nfsig <- sum(topTableF(fit3, n = ntests, adjust.method = 'BH', p.value = 0.05)$adj.P.Val < fdr_thresh)
 
 print(paste(nfsig, 'out of', ntests, 'CpGs were found significant at an FDR <', fdr_thresh))
+```
+
+```
+## [1] "573821 out of 737050 CpGs were found significant at an FDR < 0.001"
+```
+
+```r
 # 573821 CpGs
 
 # pull out dmcs
@@ -780,16 +1036,29 @@ dmcs_1vall <- dmcs_1vall  %>%
   left_join(effect_sizes_1vall)
 ```
 
+```
+## Joining, by = c("gene", "Group1")
+```
+
 column estimate_b refers to the effect size in terms of beta value
 
-```{r}
+
+```r
 # p value histogram
 dmcs_1vall %>%
   ggplot(aes(x = p.value)) +
   geom_histogram() +
   theme_bw() +
   facet_wrap(~Group1)
+```
 
+```
+## `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-19-1.png)<!-- -->
+
+```r
 # volcano plot
 dmcs_1vall %>%
   sample_n(400000) %>%
@@ -802,11 +1071,14 @@ dmcs_1vall %>%
   labs(title = '100,000 points per plot shown',  y= '-log10 of bonferroni-adjusted\np value')
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-19-2.png)<!-- -->
+
 # 4.0 Densities of DMCs
 
 ## hyper / hypo
 
-```{r}
+
+```r
 # number of significant cpgs per cell
 dmcs_1vall_sig <- dmcs_1vall %>% 
   group_by(Group1) %>% 
@@ -855,13 +1127,16 @@ dmcs_1vall_sig %>%
   scale_fill_manual(values = c('#6BAED6', '#DEEBF7'), labels = c('Hypermethylated', 'Hypomethylated'))
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-20-1.png)<!-- -->
+
 Here I use the density distribution code from above to calculate tissue densities again, but over
 tissue specific CpGs
 
 I also compute a background density line for each tissue, which is the the density over all betas
 for a given tissue (not just dmcs).
 
-```{r}
+
+```r
 dmcs_1vall_densities <- dmcs_1vall %>%
   
   # filter to significant cpgs (dmcs)
@@ -911,6 +1186,8 @@ ggplot(dmcs_1vall_densities) +
   labs(x = '% methylation', y = 'density', color = '')
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-21-1.png)<!-- -->
+
 # 5.0 Enrichment
 
 ## Chromosome enrichment
@@ -918,7 +1195,8 @@ ggplot(dmcs_1vall_densities) +
 
 First I add genome variables for each cpg, then I count cpgs per genomic location.
 
-```{r}
+
+```r
 # add gene annotation to cpgs
 dmcs_1vall <- dmcs_1vall %>% left_join(anno, by = c('gene' = 'Name'))
 
@@ -999,9 +1277,37 @@ enrich_df <- bind_rows(all_tested_cpgs,
   mutate(Proportion = Freq/sum(Freq))
 ```
 
+```
+## Warning in bind_rows_(x, .id): Unequal factor levels: coercing to character
+```
+
+```
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+```
+
 Now I calculate fishers test
 
-```{r}
+
+```r
 # fisher's test for enrichment
 # (1) # of DMCs on var1 (already calcualted, 'Freq')
 # (2) # of non-DMCs on var1
@@ -1057,7 +1363,20 @@ enrich_results <- enrich_df %>% filter(probeset != 'All analyzed CpGs (n=737050)
                        Observed = .$Expected,
                        relation = .$relation,
                        Var1 = .$Var1))
-  
+```
+
+```
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+```
+
+```r
 # color code
 colors <- color_code[[1]] %>% 
   filter(Tissue %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
@@ -1092,7 +1411,15 @@ enrich_results %>%
              position = position_dodge(0.75), size = 4) +
   scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
                      labels = c('', 'Enriched (FDR < 0.01)'))
-         
+```
+
+```
+## Warning: Removed 56 rows containing missing values (geom_point).
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-23-1.png)<!-- -->
+
+```r
 ## TODO change the genomic location axes to numeric, so that I can nudge the asterisks over a slight
 ##amount
 ```
@@ -1101,7 +1428,8 @@ enrich_results %>%
 
 ### GO
 
-```{r}
+
+```r
 #GO
 gst <- dmcs_1vall %>% group_by(Group1) %>%
   nest(.key = lm_summary) %>%
@@ -1120,7 +1448,8 @@ gst <- dmcs_1vall %>% group_by(Group1) %>%
 Since some tissue DMCs do not produce any statistically significant pathways, I examine the 20 top-
 ranked for each tissue.
 
-```{r}
+
+```r
 top_GO <- gst %>% 
   mutate(top_GO = map(GO_results, . %>% 
                        arrange(P.DE) %>% 
@@ -1149,6 +1478,8 @@ ggplot(top_GO, aes(x = Order, y = Generatio, fill = neg_log_P)) +
        y = '(# of genes with DMCs) / (# of genes associated with GO term)')
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-25-1.png)<!-- -->
+
 ### KEGG
 
 
@@ -1156,7 +1487,8 @@ ggplot(top_GO, aes(x = Order, y = Generatio, fill = neg_log_P)) +
 
 Here I show some top hit for each cell type
 
-```{r}
+
+```r
 cpgs_ex <- dmcs_1vall %>% filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>% group_by(Group1) %>%
   arrange(bonferroni) %>%
   dplyr::slice(1) %>% pull(gene)
@@ -1177,10 +1509,13 @@ cbind(pDat_term %>% select(Sample_Name, Tissue),
   }
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-26-1.png)<!-- -->
+
 
 ## ggridges
 
-```{r}
+
+```r
 dmcs_1vall_allcpg <- dmcs_1vall # save this
 
 # Create a gene label column, unique genes that each cpg maps to
@@ -1240,9 +1575,28 @@ g_top <- ggplot(topdmcs_b, aes(x = beta, y = cpg_gene_label)) +
 g_top
 ```
 
+```
+## Picking joint bandwidth of 0.0119
+```
+
+```
+## Picking joint bandwidth of 0.00845
+```
+
+```
+## Picking joint bandwidth of 0.0197
+```
+
+```
+## Picking joint bandwidth of 0.0202
+```
+
+![](2_2_Term_files/figure-html/unnamed-chunk-27-1.png)<!-- -->
+
 ## DNMT1
 
-```{r}
+
+```r
 anno_dnmt1 <- anno %>% filter(grepl('DNMT1', UCSC_RefGene_Name))  %>% 
   select(pos, Name, UCSC_RefGene_Group, UCSC_RefGene_Name, Relation_to_Island, contains('Enhancer'))  %>%
   mutate(UCSC_RefGene_Group = str_extract(UCSC_RefGene_Group, '^[A-z]*'),
@@ -1277,7 +1631,13 @@ betas_dnmt1 <- t(betas_term[anno_dnmt1$Name,]*100) %>% as_tibble %>%
          
          # create an annotation column          
          Annotation_gene_element = 'Gene_element')
+```
 
+```
+## Joining, by = "Sample_Name"
+```
+
+```r
 pdnmt1_a <- betas_dnmt1 %>% group_by(CpG, Tissue) %>%
   summarize(mean = mean(beta),
             sd = sd(beta)) %>%
@@ -1337,9 +1697,12 @@ plot_grid(ggarrange(pdnmt1_b,
           ncol = 2, rel_widths = c(5,1))
 ```
 
+![](2_2_Term_files/figure-html/unnamed-chunk-28-1.png)<!-- -->![](2_2_Term_files/figure-html/unnamed-chunk-28-2.png)<!-- -->
+
 # Save data
 
-```{r eval = F}
+
+```r
 dmcs_1vall_allcpg %>% 
   dplyr::rename(cpg = gene, Cell_type = Group1) %>%
   select(cpg, Cell_type, p.value, fdr, bonferroni:strand, Islands_Name, Relation_to_Island, 
@@ -1355,8 +1718,188 @@ dmcs_1vall_allcpg %>% filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>%
 
 # SessionInfo
 
-```{r}
+
+```r
 sessionInfo()
+```
+
+```
+## R version 3.6.0 (2019-04-26)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+## Running under: Windows Server x64 (build 14393)
+## 
+## Matrix products: default
+## 
+## locale:
+## [1] LC_COLLATE=English_Canada.1252  LC_CTYPE=English_Canada.1252   
+## [3] LC_MONETARY=English_Canada.1252 LC_NUMERIC=C                   
+## [5] LC_TIME=English_Canada.1252    
+## 
+## attached base packages:
+## [1] stats4    parallel  stats     graphics  grDevices utils     datasets 
+## [8] methods   base     
+## 
+## other attached packages:
+##  [1] IlluminaHumanMethylationEPICanno.ilm10b4.hg19_0.6.0
+##  [2] egg_0.4.2                                          
+##  [3] gridExtra_2.3                                      
+##  [4] UpSetR_1.4.0                                       
+##  [5] ggridges_0.5.1                                     
+##  [6] missMethyl_1.18.0                                  
+##  [7] biobroom_1.16.0                                    
+##  [8] broom_0.5.2                                        
+##  [9] limma_3.40.2                                       
+## [10] minfi_1.30.0                                       
+## [11] bumphunter_1.26.0                                  
+## [12] locfit_1.5-9.1                                     
+## [13] iterators_1.0.10                                   
+## [14] foreach_1.4.4                                      
+## [15] Biostrings_2.52.0                                  
+## [16] XVector_0.24.0                                     
+## [17] SummarizedExperiment_1.14.0                        
+## [18] DelayedArray_0.10.0                                
+## [19] BiocParallel_1.17.18                               
+## [20] matrixStats_0.54.0                                 
+## [21] Biobase_2.44.0                                     
+## [22] GenomicRanges_1.36.0                               
+## [23] GenomeInfoDb_1.20.0                                
+## [24] IRanges_2.18.1                                     
+## [25] S4Vectors_0.22.0                                   
+## [26] BiocGenerics_0.30.0                                
+## [27] dendextend_1.12.0                                  
+## [28] umap_0.2.2.0                                       
+## [29] cowplot_0.9.4                                      
+## [30] GGally_1.4.0                                       
+## [31] yahew_0.1.1                                        
+## [32] irlba_2.3.3                                        
+## [33] Matrix_1.2-17                                      
+## [34] pheatmap_1.0.12                                    
+## [35] RColorBrewer_1.1-2                                 
+## [36] scales_1.0.0                                       
+## [37] viridis_0.5.1                                      
+## [38] viridisLite_0.3.0                                  
+## [39] ggrepel_0.8.1                                      
+## [40] forcats_0.4.0                                      
+## [41] stringr_1.4.0                                      
+## [42] dplyr_0.8.1                                        
+## [43] purrr_0.3.2                                        
+## [44] readr_1.3.1                                        
+## [45] tidyr_0.8.3                                        
+## [46] tibble_2.1.3                                       
+## [47] tidyverse_1.2.1                                    
+## [48] ggplot2_3.2.0                                      
+## 
+## loaded via a namespace (and not attached):
+##   [1] readxl_1.3.1                                      
+##   [2] backports_1.1.4                                   
+##   [3] plyr_1.8.4                                        
+##   [4] lazyeval_0.2.2                                    
+##   [5] splines_3.6.0                                     
+##   [6] digest_0.6.19                                     
+##   [7] htmltools_0.3.6                                   
+##   [8] GO.db_3.8.2                                       
+##   [9] fansi_0.4.0                                       
+##  [10] magrittr_1.5                                      
+##  [11] memoise_1.1.0                                     
+##  [12] annotate_1.62.0                                   
+##  [13] modelr_0.1.4                                      
+##  [14] askpass_1.1                                       
+##  [15] siggenes_1.58.0                                   
+##  [16] prettyunits_1.0.2                                 
+##  [17] colorspace_1.4-1                                  
+##  [18] blob_1.1.1                                        
+##  [19] rvest_0.3.4                                       
+##  [20] BiasedUrn_1.07                                    
+##  [21] haven_2.1.0                                       
+##  [22] xfun_0.7                                          
+##  [23] crayon_1.3.4                                      
+##  [24] RCurl_1.95-4.12                                   
+##  [25] jsonlite_1.6                                      
+##  [26] genefilter_1.66.0                                 
+##  [27] zeallot_0.1.0                                     
+##  [28] GEOquery_2.52.0                                   
+##  [29] IlluminaHumanMethylationEPICmanifest_0.3.0        
+##  [30] survival_2.44-1.1                                 
+##  [31] glue_1.3.1                                        
+##  [32] ruv_0.9.7                                         
+##  [33] registry_0.5-1                                    
+##  [34] gtable_0.3.0                                      
+##  [35] zlibbioc_1.30.0                                   
+##  [36] Rhdf5lib_1.6.0                                    
+##  [37] HDF5Array_1.12.1                                  
+##  [38] DBI_1.0.0                                         
+##  [39] rngtools_1.3.1.1                                  
+##  [40] bibtex_0.4.2                                      
+##  [41] Rcpp_1.0.1                                        
+##  [42] xtable_1.8-4                                      
+##  [43] progress_1.2.2                                    
+##  [44] reticulate_1.12                                   
+##  [45] bit_1.1-14                                        
+##  [46] mclust_5.4.3                                      
+##  [47] preprocessCore_1.46.0                             
+##  [48] httr_1.4.0                                        
+##  [49] pkgconfig_2.0.2                                   
+##  [50] reshape_0.8.8                                     
+##  [51] XML_3.98-1.20                                     
+##  [52] utf8_1.1.4                                        
+##  [53] reshape2_1.4.3                                    
+##  [54] labeling_0.3                                      
+##  [55] tidyselect_0.2.5                                  
+##  [56] rlang_0.4.0                                       
+##  [57] AnnotationDbi_1.46.0                              
+##  [58] munsell_0.5.0                                     
+##  [59] cellranger_1.1.0                                  
+##  [60] tools_3.6.0                                       
+##  [61] cli_1.1.0                                         
+##  [62] generics_0.0.2                                    
+##  [63] RSQLite_2.1.1                                     
+##  [64] evaluate_0.14                                     
+##  [65] yaml_2.2.0                                        
+##  [66] org.Hs.eg.db_3.8.2                                
+##  [67] knitr_1.23                                        
+##  [68] bit64_0.9-7                                       
+##  [69] beanplot_1.2                                      
+##  [70] methylumi_2.30.0                                  
+##  [71] scrime_1.3.5                                      
+##  [72] nlme_3.1-140                                      
+##  [73] doRNG_1.7.1                                       
+##  [74] nor1mix_1.3-0                                     
+##  [75] xml2_1.2.0                                        
+##  [76] biomaRt_2.40.0                                    
+##  [77] compiler_3.6.0                                    
+##  [78] rstudioapi_0.10                                   
+##  [79] statmod_1.4.32                                    
+##  [80] stringi_1.4.3                                     
+##  [81] IlluminaHumanMethylation450kanno.ilmn12.hg19_0.6.0
+##  [82] GenomicFeatures_1.36.2                            
+##  [83] lattice_0.20-38                                   
+##  [84] vctrs_0.1.0                                       
+##  [85] IlluminaHumanMethylation450kmanifest_0.4.0        
+##  [86] multtest_2.40.0                                   
+##  [87] pillar_1.4.1                                      
+##  [88] data.table_1.12.2                                 
+##  [89] bitops_1.0-6                                      
+##  [90] rtracklayer_1.44.0                                
+##  [91] R6_2.4.0                                          
+##  [92] codetools_0.2-16                                  
+##  [93] MASS_7.3-51.4                                     
+##  [94] assertthat_0.2.1                                  
+##  [95] rhdf5_2.28.0                                      
+##  [96] openssl_1.4                                       
+##  [97] pkgmaker_0.27                                     
+##  [98] withr_2.1.2                                       
+##  [99] GenomicAlignments_1.20.1                          
+## [100] Rsamtools_2.0.0                                   
+## [101] GenomeInfoDbData_1.2.1                            
+## [102] mgcv_1.8-28                                       
+## [103] hms_0.4.2                                         
+## [104] quadprog_1.5-7                                    
+## [105] grid_3.6.0                                        
+## [106] base64_2.0                                        
+## [107] rmarkdown_1.13                                    
+## [108] DelayedMatrixStats_1.6.0                          
+## [109] illuminaio_0.26.0                                 
+## [110] lubridate_1.7.4
 ```
 
 
