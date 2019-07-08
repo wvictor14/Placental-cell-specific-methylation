@@ -611,11 +611,11 @@ PM366_hofb_cs unable to confirm since it is female sample. But high correlation 
 likelihood indicate it is contamined.
 
 Summary:
-Remove PM366_hofb, PM381_hofb because of maternal contamination
-Remove PM364_hofb, because of contamination with trophoblast cells
-Keep PM374_endo, since it is highly endothelial, and not maternally contaminated. 
 
-PM374_endo may be contaminated slightly with another endothelial cell sample.
+* Remove PM366_hofb, PM381_hofb because of maternal contamination
+* Remove PM364_hofb, because of contamination with trophoblast cells
+* Keep PM374_endo, since it is highly endothelial, and not maternally contaminated. 
+* PM374_endo may be contaminated slightly with another endothelial cell sample.
 
 
 ggsave(p5, filename = '../../outs/21_normalized_XY_term.png', width = 5, height = 5, dpi = 300)
