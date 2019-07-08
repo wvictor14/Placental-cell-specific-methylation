@@ -41,20 +41,20 @@ library(stringr)
 library(egg)
 
 # pdata
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 
 # raw methylation data
-betas <- readRDS('../../data/main/interim/14_betas_noob_filt.rds')
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
 
 # snp data
-snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
 
 # annotation
 zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
 
 # color key
-color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
 color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
 ```
 
@@ -628,15 +628,15 @@ sessionInfo()
 
 # Save data
 
-```{r}
+```{r eval = F}
 # all necessary for creating report
-saveRDS(pDat_1, '../../data/main/interim/21_pDat_term_cells.rds')
-saveRDS(cov_tests, '../../data/main/interim/21_cov_tests.rds')
-saveRDS(sample_densities, '../../data/main/interim/21_sample_densities.rds')
-saveRDS(list(pc_cor = pc_cor, pc_info = pc_info), '../../data/main/interim/21_pca.rds')
+saveRDS(pDat_1, '../../data/main/interim/2_1_pDat_term_cells.rds')
+saveRDS(cov_tests, '../../data/main/interim/2_1_cov_tests.rds')
+saveRDS(sample_densities, '../../data/main/interim/2_1_sample_densities.rds')
+saveRDS(list(pc_cor = pc_cor, pc_info = pc_info), '../../data/main/interim/2_1_pca.rds')
 saveRDS(list(cor_betas = cor_betas, annotation = annotation, anno_colors = anno_colors,
-             x = x, cor_tissue = cor_tissue), '../../data/main/interim/21_pheatmap_data.rds')
+             x = x, cor_tissue = cor_tissue), '../../data/main/interim/2_1_pheatmap_data.rds')
 
 # additional stuff:
-saveRDS(d, '../../data/main/interim/21_dist.rds') # distance matrix
+saveRDS(d, '../../data/main/interim/2_1_dist.rds') # distance matrix
 ```

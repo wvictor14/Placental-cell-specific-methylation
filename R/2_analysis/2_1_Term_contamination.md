@@ -42,20 +42,20 @@ library(stringr)
 library(egg)
 
 # pdata
-pDat <- readRDS('../../data/main/interim/13_pDat.rds')
+pDat <- readRDS('../../data/main/interim/1_3_pDat.rds')
 
 # raw methylation data
-betas <- readRDS('../../data/main/interim/14_betas_noob_filt.rds')
-probe_anno <- readRDS('../../data/main/interim/11_probe_anno.rds')
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
 
 # snp data
-snp_betas <- readRDS('../../data/main/interim/11_snp_betas.rds')
+snp_betas <- readRDS('../../data/main/interim/1_1_snp_betas.rds')
 
 # annotation
 zhou_anno <- readRDS('Z:/Victor/Data/DNAm annotations/zhou2017_EPIC.hg19.manifest.rds') 
 
 # color key
-color_code <- readRDS('../../data/main/interim/11_color_code.rds')
+color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
 color_code_tissue <- setNames(color_code[[1]]$Colors_Tissue, color_code[[1]]$Tissue)
 ```
 
@@ -302,7 +302,7 @@ ggplot(cov_tests, aes(x=Row, y = Column, fill = pval_cat)) +
   coord_equal()
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
 
 ```r
 lm(pDat_1$Row_numeric ~ pDat_1$Average_intensity) %>% summary
@@ -394,14 +394,14 @@ plot_grid(g1, g2, g3, g4, ncol = 2)
 ## Warning: Removed 12 rows containing missing values (geom_point).
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
 
 ```r
 ggplot(pDat_1, aes(x = Row_numeric, y = failed_probes)) +
   geom_point()
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
 
 Importantly we see that Tissue is not confounded by any of our other variables.
 
@@ -440,7 +440,7 @@ ggplot(densities,
   scale_color_manual(values= color_code_tissue[unique(pDat_1$Tissue)])
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 Here I plot the median beta value for each cpg for each tissue
 
@@ -468,7 +468,7 @@ ggplot(med_densities, aes(x = x, y = y, color = Tissue)) +
   scale_color_manual(values= color_code_tissue[unique(pDat_1$Tissue)])
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
 For each sample:
 
@@ -495,7 +495,7 @@ ggplot(sample_densities, aes(x = x, y = y, color = Tissue, group = Sample_Name))
   labs(x = '% methylation', y = 'density')
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
 
 ## PCA
 
@@ -575,7 +575,7 @@ p2 <- ggplot(pc_info %>% filter(variable == 'Proportion of Variance') %>%
 egg::ggarrange(p1, p2, heights = c(3,1))
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
 
 Plot some scatterplots of significantly associated variables
 
@@ -614,25 +614,25 @@ scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
 ## which will replace the existing scale.
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
 
 ```r
 scatter(x = 'PC1', y = 'PC2', fill = 'cor_to_reference', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-2.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-2.png)<!-- -->
 
 ```r
 scatter(x = 'PC1', y = 'PC2', fill = 'Prob_SNP_outlier', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-3.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-3.png)<!-- -->
 
 ```r
 scatter(x = 'PC1', y = 'PC2', fill = 'DNA_loaded', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-4.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-4.png)<!-- -->
 
 ```r
 # calculate association after adjusting for tissue effects
@@ -645,67 +645,67 @@ scatter(x = 'PC3', y = 'PC4', fill = 'Tissue', point_size = 2) +
 ## which will replace the existing scale.
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-5.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-5.png)<!-- -->
 
 ```r
 scatter(x = 'PC5', y = 'PC6', fill = 'failed_probes', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-6.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-6.png)<!-- -->
 
 ```r
 scatter(x = 'PC5', y = 'PC6', fill = 'DNA_loaded', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-7.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-7.png)<!-- -->
 
 ```r
 scatter(x = 'PC5', y = 'PC6', fill = 'Week', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-8.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-8.png)<!-- -->
 
 ```r
 scatter(x = 'PC5', y = 'PC6', fill = 'Sex', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-9.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-9.png)<!-- -->
 
 ```r
 scatter(x = 'PC5', y = 'PC6', fill = 'Row_numeric', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-10.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-10.png)<!-- -->
 
 ```r
 scatter(x = 'PC7', y = 'PC8', fill = 'Sex', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-11.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-11.png)<!-- -->
 
 ```r
 scatter(x = 'PC7', y = 'PC8', fill = 'Row_numeric', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-12.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-12.png)<!-- -->
 
 ```r
 scatter(x = 'PC9', y = 'PC10', fill = 'Sex', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-13.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-13.png)<!-- -->
 
 ```r
 scatter(x = 'PC10', y = 'PC11', fill = 'Prob_SNP_outlier', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-14.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-14.png)<!-- -->
 
 ```r
 scatter(x = 'PC12', y = 'PC13', fill = 'Prob_SNP_outlier', point_size = 2)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-10-15.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-10-15.png)<!-- -->
 
 ## UMAP
 
@@ -835,7 +835,7 @@ ggplot(x, aes(x = UMAP1, y = UMAP2, fill = Tissue)) +
                   force = 15)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
 
 ## Hierarchical clustering
 
@@ -893,7 +893,7 @@ legend(legend = names(color_code_tissue[unique(pDat_1$Tissue)]),
        'top', ncol = 3,  cex = .75, pt.cex = 3.5, inset = c(-0.2), xpd=TRUE)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
 
 ## Correlations
 
@@ -927,7 +927,7 @@ pheatmap(cor_betas, annotation_col = annotation, show_rownames = F, show_colname
          cutree_cols = 6)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-13-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-13-1.png)<!-- -->
 
 Within and between tissue
 
@@ -970,14 +970,14 @@ p1 <- cor_tissue %>%
 p1
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-14-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-14-1.png)<!-- -->
 
 ```r
 p1 +
   geom_text_repel(aes(label = ifelse(Sample1 == 'PM364_hofb_cs', 'PM364_hofb_cs', NA)), na.rm = T)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-14-2.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-14-2.png)<!-- -->
 
 ```r
 # save to pData
@@ -1040,7 +1040,7 @@ p4 <- pDat_1 %>%
 ggarrange(p3, p4)
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
 
 png('../../outs/21_term_maternal_contamination.png', units = 'in', height = 10, width = 10, res = 300)
 ggarrange(p3, p4)
@@ -1070,7 +1070,7 @@ cor_tissue %>%
   }
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
 
 So all are highly correlated to other samples of the same tissue (except PM364_hofb_cs). 
 
@@ -1087,7 +1087,7 @@ p5 <-ggplot(pDat_1, aes(x = normalized_X_intensity, y = normalized_Y_intensity, 
 p5
 ```
 
-![](21_Term_contamination_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
+![](2_1_Term_contamination_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
 
 Interestingly, PM374_endo is not 'female' at all, despite low correlations with villi SNP data. This
 suggests the correlation to villi approach is failing for this particular sample. 
@@ -1135,7 +1135,7 @@ sessionInfo()
 ##  [1] egg_0.4.2          gridExtra_2.3      stringr_1.4.0     
 ##  [4] dendextend_1.12.0  umap_0.2.1.0       tibble_2.1.1      
 ##  [7] purrr_0.3.2        cowplot_0.9.4      GGally_1.4.0      
-## [10] yahew_0.1.0        irlba_2.3.3        Matrix_1.2-17     
+## [10] yahew_0.1.1        irlba_2.3.3        Matrix_1.2-17     
 ## [13] pheatmap_1.0.12    impute_1.58.0      RColorBrewer_1.1-2
 ## [16] scales_1.0.0       viridis_0.5.1      viridisLite_0.3.0 
 ## [19] ggrepel_0.8.1      tidyr_0.8.3        dplyr_0.8.1       
@@ -1143,15 +1143,16 @@ sessionInfo()
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] reticulate_1.12  tidyselect_0.2.5 xfun_0.6         lattice_0.20-38 
-##  [5] colorspace_1.4-1 vctrs_0.1.0      htmltools_0.3.6  yaml_2.2.0      
-##  [9] utf8_1.1.4       rlang_0.3.4      pillar_1.4.0     glue_1.3.1      
-## [13] withr_2.1.2      plyr_1.8.4       munsell_0.5.0    gtable_0.3.0    
-## [17] evaluate_0.13    labeling_0.3     knitr_1.22       fansi_0.4.0     
-## [21] Rcpp_1.0.1       backports_1.1.4  jsonlite_1.6     RSpectra_0.14-0 
-## [25] digest_0.6.18    stringi_1.4.3    grid_3.6.0       cli_1.1.0       
-## [29] tools_3.6.0      magrittr_1.5     lazyeval_0.2.2   crayon_1.3.4    
-## [33] pkgconfig_2.0.2  zeallot_0.1.0    assertthat_0.2.1 rmarkdown_1.12.7
-## [37] reshape_0.8.8    R6_2.4.0         compiler_3.6.0
+##  [5] generics_0.0.2   colorspace_1.4-1 vctrs_0.1.0      htmltools_0.3.6 
+##  [9] yaml_2.2.0       utf8_1.1.4       rlang_0.3.4      pillar_1.4.0    
+## [13] glue_1.3.1       withr_2.1.2      plyr_1.8.4       munsell_0.5.0   
+## [17] gtable_0.3.0     evaluate_0.13    labeling_0.3     knitr_1.22      
+## [21] fansi_0.4.0      broom_0.5.2      Rcpp_1.0.1       backports_1.1.4 
+## [25] jsonlite_1.6     RSpectra_0.14-0  digest_0.6.18    stringi_1.4.3   
+## [29] grid_3.6.0       cli_1.1.0        tools_3.6.0      magrittr_1.5    
+## [33] lazyeval_0.2.2   crayon_1.3.4     pkgconfig_2.0.2  zeallot_0.1.0   
+## [37] assertthat_0.2.1 rmarkdown_1.12.7 reshape_0.8.8    R6_2.4.0        
+## [41] nlme_3.1-140     compiler_3.6.0
 ```
 
 # Save data
@@ -1159,13 +1160,13 @@ sessionInfo()
 
 ```r
 # all necessary for creating report
-saveRDS(pDat_1, '../../data/main/interim/21_pDat_term_cells.rds')
-saveRDS(cov_tests, '../../data/main/interim/21_cov_tests.rds')
-saveRDS(sample_densities, '../../data/main/interim/21_sample_densities.rds')
-saveRDS(list(pc_cor = pc_cor, pc_info = pc_info), '../../data/main/interim/21_pca.rds')
+saveRDS(pDat_1, '../../data/main/interim/2_1_pDat_term_cells.rds')
+saveRDS(cov_tests, '../../data/main/interim/2_1_cov_tests.rds')
+saveRDS(sample_densities, '../../data/main/interim/2_1_sample_densities.rds')
+saveRDS(list(pc_cor = pc_cor, pc_info = pc_info), '../../data/main/interim/2_1_pca.rds')
 saveRDS(list(cor_betas = cor_betas, annotation = annotation, anno_colors = anno_colors,
-             x = x, cor_tissue = cor_tissue), '../../data/main/interim/21_pheatmap_data.rds')
+             x = x, cor_tissue = cor_tissue), '../../data/main/interim/2_1_pheatmap_data.rds')
 
 # additional stuff:
-saveRDS(d, '../../data/main/interim/21_dist.rds') # distance matrix
+saveRDS(d, '../../data/main/interim/2_1_dist.rds') # distance matrix
 ```
