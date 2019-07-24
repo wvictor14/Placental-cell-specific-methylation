@@ -1353,6 +1353,12 @@ dmcs_1vall_allcpg %>% filter(bonferroni < 0.001, abs(estimate_b) > 0.5) %>%
   write.table('../../data/main/processed/2_2_Term_DMCs.txt', sep = '\t', quote = F, row.names = F)
 ```
 
+For Yifan
+
+```{r eval = F}
+saveRDS(betas_term, '../../data/main/interim/2_2_betas_term.rds')
+```
+
 # SessionInfo
 
 ```{r}
