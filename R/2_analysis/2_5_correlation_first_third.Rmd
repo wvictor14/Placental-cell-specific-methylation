@@ -1,0 +1,120 @@
+---
+title: "2_5_correlation_first_third"
+author: "Victor Yuan"
+date: "26/07/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Setup
+
+## Libraries
+
+```{r}
+# libraries and data
+library(tidyverse)
+library(viridis)
+library(RColorBrewer)
+library(kableExtra)
+library(widyr)
+```
+
+## Data
+
+```{r}
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# methylation data
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
+mvals <- getM(mset_noob)
+
+
+# filter samples
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
+betas_filt <- betas[,pDat_filt$Sample_Name]
+
+
+# annotation
+anno <- getAnnotation(mset_noob)
+anno <- anno %>%
+  as_tibble() %>%
+  filter(Name %in% rownames(betas)) # filter to filtered betas cpgs
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# color key
+pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+
+# Correlation
+
+```{r}
+pDat_filt
+table(pDat_filt$Tissue, pDat_filt$Trimester)
+
+# calculate means
+cell_mean <- pDat_filt %>% 
+  select(Tissue, Trimester, Sample_Name) %>%
+  group_by(Tissue, Trimester) %>%
+  
+  # nest, calculate means, unnest
+  summarize(Sample_Names = list(Sample_Name)) %>%
+  mutate(mean_meth = map(Sample_Names, ~ enframe(rowMeans(betas_filt[,.]), 
+                                                 name = 'cpg', value = 'mean_meth'))) %>%
+  unnest(mean_meth) %>% 
+  group_by(Tissue, Trimester) %>% 
+  spread(key = Trimester, value = mean_meth)
+
+# calculate correlation, difference, and absolute difference between means
+cell_mean_cor <- cell_mean %>%
+  summarize(cor_1_3 = cor(First, Third),
+            cor_1_2 = cor(First, Second),
+            cor_2_3 = cor(Second, Third),
+            
+            diff_1_3 = mean(Third-First),
+            diff_1_2 = mean(Second-First),
+            diff_2_3 = mean(Third-First),
+            
+            adiff_1_3 = abs(diff_1_3),
+            adiff_1_2 = abs(diff_1_2),
+            adiff_2_3 = abs(diff_2_3))
+
+# calculate density
+
+
+# plot correlations
+ggplot(cell_mean, aes(x = First, y = Third)) +
+  geom_hex() +
+  geom_label(data = cell_mean_cor, 
+             aes(x = 0.8, y = 0.075, 
+                 label = paste0("atop(italic(r)==", prettyNum(cor_1_3, digits = 2), ',',
+                                "Delta~beta==", prettyNum(diff_1_3, digits = 2), ")")),
+             parse = T, hjust = 0, size = 3) +
+  facet_wrap(vars(Tissue)) +
+  scale_fill_viridis_c(trans = 'log10', 
+                       breaks = c(1, 10, 100, 1000, 10000, 100000, 1000000), 
+                       labels =scales::trans_format('log10',scales::math_format(10^.x))) +
+  coord_cartesian(expand = F) +
+  theme_bw() +
+  labs(x = 'First Trimester Mean Methylation', y = 'Third Trimester Mean Methylation')
+
+```
