@@ -81,40 +81,55 @@ cell_mean <- pDat_filt %>%
   mutate(mean_meth = map(Sample_Names, ~ enframe(rowMeans(betas_filt[,.]), 
                                                  name = 'cpg', value = 'mean_meth'))) %>%
   unnest(mean_meth) %>% 
-  group_by(Tissue, Trimester) %>% 
-  spread(key = Trimester, value = mean_meth)
+  mutate(key = paste0(Trimester, '-', Tissue)) %>%
+  ungroup() %>%
+  select(-Tissue, -Trimester) %>%
+  spread(key = key, value = mean_meth)
 
-# calculate correlation, difference, and absolute difference between means
-cell_mean_cor <- cell_mean %>%
-  summarize(cor_1_3 = cor(First, Third),
-            cor_1_2 = cor(First, Second),
-            cor_2_3 = cor(Second, Third),
-            
-            diff_1_3 = mean(Third-First),
-            diff_1_2 = mean(Second-First),
-            diff_2_3 = mean(Third-First),
-            
-            adiff_1_3 = abs(diff_1_3),
-            adiff_1_2 = abs(diff_1_2),
-            adiff_2_3 = abs(diff_2_3))
-
-# calculate density
+cell_calcs <- expand.grid(colnames(cell_mean)[-1], colnames(cell_mean)[-1]) %>% as_tibble %>%
+  mutate_at(c('Var1', 'Var2'), as.character) %>%
+  filter(str_extract(Var1, 'First|Second|Third') != str_extract(Var2, 'First|Second|Third')) %>%
+  mutate(diff = map2(Var1, Var2, ~ tibble(cpg = cell_mean$cpg, 
+                                          diff = cell_mean[[.x]] -
+                                            cell_mean[[.y]],
+                                          mean_meth_a = cell_mean[[.x]],
+                                          mean_meth_b = cell_mean[[.y]])),
+         cor = map2_dbl(Var1, Var2, ~ cor(cell_mean[,.x], cell_mean[,.y]))) %>%
+  separate(Var1, into = c('Trimester_a', 'Tissue_a'), sep = '-') %>%
+  separate(Var2, into = c('Trimester_b', 'Tissue_b'), sep = '-') %>%
+  unnest(diff)
 
 
-# plot correlations
-ggplot(cell_mean, aes(x = First, y = Third)) +
-  geom_hex() +
-  geom_label(data = cell_mean_cor, 
-             aes(x = 0.8, y = 0.075, 
-                 label = paste0("atop(italic(r)==", prettyNum(cor_1_3, digits = 2), ',',
-                                "Delta~beta==", prettyNum(diff_1_3, digits = 2), ")")),
-             parse = T, hjust = 0, size = 3) +
-  facet_wrap(vars(Tissue)) +
-  scale_fill_viridis_c(trans = 'log10', 
-                       breaks = c(1, 10, 100, 1000, 10000, 100000, 1000000), 
-                       labels =scales::trans_format('log10',scales::math_format(10^.x))) +
-  coord_cartesian(expand = F) +
-  theme_bw() +
-  labs(x = 'First Trimester Mean Methylation', y = 'Third Trimester Mean Methylation')
+# hex plot
+cell_calcs %>%
+  filter(Trimester_a == 'First', Trimester_b == 'Third') %>%
+  mutate(key_a = paste0(Trimester_a, ' - ', Tissue_a),
+         key_b = paste0(Trimester_b, ' - ', Tissue_b)) %>% 
+  {
+    ggplot(data = ., aes(x = mean_meth_a, y = mean_meth_b)) +
+      geom_hex() +
+      geom_label(data = . %>% select(key_a, key_b, Trimester_a:cor) %>% distinct(),
+                 aes(x = 0.8, y = 0.075,
+                 label = paste0("italic(r)==", prettyNum(cor, digits = 2))),
+                 parse = T, hjust = 0, size = 3) +
+      facet_grid(key_a ~ key_b)  +
+      scale_fill_viridis_c(trans = 'log10', 
+                           breaks = c(1, 10, 100, 1000, 10000, 100000, 1000000), 
+                           labels =scales::trans_format('log10',scales::math_format(10^.x)))
+           
+    }
+
+#correlogram
+cell_calcs %>%
+    filter(Trimester_a == 'First', Trimester_b == 'Third') %>%
+    mutate(key_a = paste0(Trimester_a, ' - ', Tissue_a),
+           key_b = paste0(Trimester_b, ' - ', Tissue_b)) %>% 
+  select(key_a, key_b, Trimester_a:cor) %>% 
+  distinct() %>%
+  ggplot(aes(x = key_a, y = key_b, fill = cor)) +
+  geom_tile() +
+  geom_text(aes(label  = prettyNum(cor, digits = 2)), color = 'white') +
+  coord_equal(expand = F) +
+  scale_fill_viridis_c(limits = c(NA, 1)) 
 
 ```
