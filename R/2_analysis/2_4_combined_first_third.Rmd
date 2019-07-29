@@ -42,6 +42,8 @@ library(limma)
 library(broom)
 library(missMethyl)
 library(kableExtra)
+library(DMRcate)
+library(biobroom)
 ```
 
 ## Data
@@ -66,7 +68,7 @@ mvals <- getM(mset_noob)
 anno <- getAnnotation(mset_noob)
 anno <- anno %>%
   as_tibble() %>%
-  filter(Name %in% rownames(betas_first)) # filter to filtered betas cpgs
+  filter(Name %in% rownames(betas)) # filter to filtered betas cpgs
 probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
 
 # color key
@@ -78,8 +80,7 @@ color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 
 ## Remove contaminated samples
 
-Her eI remove samples with > 35% maternal contamination based on previous analyses.
-
+Here I remove samples with > 35% maternal contamination based on previous analyses.
 
 ```{r}
 #Before contamination
@@ -350,27 +351,24 @@ scatter <- function(x, y, fill, point_size = 1){
       scale_fill_viridis()
   } else {
     out <- out + 
-      scale_fill_brewer(palette = 'Set1')
+      scale_fill_brewer(palette = 'Set2')
   }
     
   out
 }
 
 scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 2) +
-  scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)])  +
-  labs(fill = '') 
+  scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)]) 
 
-scatter(x = 'PC1', y = 'PC2', fill = 'maternal_contamination_norm_flip', point_size = 2) +
-  scale_fill_viridis()  +
-  labs(fill = '') 
+scatter(x = 'PC1', y = 'PC2', fill = 'maternal_contamination_norm_flip', point_size = 2) 
 
 scatter(x = 'PC3', y = 'PC4', fill = 'Tissue', point_size = 2) +
   scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)]) +
-  labs(fill = '') +
-  geom_text_repel(data = pDat_filt %>% filter(Tissue == 'Trophoblasts cs', 
-                                              PC4_processed < 50,
-                                              Trimester == 'First'),
-                  aes(x = PC3_processed, y = PC4_processed, label = Sample_Name)) 
+  labs(fill = '') #+
+  #geom_text_repel(data = pDat_filt %>% filter(Tissue == 'Trophoblasts cs', 
+  #                                            PC4_processed < 50,
+  #                                            Trimester == 'First'),
+  #                aes(x = PC3_processed, y = PC4_processed, label = Sample_Name)) 
 
 scatter(x = 'PC3', y = 'PC4', fill = 'maternal_contamination_norm_flip', point_size = 2) +
   scale_fill_viridis()  +
@@ -379,7 +377,6 @@ scatter(x = 'PC3', y = 'PC4', fill = 'maternal_contamination_norm_flip', point_s
 scatter(x = 'PC5', y = 'PC6', fill = 'Tissue', point_size = 2) +
   scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)]) +
   labs(fill = '')
-
 ```
 
 ## Pairwise Correlation
@@ -403,26 +400,20 @@ anno_colors <- list(
 
 # pheatmap
 pheatmap(cor_betas, annotation_col = annotation, annotation_row = annotation[,'Tissue', drop = F],
-         show_rownames = F, show_colnames = T,
+         show_rownames = F, show_colnames = F,
          annotation_colors = anno_colors,
          labels_col = '',
          color = viridis(100, option = 'B'),
          cutree_cols = 5)
 ```
 
-Effect of correlation to reference and stromal cs is not associated with any of the top 6 pcs, so
-I will not adjust for it
-
 # 2.0 Linear modelling
 
-## With  vs w/o adjustment
-
-..for maternal contamination,
-
+## DMCs
 
 ```{r}
-# create a design matrix
-design <- pDat_filt  %>% select(Tissue, Case_ID, cor_to_reference) %>%
+# desing matrix with Tissue and trimester
+design <- pDat_filt  %>% select(Tissue, Case_ID, Trimester) %>%
   mutate(Tissue = gsub('Endothelial cs', 'Endo_cs',
                        gsub('Hofbauer cs', 'Hofb_cs',
                             gsub('Trophoblasts cs', 'Troph_cs',
@@ -430,75 +421,39 @@ design <- pDat_filt  %>% select(Tissue, Case_ID, cor_to_reference) %>%
                                       gsub(':', '\\.', 
                                            Tissue))))))
 
-# specify the interactions between contam and specific tissues
-design <- model.matrix(~0 + Tissue+ cor_to_reference + Case_ID , 
-                       data = design)
-
-colnames(design) <- gsub(':', '.', gsub('Tissue', '', gsub('Case_ID', '', colnames(design)))) # rename columns
-design <- design[,setdiff(colnames(design),'Strom_cs.cor_to_reference')]
-
-# fit the linear model 
-fit_m <- lmFit(mvals_first_filt, design)
-
-# fit contrasts
-contMatrix_1vAll <- makeContrasts(Endo_cs - (Hofb_cs + Strom_cs + Troph_cs)/3,
-                            Hofb_cs - (Endo_cs + Strom_cs + Troph_cs)/3,
-                            Strom_cs - (Endo_cs + Hofb_cs + Troph_cs)/3,
-                            Troph_cs - (Endo_cs + Hofb_cs + Strom_cs)/3,
-                            levels=design)
-
-fit_m <- contrasts.fit(fit_m, contMatrix_1vAll)
-fit_m <- eBayes(fit_m) # moderate t stats
-
-# pull out dmcs
-dmcs <- broom::tidy(fit_m) %>%
-  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s', remove = F) %>%
-  group_by(Group1, Group2) %>%
-  mutate(fdr = p.adjust(p.value, method = "fdr"),
-         bonferroni = p.adjust(p.value, method = 'bonferroni')) %>%
-  ungroup() %>%
-  select(-term, -Group2)
-
-# add delta betas
-fit_b <- lmFit(betas_first_filt, design) %>% 
-  contrasts.fit(contMatrix_1vAll) %>%
-  eBayes() %>%
-  tidy() %>%
-  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s', remove = F) %>%
-  dplyr::rename(delta_b = estimate) %>%
-  select(gene, Group1, delta_b)
-  
-dmcs <- dmcs %>% left_join(fit_b) 
-```
-
-Without adjustment:
-
-```{r}
-# repeat without adjusting for contamination
-design <- pDat_first_filt  %>% select(Tissue, Case_ID, cor_to_reference) %>%
-  mutate(Tissue = gsub('Endothelial cs', 'Endo_cs',
-                       gsub('Hofbauer cs', 'Hofb_cs',
-                            gsub('Trophoblasts cs', 'Troph_cs',
-                                 gsub('Stromal cs', 'Strom_cs',
-                                      gsub(':', '\\.', 
-                                           Tissue))))))
-
-design_noadj <- model.matrix(~0+Tissue + Case_ID, data = design)
-colnames(design_noadj) <- gsub(':', '\\.', 
+design <- model.matrix(~0 + Trimester:Tissue + Case_ID, data = design)
+colnames(design) <- gsub(':', '\\.', 
                                gsub('Tissue', '',
-                                    gsub('Case_ID', '', colnames(design_noadj)))) # rename columns
+                                    gsub('Trimester', '', 
+                                         colnames(design)))) # rename columns
 
-contMatrix_1vAll_noadj <- makeContrasts(Endo_cs - (Hofb_cs + Strom_cs + Troph_cs)/3,
-                            Hofb_cs - (Endo_cs + Strom_cs + Troph_cs)/3,
-                            Strom_cs - (Endo_cs + Hofb_cs + Troph_cs)/3,
-                            Troph_cs - (Endo_cs + Hofb_cs + Strom_cs)/3,
-                            levels=design_noadj)
+# account for subject-specific variation
+#corfit <- duplicateCorrelation(mvals_filt, design, block = pDat_filt$Case_ID)
+#corfitb <- duplicateCorrelation(betas_filt, design, block = pDat_filt$Case_ID)
+#saveRDS(list(m = corfit, b = corfitb), '../../data/main/interim/2_4_corfit_mvals.rds')
+#corfit <- readRDS('../../data/main/interim/2_4_corfit_mvals.rds')
+#corfitb <- corfit$b
+#corfitm <- corfit$m;rm(corfit)
+
+#START HEREE JULY 9
+contMatrix <- makeContrasts(
+  First.Endo_cs - (First.Hofb_cs + First.Strom_cs + First.Troph_cs)/3,
+  First.Hofb_cs - (First.Endo_cs + First.Strom_cs + First.Troph_cs)/3,
+  First.Strom_cs - (First.Endo_cs + First.Hofb_cs + First.Troph_cs)/3,
+  First.Troph_cs - (First.Endo_cs + First.Hofb_cs + First.Strom_cs)/3,
+  
+  Third.Endo_cs - (Third.Hofb_cs + Third.Strom_cs + Third.Troph_cs)/3,
+  Third.Hofb_cs - (Third.Endo_cs + Third.Strom_cs + Third.Troph_cs)/3,
+  Third.Strom_cs - (Third.Endo_cs + Third.Hofb_cs + Third.Troph_cs)/3,
+  Third.Troph_cs - (Third.Endo_cs + Third.Hofb_cs + Third.Strom_cs)/3,
+  
+  levels=design)
 
 # fit the linear model ☺
-fit_m_noadj <- lmFit(mvals_first_filt, design_noadj) %>%
-  contrasts.fit(contMatrix_1vAll_noadj) %>%
-  eBayes() %>%
-  broom::tidy() %>%
+fit_m <- lmFit(mvals_filt, design) %>%
+  contrasts.fit(contMatrix) %>%
+  eBayes()%>%
+  tidy()  %>%
   separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s') %>%
   group_by(Group1) %>%
   mutate(fdr = p.adjust(p.value, method = "fdr"),
@@ -507,43 +462,508 @@ fit_m_noadj <- lmFit(mvals_first_filt, design_noadj) %>%
   select(-Group2)
 
 # add delta betas
-fit_b_noadj <- lmFit(betas_first_filt, design_noadj) %>%
-  contrasts.fit(contMatrix_1vAll_noadj) %>%
+fit_b <- lmFit(betas_filt, design) %>%
+  contrasts.fit(contMatrix) %>%
   eBayes() %>%
   tidy() %>%
   separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s') %>%
   dplyr::rename(delta_b = estimate) %>%
   select(gene, Group1, delta_b)
 
-dmcs_noadj <- fit_m_noadj %>% left_join(fit_b_noadj)
+dmcs <- fit_m %>% left_join(fit_b)
 ```
 
-compare: 
+## DMRs
+
+Here I use dmrcate to find DMRs
+
+```{r eval = F}
+myannotation <- cpg.annotate("array", 
+                             mvals_filt, 
+                             analysis.type="differential", 
+                             what  = "M",
+                             design=design,
+                             contrasts = T, cont.matrix = contMatrix,
+                             fdr = 0.05,
+                             coef = colnames(contMatrix)[1])
+dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, p.adjust.method = 'fdr')
+
+results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
+results.ranges %>% tidy()
+
+```
+
+I skip DMRs for now
+
+## hypo/hyper
 
 ```{r}
-effects <- full_join(
-  dmcs %>% group_by(Group1) %>%
-    summarize(with_adj = sum(fdr < 0.01 & abs(delta_b) > 0.1)),
-  dmcs_noadj %>% group_by(Group1) %>%
-    summarize(without_adj = sum(fdr < 0.01 & abs(delta_b) > 0.1))) %>%
-  gather(key = key, value = count, -Group1) 
+# define cutoffs
+p_thresh <- 0.01
+b_thresh <- 0.25
 
-effects %>% 
-  ggplot(aes(x = key, y = count, color = Group1)) +
-  geom_point() +
-  geom_line(aes(group = Group1)) + theme_bw() +
-  scale_x_discrete(labels = c('w/ adjustment', 'w/o adjustment')) +
-  scale_y_continuous(breaks = seq(0,350000, 50000), labels = seq(0,350000, 50000)/10000) +
-  labs(y = 'Number CpGs in 10,000s', x = '', title = 'Effect of adjusting for contamination')
+# count number of significant cpgs per cell
+dmcs_sig <- dmcs %>% 
+  group_by(Group1) %>% 
+  summarize(b001db50_all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
+            b001db50_hypo = sum(bonferroni < p_thresh & delta_b < -b_thresh),
+            b001db50_hyper = sum(bonferroni < p_thresh & delta_b > b_thresh)) %>%
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  gather('group', 'n_cpg', -Trimester, -Celltype) %>%
+  separate(group, into = c('pvalue', 'delta_b')) %>%
+  mutate(Group1_label = paste0(Trimester, ' - ', case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
+  )))
+
+dmcs_sig %>% 
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  mutate(hyper_p = hyper/all,
+         hypo_p = hypo/all) %>%
+  gather(key = cpg, value = n_cpg, -(Trimester:Group1_label), -(hyper_p:hypo_p)) %>%
+  mutate(p_cpg = prettyNum(digits = 2, 
+                           100*case_when(
+    cpg == 'hyper' ~ hyper_p,
+    cpg == 'hypo' ~ hypo_p,
+    cpg == 'all' ~ 1))) %>%
+  select(-hyper_p, -hypo_p) %>%
+  filter(cpg != 'all') %>%
+  arrange(Celltype, cpg) %>%
+  mutate(label = paste0(p_cpg, '%')) %>%
+  
+  #plot
+  {
+    ggplot(data = ., aes(x = Group1_label, y = n_cpg, fill = cpg)) +
+    geom_bar(stat = 'identity', position = 'stack', color = 'black') +
+    geom_text(data = . %>% 
+                filter(!Group1_label %in% c('First - Endothelial cs', 'First - Stromal cs')),
+              aes(label = label, y = n_cpg), position = position_stack(vjust = 0.5)) +
+    labs(y = 'Number DMCs (in thousands)', x = '', fill = '')  +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust =1)) +
+    scale_y_continuous(expand = expand_scale(mult = c(0, 0.05)),
+                       labels = function(x)x/1000) +
+    scale_fill_manual(values = c('#6BAED6', '#DEEBF7'), labels = c('Hypermethylated', 'Hypomethylated'))
+  }
+
+dmcs_sig %>% 
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  mutate(hyper_p = hyper*100/all,
+         hypo_p = hypo*100/all) %>%
+  select(-Trimester, -Celltype, -pvalue) %>%
+  
+  mutate(Hypermethylated = paste0(hyper, ' (', prettyNum(hyper_p, digits = 2), '%)'),
+         Hypomethylated = paste0(hypo, ' (', prettyNum(hypo_p, digits = 2), '%)')) %>%
+  
+  # specify color of cells
+  mutate(Hypermethylated = cell_spec(Hypermethylated, color = 'white', 
+                                     background = spec_color(hyper_p, end = 0.5, direction = -1)),
+         Hypomethylated = cell_spec(Hypomethylated, color = 'white', 
+                                     background = spec_color(hypo_p, end = 0.5, direction = -1))) %>%
+  separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>%
+  select(-(hyper:hypo_p)) %>%
+  dplyr::rename(Num_sig = all) %>%
+  kable(escape = F) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1)
+```
+
+## Chromosomal enrichment
+
+```{r}
+# add gene annotation to cpgs
+anno<-as_tibble(anno)
+dmcs <- dmcs %>% left_join(anno, by = c('gene' = 'Name'))
+
+# enrich_chrom takes linear modelling results and an annotation for each feature, and calculates the frequency across genomic elements, then tests if there is enrichment
+enrich_chrom <- function(dmcs, annotation, p_thresh = 0.01, b_thresh = 0.25){
+  # dmcs is the results of all linear modelling results, including non-significant cpgs
+  # dmcs has one column that denotes the specific contrast or coefficient that's named 'Group1'
+  #
+  #
+  # annotation contains a 'name' column that matches the cpg id of the dmcs, and remaining columns
+  # are used to test for enrichment
+  #
+  # p_thresh and b_thresh are statistical and delta beta thresholds defining DMCs
+  #
+  # Calculates enrichment for two types of genomic elements: 
+  #
+  # Relation to genes (enhancers, gene elements like TSS, exons.. etc.),
+  # Relation to CPG Islands
+  #
+  
+  # filter to all tested cpgs
+  annotation <- annotation %>%
+    filter(Name %in% dmcs$gene)
+  
+  # tabulate the background frequency per genomic element
+  expected <-  
+    
+    ## Relation to gene bodies
+    table(unlist(str_extract(annotation$UCSC_RefGene_Group, "^[A-z0-9']+"))) %>% 
+    as.data.frame %>%
+    mutate(relation = 'Relation to Genes') %>%
+  
+    ## Relation to enhancers (T/F)
+    rbind(data.frame(Var1 = 'Enhancer',
+                     Freq = sum(annotation$Phantom5_Enhancers != '', na.rm = T),
+                    relation = 'Relation to Genes')) %>%
+    mutate(n_total = nrow(annotation),
+           probeset = 'Background') %>%
+  
+    ## relation to cpg islands
+    rbind(annotation$Relation_to_Island %>% table %>% as.data.frame() %>% dplyr::rename(Var1 = '.') %>%
+            mutate(n_total = nrow(annotation),
+                   probeset = 'Background',
+                   relation = 'Relation to CpG islands')) %>%
+    
+    # rename variables
+    mutate(Var1 = ifelse(Var1 == "5'UTR", "UTR_5prime", 
+                         ifelse(Var1 == "3'UTR", "UTR_3prime",
+                                ifelse(Var1 == "1stExon", "Exon1", as.character(Var1)))))%>%
+    
+    # calculate proportions
+    group_by(relation) %>%
+    mutate(Proportion = Freq/sum(Freq))
+  
+  # tabulate observed frequency for significant cpgs
+  observed <- dmcs %>% 
+    filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%   
+  
+    # created nested column by cell type-dmcs
+    group_by(Group1) %>% 
+    select(Group1, UCSC_RefGene_Group, Phantom5_Enhancers, Relation_to_Island) %>%
+    nest(.key = 'hits') %>% 
+  
+  # tally up the locations
+    mutate(
+      n_total = map_int(hits, nrow),
+      UCSC_RefGene_Group = map2(
+      hits, Group1,
+      
+      # tally up unique occurences for each gene element for each cpg
+      ~summarize(.x,
+                 TSS1500 = sum(grepl('TSS1500', UCSC_RefGene_Group)),
+                 TSS1500 = sum(grepl('TSS1500', UCSC_RefGene_Group)),
+                 TSS200 = sum(grepl('TSS200', UCSC_RefGene_Group)),
+                 UTR_5prime = sum(grepl("5'UTR", UCSC_RefGene_Group)),
+                 Exon1 = sum(grepl('1stExon', UCSC_RefGene_Group)),
+                 Body = sum(grepl('Body', UCSC_RefGene_Group)),
+                 ExonBnd = sum(grepl('ExonBnd', UCSC_RefGene_Group)),
+                 UTR_3prime = sum(grepl("3'UTR", UCSC_RefGene_Group))) %>%
+        
+        # melt it
+        gather(key = Var1, value = Freq)),
+      
+      Phantom5_Enhancers = map2(hits, Group1,
+                                ~data.frame(Var1 = 'Enhancer',
+                                            Freq = sum(.x$Phantom5_Enhancers != "", na.rm = T))),
+      Relation_to_Island = map2(hits, Group1,
+                                ~as.data.frame(table(.x$Relation_to_Island)))) %>%
+    select(-hits)
+  
+  # unnset
+  observed <- bind_rows(
+    observed %>% unnest(UCSC_RefGene_Group) %>% mutate(relation = "Relation to Genes"),
+    observed %>% unnest(Phantom5_Enhancers) %>% mutate(relation = "Relation to Genes" )%>%
+      select(-UCSC_RefGene_Group,- Relation_to_Island),
+    observed %>% unnest(Relation_to_Island) %>% mutate(relation = "Relation to CpG Islands")) %>%
+    dplyr::rename(probeset = Group1) %>%
+    
+    # calculate frequency
+    group_by(probeset, relation) %>%
+    mutate(Proportion = Freq/sum(Freq))
+  
+  # fisher's test for enrichment
+  # (1) # of DMCs on var1 (already calcualted, 'Freq')
+  # (2) # of non-DMCs on var1
+  # (3) # of DMCs not on var1
+  # (4) # of non-DMCs not on var1
+  
+  # all cpgs dataframe necessary to calculate (2) and (4)
+  expected <- expected %>%
+    ungroup() %>%
+    dplyr::rename(Expected_n_in = Freq, # total cpgs tested that are in var1 location
+                  Expected_p_in = Proportion,
+                  Expected_n_total = n_total) %>% # total cpgs tested
+    mutate(Expected_n_out  = Expected_n_total - Expected_n_in) %>% # total cpgs tested, not in var1
+    select(Var1, Expected_p_in, Expected_n_in, Expected_n_out, Expected_n_total)
+
+
+# calculate (2) (3) (4), and test enrichment
+  tests <- observed %>%
+    
+    ungroup() %>%
+    # rename to make more informative
+    dplyr::rename(Observed_p_in = Proportion,
+                  Observed_n_in = Freq, #(1) # of DMCs in Var1 
+                  Observed_n_total = n_total) %>%  
+    
+    # add in all_cpgs datarfame for calculations
+    left_join(expected, by = 'Var1') %>%
+    
+    # calculate (2), (3), (4)
+    mutate(Observed_notDMC_in = Expected_n_in - Observed_n_in,   #(2) # non-DMCs in var1
+           
+           # for (3)
+           Observed_n_out = Observed_n_total - Observed_n_in,  # of DMCs not on Var1
+           
+           # for (4)
+           Observed_notDMC_out = Expected_n_out - Observed_n_out) %>%  # of non-DMCs out of Var1
+    
+    # test enrichment
+    rowwise() %>%
+    mutate(fisher_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
+                                     Observed_n_out, Observed_notDMC_out),2,2))) %>%
+    ungroup() %>%
+    mutate(fisher_out = map(fisher_in, ~fisher.test(., alternative = 'greater')),
+           p = map_dbl(fisher_out, 'p.value'),
+           odds_ratio = map_dbl(fisher_out, 'estimate'),
+           FDR = p.adjust(p, method = 'fdr'),
+           bonferroni = p.adjust(p, method = 'bonferroni'),
+           FDR01 = ifelse(FDR < 0.01, T, F)) %>% 
+    select(FDR, FDR01, bonferroni, p, odds_ratio, everything())
+  
+  
+  tests
+}
+
+enrich_results <- enrich_chrom(dmcs, annotation = as_tibble(anno), 
+                               p_thresh = p_thresh, 
+                               b_thresh = b_thresh )
+
+# clean
+enrich_results <- enrich_results %>%
+  separate(probeset, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs')) 
+  
+# color code
+colors <- color_code %>% 
+  filter(label %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
+colors <- setNames(colors$Colors_Tissue, unique(enrich_results$Celltype))
+
+enrich_results %>% 
+  # ordering in plot
+  mutate(Var1 = factor(as.character(Var1), 
+                       levels = c('UTR_3prime', 'Body', 'ExonBnd', 'Exon1', 'UTR_5prime', 
+                       'TSS200', 'TSS1500', 'Enhancer', 
+                       'OpenSea', 'N_Shelf', 'N_Shore', 'Island', 'S_Shore', 'S_Shelf')),
+         
+         # linerange ymin ymax values
+         ymin = pmin(Observed_p_in, Expected_p_in),
+         ymax = pmax(Observed_p_in, Expected_p_in)) %>%
+  
+  ggplot() +
+  geom_pointrange(aes(x = Var1, y = Observed_p_in, ymin = ymin, ymax = ymax, color =Celltype),
+           stat = 'identity', position = position_dodge(width = 0.75),
+           fatten = 2) +
+  scale_color_manual(values = colors)  + 
+  facet_grid(Trimester ~ . , scales = 'free_x', space = 'free') +
+  geom_errorbar(aes(x = Var1, ymin = Expected_p_in, ymax = Expected_p_in), size = 1) +
+  
+  
+  coord_flip() +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  theme_bw(base_size = 14) + 
+  theme(legend.position = 'right', legend.direction = 'vertical',
+        legend.spacing.y = unit(-0.2, 'cm')) +
+  
+  # add significance
+  geom_point(aes(x = Var1, y = ymax + 0.01, group = Celltype, shape = FDR01),
+             position = position_dodge(0.75), size = 4) +
+  labs(color = '', x = '', y = 'Proportion', shape = '') +
+  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
+                     labels = c('', 'Enriched (FDR < 0.01)'))
+
+```
+
+## functional enrichment missmethyl 
+
+### GO
+
+```{r}
+#GO testing
+gst <- dmcs %>% group_by(Group1) %>%
+  nest(.key = lm_summary) %>%
+  mutate(GO_results = map(lm_summary, . %>% 
+                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+                            pull(gene) %>% 
+                            gometh(all.cpg= rownames(betas), 
+                                   collection = 'GO',
+                                   array.type = 'EPIC') %>%
+                            mutate(ID = rownames(.)) %>%
+                            arrange(FDR)),
+         # number significnat at FDR < 0.05
+         FDR05_signif = map_dbl(GO_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+
+# process results
+gst <- gst %>%  
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'),
+    Label = paste0(Trimester, ' - ', Celltype))  %>%
+  mutate(GO_sig = map(GO_results, . %>% filter(FDR < 0.05))) %>%
+  unnest(GO_sig) %>% 
+  mutate(Generatio = DE/N, # number of DE cpgs per total cpgs in each gene
+         neg_log_P = -log(P.DE, base = 10)) %>%
+  
+  # set up ordering for plot
+  arrange(Trimester, Celltype, Generatio) %>%
+  mutate(Order = row_number(),
+         neg_log_P = -log(P.DE, base = 10))
+
+# plot results
+gst %>%
+  # take top n significant
+  group_by(Label) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Label), scales = 'free_y') +
+  scale_x_continuous(breaks = gst$Order,
+                     labels = gst$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+```
+
+### KEGG
+
+```{r}
+#KEGG testing
+kegg <- dmcs %>% group_by(Group1) %>%
+  nest(.key = lm_summary) %>%
+  mutate(KEGG_results = map(lm_summary, . %>% 
+                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+                            pull(gene) %>% 
+                            gometh(all.cpg= rownames(betas), 
+                                   collection = 'KEGG',
+                                   array.type = 'EPIC') %>%
+                            mutate(ID = rownames(.)) %>%
+                            arrange(FDR)),
+         # number significnat at FDR < 0.05
+         FDR05_signif = map_dbl(KEGG_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+
+# process results
+kegg <- kegg %>%  
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'),
+    Label = paste0(Trimester, ' - ', Celltype))  %>%
+  mutate(KEGG_sig = map(KEGG_results, . %>% filter(FDR < 0.05))) %>%
+  unnest(KEGG_sig) %>% 
+  mutate(Generatio = DE/N, # number of DE cpgs per total cpgs in each gene
+         neg_log_P = -log(P.DE, base = 10)) %>%
+  
+  # set up ordering for plot
+  arrange(Trimester, Celltype, Generatio) %>%
+  mutate(Order = row_number(),
+         neg_log_P = -log(P.DE, base = 10))
+
+# plot results
+kegg %>%
+  # take top n significant
+  group_by(Label) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Label), scales = 'free_y') +
+  scale_x_continuous(breaks = kegg$Order,
+                     labels = kegg$Description) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+```
+
+# 3.0 Correlation
+
+Here I look at the correlation between first and third trimester cell types
+
+```{r}
+# calculate means
+cell_mean <- pDat_filt %>% 
+  select(Tissue, Trimester, Sample_Name) %>%
+  group_by(Tissue, Trimester) %>%
+  
+  # nest, calculate means, unnest
+  summarize(Sample_Names = list(Sample_Name)) %>%
+  mutate(mean_meth = map(Sample_Names, ~ enframe(rowMeans(betas_filt[,.]), 
+                                                 name = 'cpg', value = 'mean_meth'))) %>%
+  unnest(mean_meth) %>% 
+  group_by(Tissue, Trimester) %>% 
+  spread(key = Trimester, value = mean_meth)
+
+# calculate correlation, difference, and absolute difference between means
+cell_mean_cor <- cell_mean %>%
+  summarize(cor_1_3 = cor(First, Third),
+            cor_1_2 = cor(First, Second),
+            cor_2_3 = cor(Second, Third),
+            
+            diff_1_3 = mean(Third-First),
+            diff_1_2 = mean(Second-First),
+            diff_2_3 = mean(Third-First),
+            
+            adiff_1_3 = abs(diff_1_3),
+            adiff_1_2 = abs(diff_1_2),
+            adiff_2_3 = abs(diff_2_3))
+
+
+# plot correlations
+ggplot(cell_mean, aes(x = First, y = Third)) +
+  geom_hex() +
+  geom_label(data = cell_mean_cor, 
+             aes(x = 0.8, y = 0.075, 
+                 label = paste0("atop(italic(r)==", prettyNum(cor_1_3, digits = 2), ',',
+                                "Delta~beta==", prettyNum(diff_1_3, digits = 2), ")")),
+             parse = T, hjust = 0, size = 3) +
+  facet_wrap(vars(Tissue)) +
+  scale_fill_viridis_c(trans = 'log10', 
+                       breaks = c(1, 10, 100, 1000, 10000, 100000, 1000000), 
+                       labels =scales::trans_format('log10',scales::math_format(10^.x))) +
+  coord_cartesian(expand = F) +
+  theme_bw() +
+  labs(x = 'First Trimester Mean Methylation', y = 'Third Trimester Mean Methylation')
 ```
 
 # Save Data
 
 ```{r, eval = F}
-saveRDS(dmcs, '../../data/main/interim/2_4_dmcs_with_adjustment.rds')
-saveRDS(effects, '../../data/main/interim/2_4_effects_of_adjustment.rds')
+saveRDS(removed_df, '../../data/main/interim/2_4_removed_samples')
+saveRDS(sample_densities, '../../data/main/interim/2_4_sample_densities.rds')
+saveRDS(dmcs, '../../data/main/interim/2_4_dmcs.rds')
+saveRDS(dmcs_sig, '../../main/interim/2_4_dmcs_summary.rds')
+saveRDS(list(kegg = kegg, GO = gst, chrom = enrich_results), '../../data/main/interim/2_4_dmcs.rds')
+saveRDS(list(cell_mean_cor, cell_mean), '../../data/main/interim/2_4_cell_means.rds')
 ```
 
 # SessionInfo
-`r sessioninfo()`
+
+```{r}
+sessionInfo()
+```
 
