@@ -27,10 +27,7 @@ library(annotatr)
 library(fuzzyjoin)
 ```
 
-
 ## Data
-
-
 
 ```{r}
 pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
@@ -66,61 +63,6 @@ anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds
 color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 ```
-
-PMDs
-
-```{r}
-# load Schroeder 2013 list of pmds
-pmds <- read_xls('../../data/external/placental_pmds.xls', col_names = F)
-colnames(pmds) <- c('chr', 'start', 'end')
-
-# match with the list of pmds
-dmcs <- dmcs %>% 
-  dplyr::rename(cpg = gene) %>%
-  mutate_at(c('start', 'end'), as.numeric) %>%
-  genome_left_join(pmds) %>%
-  mutate(pmd_id = ifelse(!is.na(chr.y), paste0(chr.y, ':', start.y, '-', end.y), NA),
-         pmd_width = end.y-start.y) %>%
-  dplyr::rename(chr = chr.x, start = start.x, end = end.x) %>%
-  select(-contains('.y'))
-
-p_thresh <- 0.01
-b_thresh <- 0.25
-
-# number of DMCs in pmds
-pmds_count <- dmcs %>% 
-  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
-  mutate(Celltype = case_when(
-    Celltype == 'Endo_cs' ~ 'Endothelial cs',
-    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
-    Celltype == 'Strom_cs' ~ 'Stromal cs',
-    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
-  )) %>%
-  group_by(Trimester, Celltype) %>%
-  summarize(dmcs_in_pmds = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh & !is.na(pmd_id)),
-            dmcs_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh)) %>%
-  mutate(dmcs_notin_pmds = dmcs_total - dmcs_in_pmds) %>%
-  gather(key = type, value = count, -Trimester, -Celltype) %>%
-  mutate(type = case_when(
-    type == 'dmcs_in_pmds' ~ 'In PMD',
-    type == 'dmcs_total' ~ 'Total',
-    type == 'dmcs_notin_pmds' ~ 'Out of PMD'
-  ))
-
-pmds_count %>% 
-  filter(type != 'Total') %>%
-  group_by(Trimester, Celltype) %>%
-  mutate(proportion = count*100/sum(count),
-         proportion_label = paste0(prettyNum(proportion, digits = 2), '%')) %>%
-  ggplot(aes(x = Celltype, y = proportion, fill = type)) +
-  geom_col(position = 'stack') +
-  geom_text(aes(label = proportion_label), position = position_stack(0.5)) +
-  facet_wrap(vars(Trimester)) +
-  coord_cartesian(expand = F) +
-  theme(panel.spacing = unit(2, 'lines')) +
-  labs(x = '', y = 'Percent of DMCs', fill = '')
-```
-
 
 ## Remove samples
 
@@ -303,4 +245,61 @@ enrich_results %>%
   labs(color = '', x = '', y = 'Frequency', shape = '', linetype = '') +
   scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
                      labels = c('', 'Enriched (FDR < 0.01)'))
+```
+
+
+# temp garbage
+
+PMDs
+
+```{r}
+# load Schroeder 2013 list of pmds
+pmds <- read_xls('../../data/external/placental_pmds.xls', col_names = F)
+colnames(pmds) <- c('chr', 'start', 'end')
+
+# match with the list of pmds
+dmcs <- dmcs %>% 
+  dplyr::rename(cpg = gene) %>%
+  mutate_at(c('start', 'end'), as.numeric) %>%
+  genome_left_join(pmds) %>%
+  mutate(pmd_id = ifelse(!is.na(chr.y), paste0(chr.y, ':', start.y, '-', end.y), NA),
+         pmd_width = end.y-start.y) %>%
+  dplyr::rename(chr = chr.x, start = start.x, end = end.x) %>%
+  select(-contains('.y'))
+
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# number of DMCs in pmds
+pmds_count <- dmcs %>% 
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
+  )) %>%
+  group_by(Trimester, Celltype) %>%
+  summarize(dmcs_in_pmds = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh & !is.na(pmd_id)),
+            dmcs_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh)) %>%
+  mutate(dmcs_notin_pmds = dmcs_total - dmcs_in_pmds) %>%
+  gather(key = type, value = count, -Trimester, -Celltype) %>%
+  mutate(type = case_when(
+    type == 'dmcs_in_pmds' ~ 'In PMD',
+    type == 'dmcs_total' ~ 'Total',
+    type == 'dmcs_notin_pmds' ~ 'Out of PMD'
+  ))
+
+pmds_count %>% 
+  filter(type != 'Total') %>%
+  group_by(Trimester, Celltype) %>%
+  mutate(proportion = count*100/sum(count),
+         proportion_label = paste0(prettyNum(proportion, digits = 2), '%')) %>%
+  ggplot(aes(x = Celltype, y = proportion, fill = type)) +
+  geom_col(position = 'stack') +
+  geom_text(aes(label = proportion_label), position = position_stack(0.5)) +
+  facet_wrap(vars(Trimester)) +
+  coord_cartesian(expand = F) +
+  theme(panel.spacing = unit(2, 'lines')) +
+  labs(x = '', y = 'Percent of DMCs', fill = '')
 ```
