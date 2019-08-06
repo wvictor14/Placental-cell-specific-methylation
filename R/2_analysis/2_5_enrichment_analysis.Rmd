@@ -79,12 +79,11 @@ mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
 betas_filt <- betas[,pDat_filt$Sample_Name]
 ```
 
-
 ## Chromosomal enrichment
 
 ```{r}
 # dummy variable all categories
-anno <- anno %>% 
+annotation <- anno %>% 
   mutate(var = 1) %>%
   spread(cpg_id, var, fill = 0) %>% 
   
@@ -96,28 +95,13 @@ anno <- anno %>%
          intron = ifelse(grepl('intron', genes_id), 1, 0),
          intronexonboundary = ifelse(grepl('intronexonboundary', genes_id), 1, 0),
          promoter = ifelse(grepl("promoter", genes_id), 1, 0),
-         enhancer = !is.na(enhancers_id))
+         enhancer = !is.na(enhancers_id),
+         pmd = !is.na(pmd_id),
+         imprinted)
 
 # add gene annotation to cpgs
 dmcs <- dmcs %>% left_join(anno, by = c('gene' = 'cpg'))
 
-# enrich_chrom takes linear modelling results and an annotation for each feature, and calculates the frequency across genomic elements, then tests if there is enrichment☻
-enrich_chrom <- function(dmcs, annotation, p_thresh = 0.01, b_thresh = 0.25){
-  # dmcs is the results of all linear modelling results, including non-significant cpgs
-  # dmcs has one column that denotes the specific contrast or coefficient that's named 'Group1'
-  #
-  #
-  # annotation contains a 'name' column that matches the cpg id of the dmcs, and remaining columns
-  # are used to test for enrichment
-  #
-  # p_thresh and b_thresh are statistical and delta beta thresholds defining DMCs
-  #
-  # Calculates enrichment for two types of genomic elements: 
-  #
-  # Relation to genes (enhancers, gene elements like TSS, exons.. etc.),
-  # Relation to CPG Islands
-  #
-  
   # filter to all tested cpgs
   annotation <- annotation %>%
     filter(cpg %in% dmcs$gene)
