@@ -1,0 +1,306 @@
+---
+title: "2_4_2_combined_first_third"
+author: "Victor Yuan"
+date: "30/07/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+## Libraries
+
+
+```{r}
+# libraries and data
+library(tidyverse)
+library(readxl)
+library(annotatr)
+library(fuzzyjoin)
+```
+
+
+## Data
+
+
+
+```{r}
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
+mvals <- getM(mset_noob)
+
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# color key
+pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+# DMCs
+dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+PMDs
+
+```{r}
+# load Schroeder 2013 list of pmds
+pmds <- read_xls('../../data/external/placental_pmds.xls', col_names = F)
+colnames(pmds) <- c('chr', 'start', 'end')
+
+# match with the list of pmds
+dmcs <- dmcs %>% 
+  dplyr::rename(cpg = gene) %>%
+  mutate_at(c('start', 'end'), as.numeric) %>%
+  genome_left_join(pmds) %>%
+  mutate(pmd_id = ifelse(!is.na(chr.y), paste0(chr.y, ':', start.y, '-', end.y), NA),
+         pmd_width = end.y-start.y) %>%
+  dplyr::rename(chr = chr.x, start = start.x, end = end.x) %>%
+  select(-contains('.y'))
+
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# number of DMCs in pmds
+pmds_count <- dmcs %>% 
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
+  )) %>%
+  group_by(Trimester, Celltype) %>%
+  summarize(dmcs_in_pmds = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh & !is.na(pmd_id)),
+            dmcs_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh)) %>%
+  mutate(dmcs_notin_pmds = dmcs_total - dmcs_in_pmds) %>%
+  gather(key = type, value = count, -Trimester, -Celltype) %>%
+  mutate(type = case_when(
+    type == 'dmcs_in_pmds' ~ 'In PMD',
+    type == 'dmcs_total' ~ 'Total',
+    type == 'dmcs_notin_pmds' ~ 'Out of PMD'
+  ))
+
+pmds_count %>% 
+  filter(type != 'Total') %>%
+  group_by(Trimester, Celltype) %>%
+  mutate(proportion = count*100/sum(count),
+         proportion_label = paste0(prettyNum(proportion, digits = 2), '%')) %>%
+  ggplot(aes(x = Celltype, y = proportion, fill = type)) +
+  geom_col(position = 'stack') +
+  geom_text(aes(label = proportion_label), position = position_stack(0.5)) +
+  facet_wrap(vars(Trimester)) +
+  coord_cartesian(expand = F) +
+  theme(panel.spacing = unit(2, 'lines')) +
+  labs(x = '', y = 'Percent of DMCs', fill = '')
+```
+
+
+## Remove samples
+
+remove contamined and non-interesting samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+# filter to first trimester
+mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
+betas_filt <- betas[,pDat_filt$Sample_Name]
+```
+
+
+## Chromosomal enrichment
+
+```{r}
+# dummy variable all categories
+anno <- anno %>% 
+  mutate(var = 1) %>%
+  spread(cpg_id, var, fill = 0) %>% 
+  
+  mutate(`1to5kb` = ifelse(grepl('1to5kb', genes_id), 1, 0),
+         `3UTR` = ifelse(grepl('3UTR', genes_id), 1, 0),
+         `5UTR` = ifelse(grepl('5UTR', genes_id), 1, 0),
+         exon = ifelse(grepl("exon", genes_id), 1, 0),
+         intergenic = ifelse(grepl('intergenic', genes_id), 1, 0),
+         intron = ifelse(grepl('intron', genes_id), 1, 0),
+         intronexonboundary = ifelse(grepl('intronexonboundary', genes_id), 1, 0),
+         promoter = ifelse(grepl("promoter", genes_id), 1, 0),
+         enhancer = !is.na(enhancers_id))
+
+# add gene annotation to cpgs
+dmcs <- dmcs %>% left_join(anno, by = c('gene' = 'cpg'))
+
+# enrich_chrom takes linear modelling results and an annotation for each feature, and calculates the frequency across genomic elements, then tests if there is enrichment☻
+enrich_chrom <- function(dmcs, annotation, p_thresh = 0.01, b_thresh = 0.25){
+  # dmcs is the results of all linear modelling results, including non-significant cpgs
+  # dmcs has one column that denotes the specific contrast or coefficient that's named 'Group1'
+  #
+  #
+  # annotation contains a 'name' column that matches the cpg id of the dmcs, and remaining columns
+  # are used to test for enrichment
+  #
+  # p_thresh and b_thresh are statistical and delta beta thresholds defining DMCs
+  #
+  # Calculates enrichment for two types of genomic elements: 
+  #
+  # Relation to genes (enhancers, gene elements like TSS, exons.. etc.),
+  # Relation to CPG Islands
+  #
+  
+  # filter to all tested cpgs
+  annotation <- annotation %>%
+    filter(cpg %in% dmcs$gene)
+  
+  # tabulate the background frequency per genomic element
+  expected <-  annotation %>%
+    dplyr::select(cpg, island:enhancer) %>%
+    gather(key = genomic_feature, value = present, -cpg) %>%
+    
+    group_by(genomic_feature) %>%
+    summarize(Expected_n_in = sum(present), 
+              
+              Expected_n_out = nrow(annotation) - Expected_n_in,
+              Expected_p_in = Expected_n_in/ nrow(annotation),
+              Expected_p_out = Expected_n_out / nrow(annotation))
+  
+  # tabulate observed frequency for significant cpgs
+  observed <- dmcs %>% 
+    
+    # calculate total dmcs per cell type
+    group_by(Group1) %>%
+    mutate(n_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh )) %>%
+    
+    # filter to just dmcs
+    filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+    select(Group1, gene, island:enhancer, n_total) %>%
+  
+    # calculated the number of dmcs in each feature, and then the number out
+    gather(key = genomic_feature, value = present, -gene, -Group1, -n_total) %>%
+    group_by(Group1, genomic_feature) %>%
+    summarize(Observed_n_in = sum(present), 
+              
+              Observed_n_out = unique(n_total) - Observed_n_in,
+              Observed_p_in = Observed_n_in / unique(n_total),
+              Observed_p_out = Observed_n_out / unique(n_total))
+  
+  # fisher's test for enrichment
+  # (1) # of DMCs on var1 (already calcualted, 'Freq')
+  # (2) # of non-DMCs on var1
+  # (3) # of DMCs not on var1
+  # (4) # of non-DMCs not on var1
+  
+
+# calculate (2) (3) (4), and test enrichment
+  tests <- observed %>%
+    
+    ungroup() %>%
+    
+    # add in all_cpgs datarfame for calculations
+    left_join(expected, by = 'genomic_feature') %>%
+    
+    # calculate (2), (4)
+    mutate(Observed_notDMC_in = Expected_n_in - Observed_n_in,   #(2) # non-DMCs in var1
+           
+           # for (4)
+           Observed_notDMC_out = Expected_n_out - Observed_n_out) %>%  # of non-DMCs out of Var1
+    
+    # test enrichment
+    rowwise() %>%
+    mutate(fisher_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
+                                     Observed_n_out, Observed_notDMC_out),2,2))) %>%
+    ungroup() %>%
+    
+    mutate(fisher_out = map(fisher_in, ~fisher.test(., alternative = 'greater')),
+           p = map_dbl(fisher_out, 'p.value'),
+           odds_ratio = map_dbl(fisher_out, 'estimate'),
+           FDR = p.adjust(p, method = 'fdr'),
+           bonferroni = p.adjust(p, method = 'bonferroni'),
+           FDR01 = ifelse(FDR < 0.01, T, F)) %>% 
+    select(FDR, FDR01, bonferroni, p, odds_ratio, everything())
+  
+  
+  tests
+}
+
+enrich_results <- enrich_chrom(dmcs, annotation = anno, 
+                               p_thresh = p_thresh, 
+                               b_thresh = b_thresh )
+
+# clean
+enrich_results <- enrich_results %>%
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs')) 
+  
+# color code
+colors <- color_code %>% 
+  filter(label %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
+colors <- setNames(colors$Colors_Tissue, unique(enrich_results$Celltype))
+
+enrich_results %>% 
+  # ordering in plot
+  mutate(genomic_feature = factor(as.character(genomic_feature), 
+                       levels = c('intergenic', '3UTR',  'intronexonboundary', 'intron', 
+                                   'exon', '5UTR','promoter', '1to5kb', 
+                                  'enhancer', 'island', 'shore', 'shelf', 'sea')),
+         
+         # linerange ymin ymax values
+         ymin = pmin(Observed_p_in, Expected_p_in),
+         ymax = pmax(Observed_p_in, Expected_p_in)) %>%
+  
+  ggplot() +
+  geom_pointrange(aes(x = genomic_feature, y = Observed_p_in, ymin = ymin, ymax = ymax, color =Celltype),
+           stat = 'identity', position = position_dodge(width = 0.75),
+           fatten = 2) +
+  scale_color_manual(values = colors)  + 
+  facet_grid(Trimester ~ . , scales = 'free_x', space = 'free') +
+  geom_errorbar(aes(x = genomic_feature, ymin = Expected_p_in, ymax = Expected_p_in, linetype = 
+                      'Expected frequency'), 
+                size = 1) +
+  
+  
+  coord_flip() +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  theme_bw(base_size = 14) + 
+  theme(legend.position = 'right', legend.direction = 'vertical',
+        legend.spacing.y = unit(-0.2, 'cm')) +
+  
+  # add significance
+  geom_point(aes(x = genomic_feature, y = ymax + 0.01, group = Celltype, shape = FDR01),
+             position = position_dodge(0.75), size = 4) +
+  labs(color = '', x = '', y = 'Frequency', shape = '', linetype = '') +
+  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
+                     labels = c('', 'Enriched (FDR < 0.01)'))
+```
