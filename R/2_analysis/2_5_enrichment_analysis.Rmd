@@ -25,6 +25,8 @@ library(tidyverse)
 library(readxl)
 library(annotatr)
 library(fuzzyjoin)
+library(formattable)
+library(kableExtra)
 ```
 
 ## Data
@@ -79,15 +81,35 @@ mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
 betas_filt <- betas[,pDat_filt$Sample_Name]
 ```
 
-## Chromosomal enrichment
+## Test for genomic enrichment
+
+The strategy is to first dummy variable every genomic element that we want to test enrichment for. And then join that to the linear modelling results data frame.
+
+Dummy variables:  for exmaple one column might be something like "intron, intron, exon, intron, 3'UTR, intergene, ...,". Which will be transformed so that we have separate columns for each category: intron: "T, T, F, T, F, F, ...", exon: "F, F, T, F, F, F, ..." etc.
+
+Once every feature is "dummy variable'd" and we join this to the linear modelling data, then we can calculate the numbers required to run a fisher's exact test.
+
+Note that the input list of dmcs is a 'long' table, where there is 4 celltypes/contrasts * ~800000 tested cpgs. Technically, we only need the ones defined as significant, so for now conditionally calculate the number of cpgs that are differentially methylated. An improvement to this code would be to expect as input the list of DMCS, and then another list of the background cpgs.
+
+This took a long time to figure how to do, so eventually I would like to see this code put somewhere public that others can contribute towards.
 
 ```{r}
+p_thresh <- 0.01
+b_thresh <- 0.25
+
 # dummy variable all categories
 annotation <- anno %>% 
+  
+  # mutate spread is clean, but slow. Can only work with those that have non-duplicated strings in each element
   mutate(var = 1) %>%
   spread(cpg_id, var, fill = 0) %>% 
   
-  mutate(`1to5kb` = ifelse(grepl('1to5kb', genes_id), 1, 0),
+  mutate(var = 1) %>%
+  spread(chr, var, fill = 0) %>% 
+  
+  mutate(
+         # cannot follow the spread strategy above, since we have numerous occurences in each element
+         `1to5kb` = ifelse(grepl('1to5kb', genes_id), 1, 0),
          `3UTR` = ifelse(grepl('3UTR', genes_id), 1, 0),
          `5UTR` = ifelse(grepl('5UTR', genes_id), 1, 0),
          exon = ifelse(grepl("exon", genes_id), 1, 0),
@@ -95,94 +117,93 @@ annotation <- anno %>%
          intron = ifelse(grepl('intron', genes_id), 1, 0),
          intronexonboundary = ifelse(grepl('intronexonboundary', genes_id), 1, 0),
          promoter = ifelse(grepl("promoter", genes_id), 1, 0),
+         
          enhancer = !is.na(enhancers_id),
          pmd = !is.na(pmd_id),
-         imprinted)
+         imprinted_gene_placenta = !is.na(imprinted_gene_placenta),
+         imprinted_gene_general = !is.na(imprinted_gene_general),
+         imprinted_dmr_general = !is.na(imprinted_dmr_general),
+         imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta))
 
-# add gene annotation to cpgs
-dmcs <- dmcs %>% left_join(anno, by = c('gene' = 'cpg'))
+# add gene annotation to dmcs
+dmcs <- dmcs %>% left_join(annotation, by = c('gene' = 'cpg'))
 
-  # filter to all tested cpgs
-  annotation <- annotation %>%
-    filter(cpg %in% dmcs$gene)
+# filter to all tested cpgs
+annotation <- annotation %>%
+  filter(cpg %in% dmcs$gene)
   
-  # tabulate the background frequency per genomic element
-  expected <-  annotation %>%
-    dplyr::select(cpg, island:enhancer) %>%
-    gather(key = genomic_feature, value = present, -cpg) %>%
-    
-    group_by(genomic_feature) %>%
-    summarize(Expected_n_in = sum(present), 
-              
-              Expected_n_out = nrow(annotation) - Expected_n_in,
-              Expected_p_in = Expected_n_in/ nrow(annotation),
-              Expected_p_out = Expected_n_out / nrow(annotation))
+# tabulate the background frequency per genomic element
+expected <-  annotation %>%
+  dplyr::select(cpg, island:pmd, contains('imprint')) %>%
+  gather(key = genomic_feature, value = present, -cpg) %>%
   
-  # tabulate observed frequency for significant cpgs
-  observed <- dmcs %>% 
-    
-    # calculate total dmcs per cell type
-    group_by(Group1) %>%
-    mutate(n_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh )) %>%
-    
-    # filter to just dmcs
-    filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
-    select(Group1, gene, island:enhancer, n_total) %>%
+  group_by(genomic_feature) %>%
+  summarize(Expected_n_in = sum(present), 
+            
+            Expected_n_out = nrow(annotation) - Expected_n_in,
+            Expected_p_in = Expected_n_in/ nrow(annotation),
+            Expected_p_out = Expected_n_out / nrow(annotation))
+
+# tabulate observed frequency for significant cpgs
+observed <- dmcs %>% 
   
-    # calculated the number of dmcs in each feature, and then the number out
-    gather(key = genomic_feature, value = present, -gene, -Group1, -n_total) %>%
-    group_by(Group1, genomic_feature) %>%
-    summarize(Observed_n_in = sum(present), 
-              
-              Observed_n_out = unique(n_total) - Observed_n_in,
-              Observed_p_in = Observed_n_in / unique(n_total),
-              Observed_p_out = Observed_n_out / unique(n_total))
+  # calculate total dmcs per cell type
+  group_by(Group1) %>%
+  mutate(n_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh )) %>%
   
-  # fisher's test for enrichment
-  # (1) # of DMCs on var1 (already calcualted, 'Freq')
-  # (2) # of non-DMCs on var1
-  # (3) # of DMCs not on var1
-  # (4) # of non-DMCs not on var1
-  
+  # filter to just dmcs
+  filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+  select(Group1, gene, island:pmd, contains('imprint'), n_total) %>%
+
+  # calculated the number of dmcs in each feature, and then the number out
+  gather(key = genomic_feature, value = present, -gene, -Group1, -n_total) %>%
+  group_by(Group1, genomic_feature) %>%
+  summarize(Observed_n_in = sum(present), 
+            
+            Observed_n_out = unique(n_total) - Observed_n_in,
+            Observed_p_in = Observed_n_in / unique(n_total),
+            Observed_p_out = Observed_n_out / unique(n_total))
+
+# fisher's test for enrichment
+# (1) # of DMCs on var1 (already calcualted, 'Freq')
+# (2) # of non-DMCs on var1
+# (3) # of DMCs not on var1
+# (4) # of non-DMCs not on var1
+
 
 # calculate (2) (3) (4), and test enrichment
-  tests <- observed %>%
-    
-    ungroup() %>%
-    
-    # add in all_cpgs datarfame for calculations
-    left_join(expected, by = 'genomic_feature') %>%
-    
-    # calculate (2), (4)
-    mutate(Observed_notDMC_in = Expected_n_in - Observed_n_in,   #(2) # non-DMCs in var1
-           
-           # for (4)
-           Observed_notDMC_out = Expected_n_out - Observed_n_out) %>%  # of non-DMCs out of Var1
-    
-    # test enrichment
-    rowwise() %>%
-    mutate(fisher_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
-                                     Observed_n_out, Observed_notDMC_out),2,2))) %>%
-    ungroup() %>%
-    
-    mutate(fisher_out = map(fisher_in, ~fisher.test(., alternative = 'greater')),
-           p = map_dbl(fisher_out, 'p.value'),
-           odds_ratio = map_dbl(fisher_out, 'estimate'),
-           FDR = p.adjust(p, method = 'fdr'),
-           bonferroni = p.adjust(p, method = 'bonferroni'),
-           FDR01 = ifelse(FDR < 0.01, T, F)) %>% 
-    select(FDR, FDR01, bonferroni, p, odds_ratio, everything())
+tests <- observed %>%
   
+  ungroup() %>%
   
-  tests
-}
+  # add in all_cpgs datarfame for calculations
+  left_join(expected, by = 'genomic_feature') %>%
+  
+  # calculate (2), (4)
+  mutate(Observed_notDMC_in = Expected_n_in - Observed_n_in,   #(2) # non-DMCs in var1
+         
+         # for (4)
+         Observed_notDMC_out = Expected_n_out - Observed_n_out) %>%  # of non-DMCs out of Var1
+  
+  # test enrichment
+  rowwise() %>%
+  mutate(fisher_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
+                                   Observed_n_out, Observed_notDMC_out),2,2))) %>%
+  ungroup() %>%
+  
+  mutate(fisher_out = map(fisher_in, ~fisher.test(., alternative = 'greater')),
+         p = map_dbl(fisher_out, 'p.value'),
+         odds_ratio = map_dbl(fisher_out, 'estimate'),
+         FDR = p.adjust(p, method = 'fdr'),
+         bonferroni = p.adjust(p, method = 'bonferroni'),
+         FDR01 = ifelse(FDR < 0.01, T, F)) %>% 
+  select(FDR, FDR01, bonferroni, p, odds_ratio, everything())
 
-enrich_results <- enrich_chrom(dmcs, annotation = anno, 
-                               p_thresh = p_thresh, 
-                               b_thresh = b_thresh )
+
+tests
 
 # clean
-enrich_results <- enrich_results %>%
+tests <- tests %>%
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
   mutate(Celltype = case_when(
     Celltype == 'Endo_cs' ~ 'Endothelial cs',
@@ -193,16 +214,32 @@ enrich_results <- enrich_results %>%
 # color code
 colors <- color_code %>% 
   filter(label %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
-colors <- setNames(colors$Colors_Tissue, unique(enrich_results$Celltype))
+colors <- setNames(colors$Colors_Tissue, unique(tests$Celltype))
 
-enrich_results %>% 
-  # ordering in plot
-  mutate(genomic_feature = factor(as.character(genomic_feature), 
-                       levels = c('intergenic', '3UTR',  'intronexonboundary', 'intron', 
-                                   'exon', '5UTR','promoter', '1to5kb', 
-                                  'enhancer', 'island', 'shore', 'shelf', 'sea')),
+# categorize genomic features
+tests <- tests %>% 
+  mutate(genomic_feature_category = case_when(
+    grepl('chr', genomic_feature) ~ 'chr',
+    genomic_feature %in% c('1to5kb', '3UTR', '5UTR', 'exon', 'intron', 
+                           'intergenic', 'intronexonboundary', 'promoter') ~ 'gene',
+    genomic_feature %in% c('island', 'shore', 'shelf', 'sea') ~ 'cpg_island',
+    grepl('imprint', genomic_feature) ~ 'imprinting',
+    genomic_feature == 'pmd' ~ 'pmd',
+    genomic_feature == 'enhancer' ~ 'enhancer'
+  )) 
+```
+
+## Visualize enrichment
+
+```{r}
+tests %>% 
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY')) %>%
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
          
-         # linerange ymin ymax values
+         Observed_p_minus_expected = Observed_p_in - Expected_p_in,
+    
+    # linerange ymin ymax values
          ymin = pmin(Observed_p_in, Expected_p_in),
          ymax = pmax(Observed_p_in, Expected_p_in)) %>%
   
@@ -218,19 +255,51 @@ enrich_results %>%
   
   
   coord_flip() +
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0,0.15), expand = c(0,0)) +
   theme_bw(base_size = 14) + 
   theme(legend.position = 'right', legend.direction = 'vertical',
         legend.spacing.y = unit(-0.2, 'cm')) +
   
   # add significance
-  geom_point(aes(x = genomic_feature, y = ymax + 0.01, group = Celltype, shape = FDR01),
+  geom_point(aes(x = genomic_feature, y = ymax + 0.001, group = Celltype, shape = FDR01),
              position = position_dodge(0.75), size = 4) +
   labs(color = '', x = '', y = 'Frequency', shape = '', linetype = '') +
   scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
                      labels = c('', 'Enriched (FDR < 0.01)'))
 ```
 
+```{r}
+tests %>% 
+  
+  # genomic features
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY')) %>%
+  
+  # prepare text and shape of table
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
+         key = paste0(Trimester , '_', Celltype)) %>%
+  select(key, genomic_feature, Observed_p_in, Expected_p_in, FDR01) %>%
+  
+   # prepare colors
+  group_by(genomic_feature) %>%
+  mutate(
+    value = ifelse(Observed_p_in > Expected_p_in,
+                   cell_spec(Observed_p_in, 
+                             background = spec_color(Observed_p_in, 
+                                                     begin = 0.5, 
+                                                     direction = 1)),
+                   cell_spec(Observed_p_in, 
+                             background = spec_color(Observed_p_in, 
+                                                     begin = 0,
+                                                     end = 0.5, direction = -1)))) %>%
+  select(genomic_feature, key, value, Expected_p_in) %>%
+  spread(key= key, value = value) %>%
+  kable(escape = F) %>%
+  kable_styling()
+  
+  
+  
+```
 
 # temp garbage
 
