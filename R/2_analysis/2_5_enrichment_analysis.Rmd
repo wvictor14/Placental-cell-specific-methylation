@@ -187,17 +187,17 @@ tests <- observed %>%
   
   # test enrichment
   rowwise() %>%
-  mutate(fisher_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
+  mutate(test_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
                                    Observed_n_out, Observed_notDMC_out),2,2))) %>%
   ungroup() %>%
   
-  mutate(fisher_out = map(fisher_in, ~fisher.test(., alternative = 'greater')),
-         p = map_dbl(fisher_out, 'p.value'),
-         odds_ratio = map_dbl(fisher_out, 'estimate'),
+  mutate(test_out = map(test_in, ~chisq.test(.)),
+         p = map_dbl(test_out, 'p.value'),
          FDR = p.adjust(p, method = 'fdr'),
          bonferroni = p.adjust(p, method = 'bonferroni'),
-         FDR01 = ifelse(FDR < 0.01, T, F)) %>% 
-  select(FDR, FDR01, bonferroni, p, odds_ratio, everything())
+         FDR01 = FDR < 0.01,
+         bonferroni01 = bonferroni < 0.01) %>% 
+  select(FDR, FDR01, bonferroni, bonferroni01, p, everything())
 
 
 tests
@@ -232,43 +232,126 @@ tests <- tests %>%
 ## Visualize enrichment
 
 ```{r}
+
+plot_enrich <- function(x) {
+  
+  ggplot(data = x) +
+  geom_pointrange(aes(x = genomic_feature, y = Observed_p_minus_expected, ymin = ymin, ymax = ymax, 
+                      color =Celltype, shape = bonferroni01),
+                  fill = 'white',
+           stat = 'identity', position = position_dodge(width = 0.75),
+           fatten = 4) +
+  geom_hline(yintercept = 0, color = 'black', size = 1) +
+  scale_color_manual(values = colors)  + 
+  facet_grid(. ~ Trimester , scales = 'free_y', space = 'free') +
+  coord_flip() +
+  scale_y_continuous( expand = c(0.05,0)) +
+  theme_bw(base_size = 14) + 
+  theme(legend.position = 'right', legend.direction = 'vertical',
+        legend.spacing.y = unit(-0.2, 'cm')) +
+  labs(color = '', x = '', y = 'Observed - Expected frequency (in percentage)', shape = '', linetype = '') +
+  scale_shape_manual(values = c('TRUE' = 18, 'FALSE' = 21), na.translate = F, 
+                     labels = c('TRUE' = 'Bonferroni < 0.01', 'FALSE' = 'n.s.')) 
+}
+
+#chromosome
 tests %>% 
   filter(genomic_feature_category == 'chr',
          !genomic_feature %in% c('chrX', 'chrY')) %>%
   mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
          
-         Observed_p_minus_expected = Observed_p_in - Expected_p_in,
+         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
     
     # linerange ymin ymax values
-         ymin = pmin(Observed_p_in, Expected_p_in),
-         ymax = pmax(Observed_p_in, Expected_p_in)) %>%
-  
-  ggplot() +
-  geom_pointrange(aes(x = genomic_feature, y = Observed_p_in, ymin = ymin, ymax = ymax, color =Celltype),
-           stat = 'identity', position = position_dodge(width = 0.75),
-           fatten = 2) +
-  scale_color_manual(values = colors)  + 
-  facet_grid(Trimester ~ . , scales = 'free_x', space = 'free') +
-  geom_errorbar(aes(x = genomic_feature, ymin = Expected_p_in, ymax = Expected_p_in, linetype = 
-                      'Expected frequency'), 
-                size = 1) +
-  
-  
-  coord_flip() +
-  scale_y_continuous(limits = c(0,0.15), expand = c(0,0)) +
-  theme_bw(base_size = 14) + 
-  theme(legend.position = 'right', legend.direction = 'vertical',
-        legend.spacing.y = unit(-0.2, 'cm')) +
-  
-  # add significance
-  geom_point(aes(x = genomic_feature, y = ymax + 0.001, group = Celltype, shape = FDR01),
-             position = position_dodge(0.75), size = 4) +
-  labs(color = '', x = '', y = 'Frequency', shape = '', linetype = '') +
-  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
-                     labels = c('', 'Enriched (FDR < 0.01)'))
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich()
+
+#gene/enhancer
+tests %>% 
+  filter(genomic_feature_category == 'gene' | genomic_feature == 'enhancer') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon', 'intron', 
+                                             'intronexonboundary','3UTR','intergenic')),
+
+         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+
+# cpg islands
+tests %>% 
+  filter(genomic_feature_category == 'cpg_island') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('island', 'shore', 'shelf', 'sea')),
+         
+         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+
+# pmd
+tests %>% 
+  filter(genomic_feature_category == 'pmd') %>%
+  mutate(Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+
+# imprint
+tests %>% 
+  filter(genomic_feature_category == 'imprinting') %>%
+  mutate(Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
 ```
 
 ```{r}
+cb <- function(x) {
+  range <- max(abs(x))
+  width <- round(abs(x / range * 50), 2)
+  ifelse(
+    x > 0,
+    paste0(
+      '<span style="display: inline-block; border-radius: 2px; ', 
+      'padding-right: 2px; background-color: lightgreen; width: ', 
+      width, '%; margin-left: 50%; text-align: left;">', percent(x), '</span>'
+    ),
+    paste0(
+      '<span style="display: inline-block; border-radius: 2px; ', 
+      'padding-right: 2px; background-color: lightpink; width: ', 
+      width, '%; margin-right: 50%; text-align: right; float: right; ">', percent(x), '</span>'
+    )
+  )
+}
+
+tests %>% 
+  # filter to chromosome
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY')) %>%
+  # create key
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
+         key = paste0(Trimester , '_', Celltype),
+         Observed_p_minus_expected = (Observed_p_in - Expected_p_in)) %>%
+  select(key, genomic_feature, Observed_p_minus_expected)  %>%
+  mutate(Observed_p_minus_expected = cb(Observed_p_minus_expected)) %>%
+  
+  
+  spread(key= key, value = Observed_p_minus_expected) %>%
+  kable(escape = F) %>%
+  kable_styling()
+  
+         
+         
 tests %>% 
   
   # genomic features
@@ -296,63 +379,245 @@ tests %>%
   spread(key= key, value = value) %>%
   kable(escape = F) %>%
   kable_styling()
-  
-  
-  
 ```
 
-# temp garbage
+# Densities
 
-PMDs
+Here I look at PMDs and imprinting regions more closely. There is an expectation for the methylation levels 
+at these regions, however we can test how much cell-specificity are these methylation sites.
+
+1. What is the distribution of methylation across all imprinting and pmd-related sites
+2. How many sites are cell-specific and to what cell type?
+
+
+Also I look at the distribution of the methylation for dmcs compared to all tested in each celltype.
+This code can then be applied to 1. and 2.
+
+First I calculate densities for each set of cpgs
 
 ```{r}
-# load Schroeder 2013 list of pmds
-pmds <- read_xls('../../data/external/placental_pmds.xls', col_names = F)
-colnames(pmds) <- c('chr', 'start', 'end')
+# cpg vectors
+pmd_cpg <- anno %>% 
+  filter(cpg %in% dmcs$gene, !is.na(pmd_id)) %>% pull(cpg)
+imprinted_gene_general_cpg <- anno %>% 
+  filter(cpg %in% dmcs$gene, !is.na(imprinted_gene_general)) %>% pull(cpg)
+imprinted_dmr_general_cpg <- anno %>% 
+  filter(cpg %in% dmcs$gene, !is.na(imprinted_dmr_general)) %>% pull(cpg)
+imprinted_dmr_placenta_cpg <- anno %>% 
+  filter(cpg %in% dmcs$gene, !is.na(imprinted_dmr_placenta)) %>% pull(cpg)
 
-# match with the list of pmds
-dmcs <- dmcs %>% 
-  dplyr::rename(cpg = gene) %>%
-  mutate_at(c('start', 'end'), as.numeric) %>%
-  genome_left_join(pmds) %>%
-  mutate(pmd_id = ifelse(!is.na(chr.y), paste0(chr.y, ':', start.y, '-', end.y), NA),
-         pmd_width = end.y-start.y) %>%
-  dplyr::rename(chr = chr.x, start = start.x, end = end.x) %>%
-  select(-contains('.y'))
 
-p_thresh <- 0.01
-b_thresh <- 0.25
-
-# number of DMCs in pmds
-pmds_count <- dmcs %>% 
+# first I do dnesities for dmc cpgs
+densities_dmcs <- dmcs %>%
+  # filter to significant sites
+  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
+  
+  # fix trimester and celltype variables
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
   mutate(Celltype = case_when(
     Celltype == 'Endo_cs' ~ 'Endothelial cs',
     Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
     Celltype == 'Strom_cs' ~ 'Stromal cs',
-    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
-  )) %>%
-  group_by(Trimester, Celltype) %>%
-  summarize(dmcs_in_pmds = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh & !is.na(pmd_id)),
-            dmcs_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh)) %>%
-  mutate(dmcs_notin_pmds = dmcs_total - dmcs_in_pmds) %>%
-  gather(key = type, value = count, -Trimester, -Celltype) %>%
-  mutate(type = case_when(
-    type == 'dmcs_in_pmds' ~ 'In PMD',
-    type == 'dmcs_total' ~ 'Total',
-    type == 'dmcs_notin_pmds' ~ 'Out of PMD'
-  ))
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'))  %>%
 
-pmds_count %>% 
-  filter(type != 'Total') %>%
+  # get dmcs in list colu,m
+  group_by(Trimester, Celltype) %>% 
+  nest(gene) %>% 
+  mutate(dmcs = map(data, ~.$gene)) %>% 
+  select(-data) %>%
+  
+  # get sample names for each tissue
+  mutate(samples = map2(Trimester, Celltype, ~ pDat_filt %>% 
+                          filter(Trimester == .x, Tissue == .y) %>%
+                          pull(Sample_Name)),
+         
+         # 1. get betas for each tissue, filtering to mmcs
+         betas = map2(dmcs, samples, ~as.vector(betas_filt[.x,.y])),
+         
+         # 2. get x and y coordinates for densites on these betas
+         densities = map(betas, ~ density(.)),
+         x = map(densities, 'x'),
+         y = map(densities, 'y')) %>%
+ # remove input data
+  select(Trimester, Celltype, contains('x'), contains('y')) %>%
+  unnest()
+
+dmcs_sig <- dmcs %>%
+  # filter to significant sites
+  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
+  
+  # fix trimester and celltype variables
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'))  
+
+# for all cpgs, pmds, imprints, I repeat but also include villi
+densities_all <- pDat_filt %>%
+  select(Trimester, Tissue, Sample_Name) %>%
+  dplyr::rename(Celltype = Tissue) %>%
   group_by(Trimester, Celltype) %>%
-  mutate(proportion = count*100/sum(count),
-         proportion_label = paste0(prettyNum(proportion, digits = 2), '%')) %>%
-  ggplot(aes(x = Celltype, y = proportion, fill = type)) +
-  geom_col(position = 'stack') +
-  geom_text(aes(label = proportion_label), position = position_stack(0.5)) +
-  facet_wrap(vars(Trimester)) +
-  coord_cartesian(expand = F) +
-  theme(panel.spacing = unit(2, 'lines')) +
-  labs(x = '', y = 'Percent of DMCs', fill = '')
+  summarize(Samples =list(Sample_Name))
+  
+densities_dmcs <- densities_all %>% filter(Celltype != 'Villi') %>%
+  mutate(
+        #dmcs
+        dmcs = map2(Trimester, Celltype,
+                    ~ dmcs_sig %>% 
+                      filter(Trimester == .x, Celltype == .y) %>%
+                      pull(gene)),
+        densities_dmcs = map2(Samples, dmcs, ~ as.vector(betas_filt[.y,.x]) %>% density()),
+        x_dmcs = map(densities_dmcs, 'x'),
+        y_dmcs = map(densities_dmcs, 'y'))
+        
+densities <- densities_all %>% left_join(densities_dmcs %>% select(-Samples)) %>%
+  
+  mutate(# density for all cpgs         
+         densities_all = map(Samples, ~as.vector(betas_filt[,.]) %>% density()),
+         x_all = map(densities_all, 'x'),
+         y_all = map(densities_all, 'y'),
+         
+         # Repeat for pmds
+         densities_pmd = map(Samples, ~as.vector(betas_filt[pmd_cpg,.]) %>% density()),
+         x_pmd = map(densities_pmd, 'x'),
+         y_pmd = map(densities_pmd, 'y'),
+         
+         # Repeat for imprints
+         ## imprinted genes
+         densities_imprint_gene_general = map(Samples, 
+                                              ~as.vector(betas_filt[imprinted_gene_general_cpg, .]) %>%
+                                                density()),
+         x_imprint_gene_general = map(densities_imprint_gene_general, 'x'),
+         y_imprint_gene_general = map(densities_imprint_gene_general, 'y'),
+         
+         ## imprinted dmrs general
+         densities_imprint_dmr_gen = map(Samples, 
+                                              ~as.vector(betas_filt[imprinted_dmr_general_cpg, .]) %>%
+                                                density()),
+         x_imprint_dmr_gen = map(densities_imprint_dmr_gen, 'x'),
+         y_imprint_dmr_gen = map(densities_imprint_dmr_gen, 'y'),
+         
+         ## imprinted dmrs placental specific
+         densities_imprint_dmr_pl = map(Samples, 
+                                              ~as.vector(betas_filt[imprinted_dmr_placenta_cpg, .]) %>%
+                                                density()),
+         x_imprint_dmr_pl = map(densities_imprint_dmr_pl, 'x'),
+         y_imprint_dmr_pl = map(densities_imprint_dmr_pl, 'y')
+         ) %>%
+  
+  # remove input data
+  select(Trimester, Celltype, contains('x'), contains('y')) 
+
+x <- densities %>% filter(Celltype != 'Villi') %>% 
+  unnest() 
+y <- densities %>% filter(Celltype == 'Villi') %>%
+  mutate(x_dmcs = list(rep(NA, 512)),
+         y_dmcs = list(rep(NA, 512))) %>%
+  unnest()
+
+densities <- bind_rows(x, y) %>% ungroup
+
+## plot just dmcs
+densities %>%
+  filter(Celltype != 'Villi') %>%
+  {
+    ggplot(data = .) +
+    geom_line(aes(x = x_all, y = y_all, color = 'All CpGs'),
+              linetype = 'longdash', alpha = 0.8, size = 2) +
+    geom_line(size = 2,aes(x = x_dmcs, y = y_dmcs, color = Celltype)) + theme_bw() +
+    scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    facet_grid(Trimester~Celltype) +
+    scale_color_manual(values= c(color_code_tissue[unique(.$Celltype)],
+                                 'All CpGs' = 'grey'),
+                       labels = c('All tested CpGs',
+                                  paste0('DMCs for ', 
+                                         names(color_code_tissue[unique(.$Celltype)])))) +
+    labs(x = '% methylation', y = 'density', color = '')
+  }
+
+## just pmds
+ggplot(densities) +
+  geom_line(size = 2,aes(x = x_pmd, y = y_pmd, color = Celltype)) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '')
+
+## just imprints
+### calculate the bin size to calculate the area under the curve at  0.25 < x < 0.75 
+dx_gene_gen <- densities$x_imprint_gene_general[2L] - densities$x_imprint_gene_general[1L]
+dx_dmr_gen <- densities$x_imprint_dmr_gen[2L] - densities$x_imprint_dmr_gen[1L]
+dx_dmr_pl <- densities$x_imprint_dmr_pl[2L] - densities$x_imprint_dmr_pl[1L]
+  
+AUC_imprint_gene_gen <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_imprint_gene_general)*dx_gene_gen, # normalizing constant
+            AUC = sum(ifelse(x_imprint_gene_general > 0.25 & x_imprint_gene_general < 0.75,
+                             y_imprint_gene_general, 0)*dx_gene_gen/C),
+            AUC_label = percent(AUC, digits = 0))
+AUC_imprint_dmr_gen <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_imprint_dmr_gen)*dx_dmr_gen, # normalizing constant
+            AUC = sum(ifelse(x_imprint_dmr_gen > 0.25 & x_imprint_dmr_gen < 0.75,
+                             y_imprint_dmr_gen, 0)*dx_dmr_gen/C),
+            AUC_label = percent(AUC, digits = 0))
+
+AUC_imprint_dmr_pl <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_imprint_dmr_pl)*dx_dmr_pl, # normalizing constant
+            AUC = sum(ifelse(x_imprint_dmr_pl > 0.25 & x_imprint_dmr_pl < 0.75,
+                             y_imprint_dmr_pl, 0)*dx_dmr_pl/C),
+            AUC_label = percent(AUC, digits = 0))
+
+# plot results
+ggplot(densities, aes(x = x_imprint_gene_general, y = y_imprint_gene_general, color = Celltype)) +
+  geom_line(size = 2) + 
+  theme_bw() +
+  geom_area(data = densities %>% filter(x_imprint_gene_general > 0.25, x_imprint_gene_general < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_imprint_gene_gen, x = 0.5, y = 1.75, aes(label = AUC_label), show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '', title = 'Imprinted genes')
+
+ggplot(densities, aes(x = x_imprint_dmr_gen, y = y_imprint_dmr_gen, color = Celltype)) +
+  geom_line(size = 2) + 
+  theme_bw() +
+  geom_area(data = densities %>% filter(x_imprint_dmr_gen > 0.25, x_imprint_dmr_gen < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_imprint_dmr_gen, x = 0.5, y = 1.75, aes(label = AUC_label), show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '', title = 'Imprinted DMRs')
+
+ggplot(densities, aes(x = x_imprint_dmr_pl, y = y_imprint_dmr_pl, color = Celltype)) +
+  geom_line(size = 2) + 
+  theme_bw() +
+  geom_area(data = densities %>% filter(x_imprint_dmr_pl > 0.25, x_imprint_dmr_pl < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_imprint_dmr_pl, x = 0.5, y = 3, aes(label = AUC_label), show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '', title = 'placental-specific imprinted DMRs')
+```
+
+# Save data
+
+```{r eval = F}
+saveRDS(tests, '../../data/main/interim/2_5_enrich_tests.rds')
+saveRDS(densities, '../../data/main/interim/2_5_densities.rds')
 ```

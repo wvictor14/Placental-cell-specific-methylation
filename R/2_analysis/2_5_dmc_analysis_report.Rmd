@@ -1,0 +1,558 @@
+---
+title: "Cell specific methylation in first and third trimester placenta"
+author: "Victor Yuan"
+date: "08/08/2019"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE) #hide code
+```
+
+```{r, message= F, warning = F}
+library(tidyverse)
+library(kableExtra)
+library(formattable)
+
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+
+fun_enrich <- readRDS('../../data/main/interim/2_4_enrich.rds')
+kegg <- fun_enrich$kegg
+gst <- fun_enrich$GO
+
+
+tests <- readRDS('../../data/main/interim/2_5_enrich_tests.rds')
+
+
+densities <- readRDS('../../data/main/interim/2_5_densities.rds')
+```
+
+This report documents the analysis of the linear modelling results for the NIH cells project. 
+
+# Highlights
+
+* At a bonferroni-corrected p-value of <0.01, and a delta beta of 0.25, there were a large number of DMCs between third trimester cell types (n=75525-135553) and between first trimester cell types (n=9136-117528).
+* DMCs are enriched at enhancers and intergenic regions, and depleted at other gene-element related elements, including promoter regions.
+* DMCs are enriched at open sea elements, and are depleted at CpG islands and shores
+* Trophoblast and Hofbaeur DMCs are enriched at PMDs, whereas endo and stromal DMCs are depleted
+* At placental-specific imprinting regions, villi has a higher fraction of CpGs showing intermediate methylation compared to all others, followed by Trophoblast. Hofbauer cells show very little intermediate methylation at these regions.
+
+# Recap
+
+Here I summarize a few processing steps leading up to this analysis.
+
+* We removed samples with an estimated contamination (maternal) level > 35%
+
+```{r}
+#Before contamination
+pDat %>%
+  filter(!Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs')) %>%
+  arrange(Tissue, maternal_contamination_norm_flip) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name)) %>%
+  ggplot(aes(x = Sample_Name, y = maternal_contamination_norm_flip, color = Tissue)) +
+  geom_point() + 
+  geom_segment(aes(y = 0, yend = maternal_contamination_norm_flip, 
+                   x = Sample_Name, xend = Sample_Name))+
+  scale_color_manual(values = color_code_tissue) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0), breaks = seq(0,1, 0.1)) +
+  scale_x_discrete(expand = c(0.05, 0.05)) +
+  facet_grid(Trimester~., scales = 'free_y', space = 'free_y') +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.title.y = element_text(angle = 0, vjust = 0.5))  +
+  labs(x = 'Samples', y = 'Maternal contamination') +
+  coord_flip() +
+  geom_hline(yintercept = 0.35, col = 'red', linetype = 'dashed')
+```
+
+This removed several first trimester samples: **1 endothelial, 5 hofbauer, and 4 trophoblast.** I also removed **PM364_hofb_cs**, and **P131_hofb_cs** samples, because they look contaminated with other cell types as determined previously with PCA/clustering analysis. **1 sample from each replicate duo** was also removed prior to linear modelling.
+
+```{r}
+#summarize filtering
+x <- pDat %>%
+  group_by(Trimester, Tissue) %>%
+  summarize(Before_filter = n())
+y <- pDat %>%
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs')) %>%
+  group_by(Trimester, Tissue) %>%
+  summarize(After_filter = n())
+removed_df <- x %>% 
+  ungroup %>%
+  mutate(After_filter = y$After_filter,
+         Number_removed = Before_filter-After_filter)
+
+removed_df %>%
+  kable(align = 'c', escape = F) %>%
+  kable_styling(c("striped", "condensed"),full_width = F) %>%
+  row_spec(which(removed_df$Number_removed>0), bold = T) 
+```
+
+# 1. Differentially methylated cytosines (DMCs)
+
+Using limma, I determined the number of differentially methylated cytosines defined by the following:
+
+* **bonferroni-corrected p-value of less than 0.01**
+* **difference in mean methylation greater than 0.25 in magnitude**
+
+For comparisons, I chose the '**one-vs-all**' design. So each cell type was compared to all other samples in the dataset. The other valid approach would be to conduct all pairwise comparisons, but this would result in 4\*3\*2 = 24 sets of dmcs, which would be much more difficult to summarize.
+
+Using this definition of DMCs we find many significant associations for each cell type in first and third trimester:
+
+```{r}
+# define cutoffs
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# count number of significant cpgs per cell
+dmcs_sig <- dmcs %>% 
+  group_by(Group1) %>% 
+  summarize(b001db50_all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
+            b001db50_hypo = sum(bonferroni < p_thresh & delta_b < -b_thresh),
+            b001db50_hyper = sum(bonferroni < p_thresh & delta_b > b_thresh)) %>%
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  gather('group', 'n_cpg', -Trimester, -Celltype) %>%
+  separate(group, into = c('pvalue', 'delta_b')) %>%
+  mutate(Group1_label = paste0(Trimester, ' - ', case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
+  )))
+
+dmcs_sig %>% 
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  mutate(hyper_p = hyper*100/all,
+         hypo_p = hypo*100/all) %>%
+  select(-Trimester, -Celltype, -pvalue) %>%
+  
+  mutate(Hypermethylated = paste0(hyper, ' (', prettyNum(hyper_p, digits = 2), '%)'),
+         Hypomethylated = paste0(hypo, ' (', prettyNum(hypo_p, digits = 2), '%)')) %>%
+  
+  # specify color of cells
+  mutate(Hypermethylated = cell_spec(Hypermethylated, color = 'white', 
+                                     background = spec_color(hyper_p, end = 0.5, direction = -1)),
+         Hypomethylated = cell_spec(Hypomethylated, color = 'white', 
+                                     background = spec_color(hypo_p, end = 0.5, direction = -1))) %>%
+  separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>%
+  select(-(hyper:hypo_p)) %>%
+  dplyr::rename(Num_sig = all) %>%
+  kable(escape = F) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1)
+```
+
+Here, I broke up the number of DMCs ("Num_sig") into those that are hypermethylated or hypomethylated compared to all other celltypes.
+
+Some observations:
+
+* Considering sheer number of DMCs, Hofbauer cells and trophoblast cells are most unique in both first and third trimester comparisons
+* Trophoblast DMCs are generally hypomethylated compared to the rest (*61% hypo in third, 88% in first*)
+* Hofbauer cell DMCs are mostly hypermethylated (74% hyper in third, 72% in first)
+* Endothelial DMCs are evenly hyper-/hypo-methylated in first (*~50%*), but are mostly Hypometheylated in third (*76% Hypomethylated*).
+* Stromal DMCs are more Hypomethylated in both first and third trimesters (*68% hypo*)
+
+# Functional enrichment
+
+## GO
+
+Tested for enrichment of GO terms using the R package missMethyl, which takes into consideration all tested cpgs.
+
+The total number of significant GO terms per set of DMCs at an FDR < 0.05:
+
+```{r }
+gst %>% select(Trimester:FDR05_signif) %>% distinct() %>%
+  kable %>%
+  kable_styling(full_width = F)
+```
+
+* Angiogenesis being the top hit for first trimester endo is reassuring
+
+Here are the top 10 significant GO terms for each set of DMCs:
+
+```{r fig.height = 15}
+gst %>%
+  # take top n significant
+  group_by(Label) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Label), scales = 'free_y', ncol = 1) +
+  scale_x_continuous(breaks = gst$Order,
+                     labels = gst$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of cpgs that are differentially methylated) / (# of cpgs associated with GO term)')
+```
+
+
+
+## KEGG
+
+Same thing, but for KEGG pathways
+
+```{r fig.height = 15}
+kegg %>% select(Trimester:FDR05_signif) %>% distinct() %>%
+  kable %>%
+  kable_styling(full_width = F)
+
+kegg %>%
+  # take top n significant
+  group_by(Label) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Label), scales = 'free_y', ncol = 1) +
+  scale_x_continuous(breaks = kegg$Order,
+                     labels = kegg$Description) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+```
+
+# 2. Genomic enrichment
+
+Here I look at enrichment of the DMCs to specific genomic elements (e.g. promoters, cpg islands, enhancers). I did this using an annotation that I manually mapped (with specific r packages) to cpgs on the epic array.  And a chi squared test with a bonferonni correction (p < 0.01) to determine depletion / enrichment.
+
+For the following plots, note the x axis scale is in percent change and is on a different scale for  each section.
+
+## Chromosome
+
+* Significant depletion of cell-specific DMCs on chr 19
+
+```{r, fig.height = 11}
+plot_enrich <- function(x) {
+  
+  ggplot(data = x) +
+  geom_pointrange(aes(x = genomic_feature, y = Observed_p_minus_expected, ymin = ymin, ymax = ymax, 
+                      color =Celltype, shape = bonferroni01),
+                  fill = 'white',
+           stat = 'identity', position = position_dodge(width = 0.75),
+           fatten = 4) +
+  geom_hline(yintercept = 0, color = 'black', size = 1) +
+  scale_color_manual(values = colors)  + 
+  facet_grid(. ~ Trimester , scales = 'free_y', space = 'free') +
+  coord_flip() +
+  scale_y_continuous( expand = c(0.05,0)) +
+  theme_bw(base_size = 14) + 
+  theme(legend.position = 'right', legend.direction = 'vertical',
+        legend.spacing.y = unit(-0.2, 'cm')) +
+  labs(color = '', x = '', y = 'Observed - Expected frequency (in percentage)', shape = '', linetype = '') +
+  scale_shape_manual(values = c('TRUE' = 18, 'FALSE' = 21), na.translate = F, 
+                     labels = c('TRUE' = 'Bonferroni < 0.01', 'FALSE' = 'n.s.')) 
+}
+
+# color code
+colors <- color_code %>% 
+  filter(label %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
+colors <- setNames(colors$Colors_Tissue, unique(tests$Celltype))
+
+#chromosome
+tests %>% 
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY')) %>%
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
+         
+         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich()
+```
+
+
+## Gene elements / enhancers
+
+Gene elements are taken from **UCSC hg19 refgene track**, accessed by the R package [annotatr](https://bioconductor.org/packages/release/bioc/vignettes/annotatr/inst/doc/annotatr-vignette.html). This is supposedly how Illumina's provided annotation was made, but it seems that they have done some processing on top of that which they are unclear about. Enhancers were taken from **FANTOM5**.
+
+* all cell DMCs are Enriched at  Intergenic and enhancer regions
+* all cell DMCs are depleted at exons, 5'UTRs, promoter, and 1to5kb upstream of TSS
+* Introns show enrichment for  stromal and endothelial DMCs, and depletion for trophoblast and hofbauer DMCs.
+
+```{r}
+tests %>% 
+  filter(genomic_feature_category == 'gene' | genomic_feature == 'enhancer') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon', 'intron', 
+                                             'intronexonboundary','3UTR','intergenic')),
+
+         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+```
+
+## CpG Islands
+
+* All DMCs show depletion at islands and shores
+* All DMCs show enrichment at Seas
+
+```{r fig.height = 5}
+# cpg islands
+tests %>% 
+  filter(genomic_feature_category == 'cpg_island') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('island', 'shore', 'shelf', 'sea')),
+         
+         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+```
+
+## PMDs
+
+PMD coordinates were taken from [schroeder et al. 2013](https://www.pnas.org/content/110/15/6037)
+
+* Trophoblast and hofbauer DMCs are enriched at PMDs
+* Stromal and endo DMCs are depleted at PMDs
+
+```{r fig.height = 3.5}
+# pmd
+tests %>% 
+  filter(genomic_feature_category == 'pmd') %>%
+  mutate(Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+```
+
+## Imprinting
+
+For imprinting regions I took Giulia's summarized resources from the following sources:
+
+* Geneimprinting database
+* OTAGO database
+* Hanna et al. 2014 imprinting DMRs in placenta
+* Court et al. 2016 imprinting DMRs in placenta
+
+I divided DMRs regions into imprinted genes that are not tissue-specific, (*imprinted_gene_general*), imprinted genes that are placenta specific (*imprinted_gene_placenta*), imprinted DMRs are are not tissue-specific (*imprinted_dmr_general*), and DMRs that are placental specific (*imprinted_dmr_placenta*).
+
+I look at this in more detail below.
+
+```{r fig.height = 5, fig.width = 9}
+tests %>% 
+  filter(genomic_feature_category == 'imprinting') %>%
+  mutate(Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+```
+
+# 3. Distribution of methylation
+
+Instead of looking at whether certain genomic features are enriched for placental cell-specific DMCs, I look at the distribution of methylation across specific genomic features.
+
+For example, I first look at the methylation across just DMCs for each cell type. This gives a bit more detail than looking at the sheer number of hypo-/hyper- methylated DMCs as shown in the table in section 1.
+
+## Just DMCs
+
+```{r, fig.height = 10, fig.width = 10}
+text_size <- 18
+geom_text_size <- 5
+## just dmcs
+densities %>%
+  filter(Celltype != 'Villi') %>%
+  {
+    ggplot(data = .) +
+    geom_line(aes(x = x_all, y = y_all, color = 'All CpGs'),
+              linetype = 'longdash', alpha = 0.8, size = 2) +
+    geom_line(size = 2,aes(x = x_dmcs, y = y_dmcs, color = Celltype)) + theme_bw() +
+    scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                       labels = c(0, 25, 50, 75, 100)) +
+    facet_grid(Trimester~Celltype) +
+    scale_color_manual(values= c(color_code_tissue[unique(.$Celltype)],
+                                 'All CpGs' = 'grey'),
+                       labels = c('All tested CpGs',
+                                  paste0('DMCs for ', 
+                                         names(color_code_tissue[unique(.$Celltype)])))) +
+    labs(x = '% methylation', y = 'density', color = '') +
+      theme(legend.position = 'top', legend.direction = 'vertical', text = element_text(size = text_size))
+  }
+```
+
+
+## PMDs
+
+Next I look at the methylation at all cpgs that overlap PMD regions. Because we expect PMDs to be around 50% methylation, I calculated the proportion of cpgs with methylation between 25% and 75% for each cell type.
+
+* Villi has the highest percentage of cpgs with intermediate methylation (44-50% across trimesters) at pmds than all componenet cell types.
+* Percentage of cpgs showing intermediate methylation decreases with gestation (50% in first, 47% in second, and 44% in third), and so does trophoblast (47% in first, 39% in Third)
+
+* Trophoblast have the highest percentage of cpgs with  intermediate methylation (39% for third, 47% for 1st) after villi , compared to other cells.
+* Hofbauer cells show very low intermediate methylation in both first (21%) and third (25%) trimester.
+
+
+```{r, fig.height = 10, fig.width = 10}
+
+dx_pmd <- densities$x_pmd[2L] - densities$x_pmd[1L]
+AUC_pmd <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_pmd)*dx_pmd, # normalizing constant
+            AUC = sum(ifelse(x_pmd > 0.25 & x_pmd < 0.75,
+                             y_pmd, 0)*dx_pmd/C),
+            AUC_label = percent(AUC, digits = 0))
+
+ggplot(densities, aes(x = x_pmd, y = y_pmd, color = Celltype)) +
+  geom_line(size = 2) + theme_bw() +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  geom_area(data = densities %>% filter(x_pmd > 0.25, x_pmd < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_pmd, x = 0.5, y = 1.75, aes(label = AUC_label), size = geom_text_size, show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  labs(x = '% methylation', y = 'density', color = '')+
+  theme(legend.position = 'top', legend.direction = 'vertical', text = element_text(size = text_size))
+```
+
+## Imprinting
+
+I apply the same analysis to imprinting regions
+
+### Imprinted genes non-tissue specific
+
+* Villi show the highest percentage of cpgs with intermediate methylation (55-59%) 
+* This percentage decreases with gestation in Villi, trophoblast, and stromal cells
+* We see in general lots of cpgs with hypomethylation and hypermethylation, this is likely because we are taking all cpgs in imprinted genes, rather than directly looking at the imprinted regions themselves.
+
+
+```{r, fig.height = 10, fig.width = 10}
+## just imprints
+### calculate the bin size to calculate the area under the curve at  0.25 < x < 0.75 
+dx_gene_gen <- densities$x_imprint_gene_general[2L] - densities$x_imprint_gene_general[1L]
+dx_dmr_gen <- densities$x_imprint_dmr_gen[2L] - densities$x_imprint_dmr_gen[1L]
+dx_dmr_pl <- densities$x_imprint_dmr_pl[2L] - densities$x_imprint_dmr_pl[1L]
+  
+AUC_imprint_gene_gen <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_imprint_gene_general)*dx_gene_gen, # normalizing constant
+            AUC = sum(ifelse(x_imprint_gene_general > 0.25 & x_imprint_gene_general < 0.75,
+                             y_imprint_gene_general, 0)*dx_gene_gen/C),
+            AUC_label = percent(AUC, digits = 0))
+AUC_imprint_dmr_gen <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_imprint_dmr_gen)*dx_dmr_gen, # normalizing constant
+            AUC = sum(ifelse(x_imprint_dmr_gen > 0.25 & x_imprint_dmr_gen < 0.75,
+                             y_imprint_dmr_gen, 0)*dx_dmr_gen/C),
+            AUC_label = percent(AUC, digits = 0))
+
+AUC_imprint_dmr_pl <- densities %>%  
+  group_by(Trimester, Celltype) %>%
+  summarize(C = sum(y_imprint_dmr_pl)*dx_dmr_pl, # normalizing constant
+            AUC = sum(ifelse(x_imprint_dmr_pl > 0.25 & x_imprint_dmr_pl < 0.75,
+                             y_imprint_dmr_pl, 0)*dx_dmr_pl/C),
+            AUC_label = percent(AUC, digits = 0))
+
+# plot results
+ggplot(densities, aes(x = x_imprint_gene_general, y = y_imprint_gene_general, color = Celltype)) +
+  geom_line(size = 2) + 
+  theme_bw() +
+  geom_area(data = densities %>% filter(x_imprint_gene_general > 0.25, x_imprint_gene_general < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_imprint_gene_gen, x = 0.5, y = 1.75, aes(label = AUC_label), size = geom_text_size, show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '')+
+  theme(legend.position = 'top', legend.direction = 'vertical', text = element_text(size = text_size))
+```
+
+To address that third point, we next look at imprinted DMRs regions, which should contain the actual imprinted cpgs.
+
+### Non-tissue specific imprinted DMRs
+
+* Compared to imprinted genes, we see a relative decrease in intermediate methylation comparing villi and non-trophoblast cell types (more in endo, hofb, stromal than in villi or troph)
+* Compared to imprinted genes, there is a much higher percentage of cpgs with intermediate methylation for all tissues/cells (78-85%)
+* The percentage of cpgs with intermediate methylation decreases with gestation for villi (85%, 84%, 83%), and all other cell types.
+
+```{r, fig.height = 10, fig.width = 10}
+ggplot(densities, aes(x = x_imprint_dmr_gen, y = y_imprint_dmr_gen, color = Celltype)) +
+  geom_line(size = 2) + 
+  theme_bw() +
+  geom_area(data = densities %>% filter(x_imprint_dmr_gen > 0.25, x_imprint_dmr_gen < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_imprint_dmr_gen, x = 0.5, y = 1.75, aes(label = AUC_label), size = geom_text_size, show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '')+
+  theme(legend.position = 'top', legend.direction = 'vertical', text = element_text(size = text_size))
+```
+
+### Placental-specific imprinted DMRs
+
+* There is a much smaller percentage of cpgs with intermediate methylation for hofbauer (13%, 15%) compared to other cell types (46-76%)
+* Villi have the highest percentage of cpgs with intermediate methylation (76-73%), followed by trophoblast (63-68%).
+* Stromal and endothelial cells also show high (but not as high) percentage of cpgs with intermediate methylation (46-60%).
+
+
+```{r, fig.height = 10, fig.width = 10}
+ggplot(densities, aes(x = x_imprint_dmr_pl, y = y_imprint_dmr_pl, color = Celltype)) +
+  geom_line(size = 2) + 
+  theme_bw() +
+  geom_area(data = densities %>% filter(x_imprint_dmr_pl > 0.25, x_imprint_dmr_pl < 0.75), 
+            aes(fill = Celltype), color = NA, alpha = 0.25, show.legend = F) +
+  geom_label(data = AUC_imprint_dmr_pl, x = 0.5, y = 3, aes(label = AUC_label), size = geom_text_size, show.legend = F) +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, 25, 50, 75, 100)) +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  scale_fill_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '')+
+  theme(legend.position = 'top', legend.direction = 'vertical', text = element_text(size = text_size))
+```
