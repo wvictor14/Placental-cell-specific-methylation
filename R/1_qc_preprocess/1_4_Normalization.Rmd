@@ -254,6 +254,10 @@ p1b <- ggplot(prop_var, aes(x = PC, y = Prop_var_norm_filt)) +
 # 4.0 Save data
 
 ```{r eval = F}
+# betas noob, keeping XY probes, dropping poor quality probes
+betas_noob_filt_save <- betas_noob[probe_anno %>% filter(!remove_failed, !remove_CH_SNP) %>% pull(probe_ID),]
+
+saveRDS(betas_noob_filt_save, '../../data/main/interim/1_4_betas_noob_filt_XYkeep.rds')
 saveRDS(betas_noob_filt, '../../data/main/interim/1_4_betas_noob_filt.rds')
 ```
 
