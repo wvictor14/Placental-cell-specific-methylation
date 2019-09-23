@@ -1,0 +1,125 @@
+---
+title: "3_1_example_plots"
+author: "Victor Yuan"
+date: "12/08/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Some ideas for plots for the shiny app project Yifan is working on
+
+# Setup
+
+```{r message = F, warning = F}
+library(tidyverse)
+library(kableExtra)
+library(minfi)
+library(janitor)
+
+# read in betas
+betas <- getBeta(readRDS('../../data/main/interim/1_4_mset_noob.rds'))
+
+# read in cpgs to filter
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# filter probes, (retain xy probes)
+betas_filt <- betas[probe_anno %>% filter(!remove_failed, !remove_CH_SNP) %>% pull(probe_ID),]
+dim(betas_filt);dim(betas)
+
+# read in cpg annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+anno <- anno %>%
+  filter(cpg %in% rownames(betas_filt)) # filter to filtered betas cpgs
+
+# read in pData
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+colnames(betas_filt) <- colnames(betas) <- pDat$Sample_Name
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# read in dmc results
+dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+betas_mean_sd <- readRDS('../../data/main/interim/3_1_betas_cell_mean_sd.rds')
+```
+
+# Prep data
+
+prepare betas
+prepare sample variables
+prepare annotation
+
+
+```{r}
+# transpose betas
+dim(betas_filt)
+betas_filt <- t(betas_filt) %>% as.data.frame()
+
+# select sample variables 
+pDat <- pDat %>% 
+  filter(!Tissue %in% c('Dead Cells and Lymphocytes cs', 'Mixture cs', 'Villi maternal')) %>%
+  select(Sample_Name, Case_ID, Sex, Trimester, Tissue)
+betas_filt <- betas_filt[pDat$Sample_Name,]
+
+
+# select cpg variables
+anno <- anno %>%
+  dplyr::rename(position = start) %>%
+  dplyr::select(cpg, chr, position, cpg_id, enhancers_id, genes_id, genes_symbol, genes_tx_id, pmd_id,
+         imprinted_dmr_general, imprinted_dmr_placenta) %>% 
+  
+  # dummy variablize genes_id
+  mutate(`1to5kb` = ifelse(grepl('1to5kb', genes_id), 1, 0),
+         `3UTR` = ifelse(grepl('3UTR', genes_id), 1, 0),
+         `5UTR` = ifelse(grepl('5UTR', genes_id), 1, 0),
+         exon = ifelse(grepl("exon", genes_id), 1, 0),
+         intergenic = ifelse(grepl('intergenic', genes_id), 1, 0),
+         intron = ifelse(grepl('intron', genes_id), 1, 0),
+         intronexonboundary = ifelse(grepl('intronexonboundary', genes_id), 1, 0),
+         promoter = ifelse(grepl("promoter", genes_id), 1, 0))
+```
+
+```{r, eval = F}
+# calculate the mean methylation and standard deviation for each cpg
+betas_mean_sd <- betas_filt %>%
+  as_tibble() %>%
+  bind_cols(pDat %>% select(Tissue, Trimester)) %>%
+  group_by(Tissue, Trimester) %>%
+  nest() %>%
+  mutate(means = map(data, ~colMeans(as.matrix(.)) %>% enframe()),
+         sd = map(data, ~colSds(as.matrix(.)) %>% enframe()))  %>%
+  unnest(means, sd) %>%
+  select(-name1) %>%
+  dplyr::rename(cpg = name, mean = value, sd = value1)
+```
+
+# Example display
+
+show table with annotation of cpgs
+
+```{r}
+# example of display
+query_gene <- 'XIST'
+
+anno %>%
+  filter(grepl(query_gene, genes_symbol)) %>%
+  select(cpg:imprinted_dmr_general) %>%
+  kable() %>% 
+  kable_styling()
+```
+
+# Save data
+
+```{r eval = F}
+saveRDS(anno, '../../data/main/interim/3_1_annotation.rds')
+saveRDS(betas_mean_sd, '../../data/main/interim/3_1_betas_cell_mean_sd.rds')
+```
