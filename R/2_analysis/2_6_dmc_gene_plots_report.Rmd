@@ -1,0 +1,907 @@
+---
+title: "Visualizing DMCs and gene methylation"
+author: "Victor Yuan"
+date: "30/08/2019"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
+---
+**Update 2019-09-06** *Fixed transcript annotations for "plotting specific genes" section. CpGs that were mapped to multiple gene elements (e.g. 1 cpg could be in 5'UTR, exon/inton, and introexonboundary), now display only one gene element in this order of priority: 5'UTR/3'UTR, exon/intron, intronexonboundary.*
+
+<style>
+  .main-container {
+    max-width: 2700px !important;
+  }
+</style>
+
+
+In this report, I provide 
+
+- some plots of the top 100  DMCs
+- A look at the methylation of certain genes 
+- an updated enrichment analysis, this time separated by hypo/hyper methylated DMCs
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=F, warning = F) #hide code
+```
+
+```{r }
+# libraries and data
+library(tidyverse)
+library(readxl)
+library(annotatr)
+library(fuzzyjoin)
+library(formattable)
+library(kableExtra)
+library(ggridges)
+library(egg)
+
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# methylation data
+
+betas_XY <- readRDS('../../data/main/interim/1_4_betas_noob_filt_XYkeep.rds')
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
+mvals <- getM(mset_noob)
+
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# color key
+pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+# DMCs
+dmcs_raw <- readRDS('../../data/main/interim/2_4_dmcs.rds') # just significant tests
+dmcs <- readRDS('../../data/main/interim/2_6_dmcs_gene_label.rds') # all tests
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+# remove contamined and non-interesting samples
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+# filter to first trimester
+mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
+betas_filt <- betas[,pDat_filt$Sample_Name]
+betas_XY_filt <- betas_XY[,pDat_filt$Sentrix]
+colnames(betas_XY_filt) <- pDat_filt$Sample_Name
+
+# ENRICHMENT
+enrich_tests <- readRDS('../../data/main/interim/2_5_enrich_tests.rds')
+densities <- readRDS('../../data/main/interim/2_5_densities.rds')
+```
+
+# Top DMCs
+
+Here I plot some of the top DMCs per cell type, ranked by p value. These are all significant at a
+bonferroni adjusted p value of  < 0.01, and a delta beta of > 0.25. Methylation for Villi samples is shown in these plots but keep in mind  that for testing of DMCs, villi samples were not included.
+
+The ordering of the cpgs reflect their p value. Bottom most cpg to top = Lowest (most significant) to highest p value.
+
+
+```{r}
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+top_dmcs <- dmcs %>% 
+  group_by(Group1) %>%
+  arrange(bonferroni) %>%
+  filter(!is.na(genes_symbol)) %>%
+  dplyr::slice(1:100) %>% # top 100
+  select(Group1, gene, gene_label, bonferroni)
+
+# reshape
+plot_data <- betas_filt[intersect(rownames(betas), top_dmcs$gene),] %>% 
+  
+  # tidy up betas
+  as.data.frame() %>%
+  mutate(cpg = rownames(.)) %>%
+  as_tibble() %>%
+  
+  # join dmc info
+  full_join(top_dmcs, by = c('cpg' = 'gene')) %>%
+  
+  # order cpg levelsby significance
+  group_by(Group1) %>%
+  arrange(bonferroni) %>%
+  ungroup() %>%
+  mutate(cpg = factor(as.character(cpg), levels = unique(as.character(cpg)))) %>%
+  
+  gather(Sample_Name, beta, -(cpg:gene_label)) %>%
+  
+  # join sample info
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester), by = 'Sample_Name') %>%
+  
+  mutate(Sample_Group = paste0(Trimester, ' - ', Tissue)) %>%
+  separate(Group1, into = c('DMC_Trimester', 'DMC_Celltype'), sep = '\\.') %>%
+  mutate(DMC_Celltype =  case_when(DMC_Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+                                    DMC_Celltype == 'Strom_cs' ~ 'Stromal cs', 
+                                    DMC_Celltype == 'Endo_cs' ~ 'Endothelial cs',
+                                    DMC_Celltype == 'Troph_cs' ~ 'Trophoblasts cs'),
+         cpg_label = paste0(cpg, ' - ', gene_label)) %>%
+  
+  # order cpg label levels by significane
+  group_by(DMC_Trimester, DMC_Celltype) %>%
+  arrange(cpg) %>%
+  ungroup() %>%
+  mutate(cpg_label = factor(cpg_label, unique(cpg_label)))
+  
+  
+
+# plot
+plot_cpgs_ridges <- function(data, n, Trimester, font_size = 12){
+  # n is a integer vector that indexes the cpgs to plot by rank 
+  # Trimester is either Third or First
+  
+  data %>%
+    # transform beta to percentage
+    mutate(beta = beta*100) %>%
+    
+    # filter samples and dmc group by trimester
+    filter(DMC_Trimester == Trimester, Trimester == Trimester) %>%
+    
+    # take the n ranked sites
+    group_by(DMC_Trimester, DMC_Celltype, Sample_Name) %>%
+    dplyr::slice(n) %>%
+    
+    
+    # plot
+    ggplot(aes(x = beta, y = cpg_label, fill = Tissue)) +
+    geom_density_ridges(alpha = 0.7) +
+    facet_wrap(~DMC_Celltype, scales = 'free_y', ncol = 1) +
+    scale_fill_manual(values= color_code_tissue[unique(pDat_filt$Tissue)]) +
+    theme_bw(base_size = font_size)  +
+    theme(legend.justification = 'top') +
+    labs(y = '', x = 'DNA Methylation (%)', 
+         title = paste0(Trimester, ' trimester, DMCs ranked ', min(n), '-', max(n)))
+}
+```
+
+## Third Trimester {.tabset}
+
+### Trophoblast
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Trophoblasts cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'Third', font_size = 20)
+```
+
+### Endothelial
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Endothelial cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'Third', font_size = 20)
+```
+
+### Hofbauer
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Hofbauer cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'Third', font_size = 20)
+```
+
+### Stromal
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Stromal cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'Third', font_size = 20)
+```
+
+
+## First Trimester {.tabset}
+
+### Trophoblast
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Trophoblasts cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'First', font_size = 20)
+```
+
+### Endothelial
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Endothelial cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'First', font_size = 20)
+```
+
+### Hofbauer
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Hofbauer cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'First', font_size = 20)
+```
+
+### Stromal
+
+```{r fig.height = 60, fig.width = 16, eval = T}
+plot_data %>%
+  filter(DMC_Celltype == 'Stromal cs') %>%
+  plot_cpgs_ridges(n = 1:100, Trimester = 'First', font_size = 20)
+```
+
+
+# Specific genes
+
+Next I examine the methylation at a couple of genes. I am hoping to use this type of plot for the shiny app. It is tricky to get the plot sizes consistent since each gene can have multiple associated transcripts that are plotted by row. 
+
+```{r}
+# filter out second trimester villi samples
+pDat_filt_1_3 <- pDat_filt %>%
+  filter(Trimester != 'Second')
+betas_filt_1_3 <- betas_filt[,pDat_filt_1_3$Sample_Name]
+betas_XY_filt_1_3 <- betas_XY_filt[,pDat_filt_1_3$Sample_Name]
+
+plot_cpgs_in_gene <- function(gene, betas, pDat, annotation, dmcs, 
+                              font_size = 12, point_size = 2,
+                              trimester = 'Both') {
+  # gene is the gene symbol to match plot
+  # betas is the methylation data
+  # pDat is the sample information which includes important group info to plot by
+  # annotation is links cpgs to genes and other cpg annotation to plot
+  
+  # filter to gene in annotation
+  anno_gene <- annotation %>%
+    filter(grepl(paste0('\\<', gene, '\\>'), genes_symbol),
+           cpg %in% rownames(betas)) %>%
+    arrange(start)
+  
+  if (nrow(anno_gene) == 0) {
+    stop('No cpgs found, maybe they were filtered out.')
+  }
+  
+  # filter to cpgs in betas data
+  betas_gene <- t(betas[anno_gene$cpg,]*100) %>% as_tibble %>% 
+    mutate(Sample_Name = colnames(betas)) %>%
+    
+    # melt/gather
+    gather(key = 'cpg', value = 'beta', -Sample_Name)  %>%
+    
+    # add tissue info
+    left_join(pDat %>% select(Sample_Name, Trimester, Tissue)) %>%
+    
+    # calculate mean and sd for each cpg for each group
+    group_by(Tissue, Trimester, cpg) %>%
+    summarize(mean = mean(beta),
+              sd = sd(beta)) %>%
+    mutate(lower = mean-sd, upper = mean+sd) %>%
+    
+    # add cpg info
+    left_join(anno_gene) %>%
+    
+    # order on cpg position
+    ungroup() %>%
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           Trimester_Tissue = paste0(Trimester, ' - ', Tissue))
+  
+  if (trimester == 'Both') {
+    p1 <- betas_gene %>%
+      ggplot() +
+      geom_ribbon(aes(x = as.numeric(cpg), ymin = 0, ymax = 25),
+                  fill = 'grey', alpha = 0.25)+
+      geom_ribbon(aes(x = as.numeric(cpg), ymin = 50, ymax = 75),
+                  fill = 'grey', alpha = 0.25)+
+      geom_linerange(alpha = 0.5, size = point_size, 
+                     aes(x = cpg, ymin =lower, ymax = upper, color = Tissue)) +
+      geom_point(alpha = 0.75, aes(x = cpg, y = mean, color = Tissue), size = point_size*2) +
+      
+      theme_bw(base_size = font_size) +
+      facet_grid(rows = vars(Trimester)) +
+      theme(axis.text.x = element_blank(), 
+            axis.ticks.x = element_blank(),
+            panel.grid.minor.y = element_blank(),
+            panel.grid.major.y = element_blank(),
+            plot.margin=margin(l=-0.1,unit="cm"),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      scale_y_continuous(limits = c(0, 100), expand = c(0, 0)) +
+      scale_x_discrete(expand = c(0.01,0.01))+
+      scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)]) +
+      labs(y = '% methylation', x = '', color = '', title = gene) 
+    
+  } else if (trimester %in% c('Third', 'First')) {
+    
+    p1 <- betas_gene %>%
+      filter(Trimester == trimester) %>%
+      ggplot() +
+      geom_ribbon(aes(x = as.numeric(cpg), ymin = 0, ymax = 25),
+                  fill = 'grey', alpha = 0.25)+
+      geom_ribbon(aes(x = as.numeric(cpg), ymin = 50, ymax = 75),
+                  fill = 'grey', alpha = 0.25)+
+      geom_linerange(alpha = 0.5, size = point_size, 
+                     aes(x = cpg, ymin =lower, ymax = upper, color = Tissue)) +
+      geom_point(alpha = 0.75, aes(x = cpg, y = mean, color = Tissue), size = point_size*2) +
+      
+      theme_bw(base_size = font_size) +
+      facet_grid(rows = vars(Tissue), cols = vars(Trimester)) +
+      theme(axis.text.x = element_blank(), 
+            axis.ticks.x = element_blank(),
+            panel.grid.minor.y = element_blank(),
+            panel.grid.major.y = element_blank(),
+            plot.margin=margin(l=-0.1,unit="cm"),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      scale_y_continuous(limits = c(0, 100), expand = c(0, 0)) +
+      scale_x_discrete(expand = c(0.01,0.01))+
+      scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)]) +
+      labs(y = '% methylation', x = '', color = '', title = gene) 
+    
+  }  else {
+    stop('Trimester must be "Both", "Third", or "First".')
+  }
+  
+  # plot cpg annotations
+  p2 <- betas_gene %>% 
+    mutate(# absent/presence for different genomic elements
+           enhancer = !is.na(enhancers_id),
+           pmd = !is.na(pmd_id),
+           imprinted_gene_placenta = !is.na(imprinted_gene_placenta),
+           imprinted_gene_general = !is.na(imprinted_gene_general),
+           imprinted_dmr_general = !is.na(imprinted_dmr_general),
+           imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta)) %>%
+    select(cpg, enhancer, pmd, imprinted_gene_general:imprinted_dmr_placenta, cpg_id, start) %>%
+    
+    # reshape
+    gather(cpg_element, presence, -cpg, -start) %>%
+    distinct() %>%
+    
+    # arrange plot order
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           cpg_element = factor(cpg_element, 
+                                levels = c('enhancer', 'pmd', 'imprinted_gene_placenta',
+                                           'imprinted_gene_general', 'imprinted_dmr_general',
+                                           'imprinted_dmr_placenta', 'cpg_id')),
+           presence = factor(ifelse(presence == "TRUE", 'Present',
+                                    ifelse(presence == "FALSE", 'Absent', presence)),
+                             levels = c('Present', 'Absent', ' ', '  ', 
+                                        'sea', 'shelf', 'shore', 'island')),
+           # for facet label
+           group = 'Annotations') %>%
+    ggplot(aes(x = cpg, y = cpg_element, fill = presence)) +
+    scale_fill_manual(values = c('Present' = '#cccccc', 'Absent' = '#f7f7f7', 
+                                 ' ' = 'white', '  ' = 'white',
+                                 'sea' = '#ffffcc', 'shelf' = '#a1dab4', 'shore' = '#41b6c4',
+                                 'island' = '#225ea8'), drop = T) +
+    geom_tile(color = '#969696') +
+    guides(fill=guide_legend(ncol=3, override.aes=list(colour=NA))) +
+    facet_grid(group~.) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          legend.key = element_rect(colour = NA), 
+          plot.margin = margin(l=-0.1,unit="cm")) +
+    scale_y_discrete(expand = c(0,0)) +
+    scale_x_discrete(expand = c(0,0)) +
+    labs(x = '', y = '', fill = '')
+  
+  # transcript annotations
+  
+  # cpgs can have more than one mapping to a gene element per transcript
+  # cpgs mapped to intronexonboundaries can also be part of exons and introns
+  # 5 UTR and 3 UTR can also overlap with exons and introns
+  
+  # If there are multiple mappings then only the following will be displayed in order of priority:
+  # 5UTR / 3UTR, exon / intron, intronexonboundary
+  
+  p3 <- betas_gene %>% 
+    select(cpg, end, genes_id, genes_tx_id) %>%
+    distinct() %>%
+    
+    # split comma separate list and put each entry into a new row
+    mutate(genes_tx_id = str_split(genes_tx_id, ', '),
+           genes_id = str_split(genes_id, ', ')) %>%
+    unnest(genes_tx_id, genes_id) %>%
+    
+    # order transcripts by position of start
+    arrange(end) %>%
+    mutate(genes_tx_id = factor(genes_tx_id, levels = unique(genes_tx_id))) %>%
+    
+    # fill all combinations of cpg and gene_tx_id with NA if missing, so that they show in plot
+    complete(cpg, genes_tx_id) %>%
+    
+    # filter out to unique mappings using the priority described above
+    # strategy is to order by factor level and take the first occurence
+    mutate(genes_id = factor(genes_id, levels = c('1to5kb', 'promoter', '5UTR', '3UTR', 'exon', 
+                                                  'intron', 'intronexonboundary', 'intergenic'))) %>%
+    
+    group_by(cpg, genes_tx_id) %>%
+    arrange(genes_id)  %>%
+    dplyr::slice(1) %>%
+    
+    # reorder factor levels for appearance in plot legend
+    mutate(genes_id = factor(genes_id, levels = c('1to5kb', 'promoter', '5UTR', 'exon', 'intron',
+                                                  'intronexonboundary', '3UTR', 'intergenic')),
+           group = 'Transcripts') %>%
+    
+    
+    ggplot(aes(x = cpg, y = genes_tx_id, fill = genes_id)) +
+    geom_tile(color = '#969696', alpha = 0.6) +
+    facet_grid(group~.) +
+    guides(fill=guide_legend(ncol=2, override.aes=list(alpha=0.7, color = NA))) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), 
+          plot.margin = margin(l=-0.1,unit="cm"),
+          panel.grid = element_blank()) +
+    scale_fill_brewer(na.value = '#f7f7f7', breaks = c('1to5kb', 'promoter', '5UTR', 'exon', 
+                                                        'intron', 'intronexonboundary', '3UTR',
+                                                        'intergenic'),
+                      palette = 'Paired', direction = -1) +
+    scale_y_discrete(expand = c(0,0)) +
+    scale_x_discrete(expand = c(0,0)) +
+    labs(x = '', y = '', fill = '')
+  
+  # number of unique transcripts
+  n_trans <- betas_gene$genes_tx_id %>% str_split(', ') %>% unlist() %>% unique %>% length()
+  
+  
+  # size of p1
+  p1_h <- ifelse(trimester == 'both', 35, 35*5/2)
+    
+  # DMC annotation, only if not XY chromosomes
+  if (!any(grepl('[XY]', betas_gene$chr))) {
+    p4 <- dmcs %>%
+      select(gene, Group1, bonferroni, delta_b) %>%
+    
+      # filter to gene cpgs
+      dplyr::rename(cpg = gene) %>%
+      semi_join(betas_gene) %>%
+      
+      # make DMC variable
+      mutate(DMC_status = ifelse(bonferroni < p_thresh & abs(delta_b) > b_thresh, 
+                                 'DMC', 'not DMC')) %>%
+      select(-bonferroni, -delta_b)  %>%
+    
+      # arrange by position
+      left_join(betas_gene %>% select(cpg, start)) %>%
+      distinct() %>%
+      arrange(desc(start)) %>%
+      mutate(cpg = factor(cpg, levels = unique(cpg))) %>%
+      
+      # facet variable
+      mutate(group = 'DMC status') %>%
+      
+      # separate group1
+      separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+      mutate(Celltype = case_when(Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+                                  Celltype == 'Strom_cs' ~ 'Stromal cs', 
+                                  Celltype == 'Endo_cs' ~ 'Endothelial cs',
+                                  Celltype == 'Troph_cs' ~ 'Trophoblasts cs')) %>%
+      unite('DMC_group', Trimester, Celltype, sep = ' - ') %>%
+      ggplot(aes(x = cpg, y = DMC_group, fill = DMC_status)) +
+      geom_tile(color = '#969696') +
+      facet_grid(group~.) +
+      guides(fill=guide_legend(ncol=1, override.aes=list(colour=NA))) +
+      theme_bw(base_size = font_size) +
+      theme(axis.text.x = element_blank(), 
+            axis.ticks.x = element_blank(),
+            plot.margin = margin(l=-0.1,unit="cm")) +
+      scale_y_discrete(expand = c(0,0)) +
+      scale_x_discrete(expand = c(0,0)) +
+      scale_fill_manual(values = c('DMC' = '#cccccc', 'not DMC' = '#f7f7f7')) +
+      labs(x = '', y = '', fill = '')
+    
+    
+    # resize based on number of transcripts
+    ggarrange(p1, p4, p2, p3, ncol = 1, heights = c(p1_h-(n_trans-7), 8, 7, n_trans))
+  } else {
+    ggarrange(p1, p2, p3, ncol = 1, heights = c(p1_h-(n_trans-7), 7, n_trans))
+  }
+}
+
+fh <- 20
+fw <- 22
+fs <- 18
+
+eval_genes <- T
+```
+
+## DNMT1 
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+
+plot_cpgs_in_gene('DNMT1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs, trimester = 'Both')
+```
+
+## DNMT3A {.tabset}
+
+### Third
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('DNMT3A', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs-2, point_size = 1.5, trimester = 'Third')
+```
+
+### First
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('DNMT3A', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs-2, point_size = 1.5, trimester = 'First')
+```
+
+### Both
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('DNMT3A', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs-2, point_size = 1.5, trimester = 'Both')
+```
+
+## DNMT3B
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('DNMT3B', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## DNMT3L
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('DNMT3L', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## IL6
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('IL6', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## FLT1 {.tabset}
+
+### Third
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('FLT1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs, point_size = 1.5, trimester = 'Third')
+```
+
+### First
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('FLT1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs, point_size = 1.5, trimester = 'First')
+```
+
+### Both
+
+```{r fig.height = fh + 2, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('FLT1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs, point_size = 1.5, trimester = 'Both')
+```
+
+## TET1
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('TET1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## TET2
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('TET2', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## TET3
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('TET3', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## XIST {.tabset}
+
+### Males
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+pDat_filt_m <- pDat_filt %>% filter(Sex == 'M', Trimester != 'Second')
+betas_XY_filt_1_3_m <- betas_XY_filt_1_3[,pDat_filt_m$Sample_Name]
+
+pDat_filt_f <- pDat_filt %>% filter(Sex == 'F', Trimester != 'Second')
+betas_XY_filt_1_3_f <- betas_XY_filt_1_3[,pDat_filt_f$Sample_Name]
+
+plot_cpgs_in_gene('XIST', betas = betas_XY_filt_1_3_m, pDat = pDat_filt_m, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+### Females
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('XIST', betas = betas_XY_filt_1_3_f, pDat = pDat_filt_f, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## ZNF300  {.tabset}
+
+### Males
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('ZNF300', betas = betas_XY_filt_1_3_m, pDat = pDat_filt_m, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+### Females
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('ZNF300', betas = betas_XY_filt_1_3_f, pDat = pDat_filt_f, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## INHBA {.tabset}
+
+### Third
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('INHBA', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs, point_size = 1.5, trimester = 'Third')
+```
+
+### First
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('INHBA', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs, point_size = 1.5, trimester = 'First')
+```
+
+### Both
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('INHBA', betas = betas_XY_filt_1_3, pDat = pDat_filt, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## BHLHE40
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('BHLHE40', betas = betas_XY_filt_1_3, pDat = pDat_filt, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## SLC2A1
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('SLC2A1', betas = betas_XY_filt_1_3, pDat = pDat_filt, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## ADAM12  {.tabset}
+
+### Third
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('ADAM12', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs-4, point_size = 1, trimester = 'Third')
+```
+
+### First
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('ADAM12', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs_raw,
+                  font_size = fs-4, point_size = 1, trimester = 'First')
+```
+
+### Both
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('ADAM12', betas = betas_XY_filt_1_3, pDat = pDat_filt, 
+                  annotation = anno, dmcs_raw,point_size = 1,
+                  font_size = fs-4)
+```
+
+## CCR5
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('CCR5', betas = betas_XY_filt_1_3, pDat = pDat_filt, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+## CGB5
+
+Unfortunately all cpgs (n=6) for this gene were filtered out
+
+## AR {.tabset}
+
+### Males
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('AR', betas = betas_XY_filt_1_3_m, pDat = pDat_filt_m, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+### Females
+
+```{r fig.height = fh, fig.width = fw, dpi = 100, eval = eval_genes}
+plot_cpgs_in_gene('AR', betas = betas_XY_filt_1_3_f, pDat = pDat_filt_f, 
+                  annotation = anno, dmcs_raw,
+                  font_size = fs)
+```
+
+# Enrichment
+
+- Tested for enrichment using Fisher's exact test using an FDR threshold of < 0.01
+- Separated DMCs by hypo and hyper- 
+
+In this section I only comment on a couple of specific observations as many of the tests were significant. 
+
+
+```{r}
+# plot function
+plot_enrich <- function(x, odds_min = NA, odds_max = NA) {
+  ggplot(data = x) +
+    geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+    geom_pointrange(aes(x = genomic_feature, 
+                        ymin = confidence_interval_min, 
+                        ymax = confidence_interval_max,
+                        shape = FDR01, y = odds_ratio, color = Celltype),
+                    position = position_dodge(width =0.5 )) +
+    geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+    facet_grid(Celltype~Direction) +
+    scale_color_manual(values= color_code_tissue[unique(x$Celltype)]) +
+    scale_y_log10(limits = c(odds_min, odds_max)) +
+    scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                       labels = c('Not significant', 'FDR < 0.01')) +
+    coord_flip() +
+    theme_bw(base_size = 16) +
+    theme(panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          axis.text.y = element_text(size = 8))
+}
+
+fig_h <- 14
+```
+
+## Chromosome {.tabset}
+
+* Significant depletion for hyper DMCs on chromosome 19 for all cell types
+* Trophoblast hypo DMCs are enriched on chromsome 22, 21, 20, 14, where other celltype hypo DMCs are depleted
+
+### Third - separated
+
+```{r, fig.height = fig_h}
+#chromosome
+enrich_tests %>% 
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY'),
+         Trimester == 'Third') %>%
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22))) %>%
+  plot_enrich(odds_min = 0.3, odds_max = 2) +
+  scale_x_discrete(labels = 1:22) +
+  labs(title = '', shape = '', y = 'Odds ratio', x = 'Chromosome') 
+```
+
+### First - separated
+
+```{r, fig.height = fig_h}
+enrich_tests %>% 
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY'),
+         Trimester == 'First') %>%
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22))) %>%
+  plot_enrich(odds_min = 0.3, odds_max = 2) +
+  scale_x_discrete(labels = 1:22) +
+  labs(title = 'First trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') 
+```
+
+## Gene elements & CpG Islands {.tabset}
+
+* Many DMCs are enriched for enhancer regions
+* Most DMCs show depletion for gene body related elements (exons, intron/exonboundary, 5'UTR, promoter)
+* Most DMCs show enrichment for intergenic, opean sea, and enhancer regions.
+
+### Third
+
+```{r, fig.height= fig_h-7}
+#gene/enhancer/cpg island
+enrich_tests %>% 
+  filter(genomic_feature_category == 'gene' | 
+           genomic_feature == 'enhancer' |
+           genomic_feature_category == 'cpg_island',
+         Trimester == 'Third') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon',
+                                             'intron', 
+                                             'intronexonboundary','3UTR','intergenic',
+                                             
+                                             'island', 'shore', 'shelf', 'sea'))) %>% 
+  plot_enrich(odds_min = 0.1, odds_max = 10) +
+   facet_grid(~Direction) +
+  labs(title = '', shape = '', y = 'Odds ratio', x = '') 
+```
+
+### First
+
+```{r, fig.height= fig_h-7}
+enrich_tests %>% 
+  filter(genomic_feature_category == 'gene' | 
+           genomic_feature == 'enhancer' |
+           genomic_feature_category == 'cpg_island',
+         Trimester == 'First') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon',
+                                             'intron', 
+                                             'intronexonboundary','3UTR','intergenic',
+                                             
+                                             'island', 'shore', 'shelf', 'sea'))) %>% 
+  plot_enrich(odds_min = 0.1, odds_max = 10) +
+   facet_grid(~Direction) +
+  labs(title = '', shape = '', y = 'Odds ratio', x = '') 
+```
+
+## PMDs, Imprinting {.tabset}
+
+* Trophoblast Hypo DMCs are enriched for PMD regions, other cell type hypo DMCs are depleted
+* Trophoblast hyper DMCs are enriched for placental specific imprinted DMRs.
+* Trophoblast hypo DMCs are depleted for placental-specific and general imprinted DMRs
+* This is true for both third and first trimester tests
+
+**General DMRs refer to non-tissue specific imprinting regions**
+
+### Third
+
+
+```{r, fig.height= fig_h-7}
+enrich_tests %>% 
+  filter(genomic_feature_category == 'pmd' | 
+           genomic_feature_category == 'imprinting',
+         Trimester == 'Third') %>%
+  plot_enrich(odds_min = 0.01, odds_max = 10) +
+  labs(title = '', shape = '', y = 'Odds ratio', x = '') 
+```
+
+### First
+
+```{r, fig.height= fig_h-7}
+enrich_tests %>% 
+  filter(genomic_feature_category == 'pmd' | 
+           genomic_feature_category == 'imprinting',
+         Trimester == 'First') %>%
+#  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  plot_enrich(odds_min = 0.01, odds_max = 10) +
+  labs(title = '', shape = '', y = 'Odds ratio', x = '') 
+```
+
+
+
