@@ -1,0 +1,417 @@
+---
+title: "2_6_dmc_gene_plots"
+author: "Victor Yuan"
+date: "28/08/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r}
+# libraries and data
+library(tidyverse)
+library(readxl)
+library(annotatr)
+library(fuzzyjoin)
+library(formattable)
+library(kableExtra)
+library(ggridges)
+library(egg)
+
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# methylation data
+
+betas_XY <- readRDS('../../data/main/interim/1_4_betas_noob_filt_XYkeep.rds')
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
+mvals <- getM(mset_noob)
+
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# color key
+pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+# DMCs
+dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+## Remove samples
+
+remove contamined and non-interesting samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+# filter to first trimester
+mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
+betas_filt <- betas[,pDat_filt$Sample_Name]
+betas_XY_filt <- betas_XY[,pDat_filt$Sentrix]
+colnames(betas_XY_filt) <- pDat_filt$Sample_Name
+```
+
+# DMC density plots
+
+For plotting sets of cpgs 
+
+1. Make a cpg label variable
+
+- every cpg should be appended to the gene(s) that they are mapped to
+
+2. Subset betas to select cpgs
+
+- depending on which cpgs are of interest (I used top 25 dmcs per group), subset to this cpg
+- Account for cpgs that are associated with more than one group
+- Tidy this data from the betas matrix
+- Add in sample group information
+
+3. Join dmc list for the cpg labels, to the betas
+
+- Note that every row (cpg x sample x dmc sample group x sample sample group), has a sample group column that refers to the sample's group information, and also another column that specifics which sample group the DMC belongs to, (they can be different or the same)
+
+4. Plot resulting dataframe
+
+
+```{r}
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# add gene info
+dmcs <- dmcs %>% 
+  filter(abs(delta_b) > b_thresh, bonferroni < p_thresh) %>%
+  select(-estimate, -statistic, -lod, -fdr) %>%
+  left_join(anno %>% select(cpg:imprinted_dmr_placenta), by = c('gene' = 'cpg'))
+
+# collapse genes_symbol column to unique gene symbols
+dmcs <- dmcs %>%
+  # identify the unique genes that each cpg maps to
+  mutate(gene_label = str_extract_all(genes_symbol, '[^, ]*')) %>%
+  mutate(gene_label = map_chr(gene_label, ~paste(unique(.), collapse = ','))) %>%
+  mutate(gene_label = gsub('^,', '', gsub(',$', '', gsub(',{2,}', ',', gsub('NA', '', gene_label)))))  %>%
+  select(gene, gene_label, genes_symbol, everything())
+
+# Step 2, choose dmcs
+top_dmcs <- dmcs %>% 
+  group_by(Group1) %>%
+  arrange(bonferroni) %>%
+  filter(!is.na(genes_symbol)) %>%
+  dplyr::slice(1:100) %>% # top 100
+  select(Group1, gene, gene_label)
+
+# reshape
+plot_data <- betas_filt[intersect(rownames(betas), top_dmcs$gene),] %>% 
+  
+  # tidy up betas
+  as.data.frame() %>%
+  mutate(cpg = rownames(.)) %>%
+  as_tibble() %>%
+  
+  # join dmc info
+  full_join(top_dmcs, by = c('cpg' = 'gene')) %>%
+  
+  gather(Sample_Name, beta, -(cpg:gene_label)) %>%
+  
+  # join sample info
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester), by = 'Sample_Name') %>%
+  
+  mutate(Sample_Group = paste0(Trimester, ' - ', Tissue)) %>%
+  separate(Group1, into = c('DMC_Trimester', 'DMC_Celltype'), sep = '\\.') %>%
+  mutate(DMC_Celltype =  case_when(DMC_Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+                                    DMC_Celltype == 'Strom_cs' ~ 'Stromal cs', 
+                                    DMC_Celltype == 'Endo_cs' ~ 'Endothelial cs',
+                                    DMC_Celltype == 'Troph_cs' ~ 'Trophoblasts cs'),
+         cpg_label = paste0(cpg, ' - ', gene_label)) 
+  
+
+# plot
+plot_cpgs_ridges <- function(data, n, Trimester){
+  # n is a integer vector that indexes the cpgs to plot by rank 
+  # Trimester is either Third or First
+  
+  data %>%
+    # transform beta to percentage
+    mutate(beta = beta*100) %>%
+    
+    # filter samples and dmc group by trimester
+    filter(DMC_Trimester == Trimester, Trimester == Trimester) %>%
+    
+    # take the n ranked sites
+    group_by(DMC_Trimester, DMC_Celltype, Sample_Name) %>%
+    dplyr::slice(n) %>%
+    
+    
+    # plot
+    ggplot(aes(x = beta, y = cpg_label, fill = Tissue)) +
+    geom_density_ridges(alpha = 0.7) +
+    facet_wrap(~DMC_Celltype, scales = 'free_y') +
+    scale_fill_manual(values= color_code_tissue[unique(pDat_filt$Tissue)]) +
+    theme_bw()  +
+    labs(y = '', x = 'DNA Methylation (%)', 
+         title = paste0(Trimester, ' trimester, DMCs ranked ', min(n), '-', max(n)))
+}
+
+plot_data %>% plot_cpgs_ridges(n = 1:25, Trimester = 'Third')
+plot_data %>% plot_cpgs_ridges(n = 26:50, Trimester = 'Third')
+plot_data %>% plot_cpgs_ridges(n = 51:75, Trimester = 'Third')
+plot_data %>% plot_cpgs_ridges(n = 76:100, Trimester = 'Third')
+plot_data %>% plot_cpgs_ridges(n = 1:25, Trimester = 'First')
+plot_data %>% plot_cpgs_ridges(n = 26:50, Trimester = 'First')
+plot_data %>% plot_cpgs_ridges(n = 51:75, Trimester = 'First')
+plot_data %>% plot_cpgs_ridges(n = 76:100, Trimester = 'First')
+
+```
+
+## Savedata
+
+```{r}
+dmcs %>% saveRDS('../../data/main/interim/2_6_dmcs_gene_label.rds')
+```
+
+# Plot top few genes
+
+-XIST
+-DNMT1
+-IL6
+-FLT1
+
+
+```{r}
+# prepare 
+
+# DMCs
+dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+
+
+plot_cpgs_in_gene <- function(gene, betas, pDat, annotation, dmcs) {
+  # gene is the gene symbol to match plot
+  # betas is the methylation data
+  # pDat is the sample information which includes important group info to plot by
+  # annotation is links cpgs to genes and other cpg annotation to plot
+  
+  # filter to gene in annotation
+  anno_gene <- annotation %>%
+    filter(grepl(gene, genes_symbol),
+           cpg %in% rownames(betas)) %>%
+    arrange(start)
+  
+  # filter to cpgs in betas data
+  betas_gene <- t(betas[anno_gene$cpg,]*100) %>% as_tibble %>% 
+    mutate(Sample_Name = colnames(betas)) %>%
+    
+    # melt/gather
+    gather(key = 'cpg', value = 'beta', -Sample_Name)  %>%
+    
+    # add tissue info
+    left_join(pDat %>% select(Sample_Name, Trimester, Tissue)) %>%
+    
+    # calculate mean and sd for each cpg for each group
+    group_by(Tissue, Trimester, cpg) %>%
+    summarize(mean = mean(beta),
+              sd = sd(beta)) %>%
+    mutate(lower = mean-sd, upper = mean+sd) %>%
+    
+    # add cpg info
+    left_join(anno_gene) %>%
+    
+    # order on cpg position
+    ungroup() %>%
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)))
+  
+  
+  # plot betas
+  p1 <- ggplot(betas_gene) +
+    geom_linerange(alpha = 0.75, size = 1, aes(x = cpg, ymin =lower, ymax = upper, color = Tissue)) +
+    geom_point(alpha = 0.75, aes(x = cpg, y = mean, color = Tissue), size = 2) +
+    theme_bw() +
+    facet_grid(Trimester~.) +
+    theme(axis.text.x = element_blank(), 
+          axis.ticks.x = element_blank(),
+          plot.margin=margin(l=-0.1,unit="cm"),
+          axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+    scale_y_continuous(limits = c(0, 100)) +
+    scale_x_discrete(expand = c(0.01,0.01))+
+    scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)]) +
+    labs(y = '% methylation', x = '', color = '', title = gene) 
+    
+  # plot cpg annotations
+  p2 <- betas_gene %>% 
+    mutate(# absent/presence for different genomic elements
+           enhancer = !is.na(enhancers_id),
+           pmd = !is.na(pmd_id),
+           imprinted_gene_placenta = !is.na(imprinted_gene_placenta),
+           imprinted_gene_general = !is.na(imprinted_gene_general),
+           imprinted_dmr_general = !is.na(imprinted_dmr_general),
+           imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta)) %>%
+    select(cpg, enhancer, pmd, imprinted_gene_general:imprinted_dmr_placenta, cpg_id, start) %>%
+    
+    # reshape
+    gather(cpg_element, presence, -cpg, -start) %>%
+    distinct() %>%
+    
+    # arrange plot order
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           cpg_element = factor(cpg_element, 
+                                levels = c('enhancer', 'pmd', 'imprinted_gene_placenta',
+                                           'imprinted_gene_general', 'imprinted_dmr_general',
+                                           'imprinted_dmr_placenta', 'cpg_id')),
+           presence = factor(ifelse(presence == "TRUE", 'Present',
+                                    ifelse(presence == "FALSE", 'Absent', presence)),
+                             levels = c('Present', 'Absent', ' ', '  ', 
+                                        'sea', 'shelf', 'shore', 'island')),
+           # for facet label
+           group = 'Annotations') %>%
+    ggplot(aes(x = cpg, y = cpg_element, fill = presence)) +
+    scale_fill_manual(values = c('Present' = '#cccccc', 'Absent' = '#f7f7f7', 
+                                 ' ' = 'white', '  ' = 'white',
+                                 'sea' = '#ffffcc', 'shelf' = '#a1dab4', 'shore' = '#41b6c4',
+                                 'island' = '#225ea8'), drop = T) +
+    geom_tile(color = '#969696') +
+    guides(fill=guide_legend(ncol=3, override.aes=list(colour=NA))) +
+    facet_grid(group~.) +
+    theme_bw() +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          legend.key = element_rect(colour = NA), 
+          plot.margin = margin(l=-0.1,unit="cm")) +
+    scale_y_discrete(expand = c(0,0)) +
+    scale_x_discrete(expand = c(0,0)) +
+    labs(x = '', y = '', fill = '')
+  
+  # transcript annotations
+  p3 <- betas_gene %>% 
+    select(cpg, end, genes_id, genes_tx_id) %>%
+    
+    # split comma separate list and put each entry into a new row
+    mutate(genes_tx_id = str_split(genes_tx_id, ', '),
+           genes_id = str_split(genes_id, ', ')) %>%
+    unnest(genes_tx_id, genes_id) %>%
+    
+    # order transcripts by position of start
+    arrange(end) %>%
+    mutate(genes_tx_id = factor(genes_tx_id, levels = unique(genes_tx_id))) %>%
+    
+    # make NAs for missing combinations
+    complete(cpg, genes_tx_id) %>%
+    
+    # reorder for plot
+    mutate(genes_id = factor(genes_id, levels = c('1to5kb', 'promoter', '5UTR', 'exon', 'intron',
+                                                  'intronexonboundary', '3UTR', 'intergenic')),
+           group = 'Transcripts') %>%
+    
+    
+    ggplot(aes(x = cpg, y = genes_tx_id, fill = genes_id)) +
+    geom_tile(color = '#969696') +
+    facet_grid(group~.) +
+    guides(fill=guide_legend(ncol=2, override.aes=list(colour=NA))) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), 
+          plot.margin = margin(l=-0.1,unit="cm")) +
+    scale_fill_brewer(na.value = '#f7f7f7', breaks = c('1to5kb', 'promoter', '5UTR', 'exon', 
+                                                        'intron', 'intronexonboundary', '3UTR',
+                                                        'intergenic'),
+                      palette = 'Paired', direction = -1) +
+    scale_y_discrete(expand = c(0,0)) +
+    scale_x_discrete(expand = c(0,0)) +
+    labs(x = '', y = '', fill = '')
+  
+  # number of unique transcripts
+  n_trans <- betas_gene$genes_tx_id %>% str_split(', ') %>% unlist() %>% unique %>% length()
+
+  # DMC annotation, only if not XY chromosomes
+  if (!any(grepl('[XY]', betas_gene$chr))) {
+    p4 <- dmcs %>%
+      select(gene, Group1, bonferroni, delta_b) %>%
+    
+      # filter to gene cpgs
+      dplyr::rename(cpg = gene) %>%
+      semi_join(betas_gene) %>%
+      
+      # make DMC variable
+      mutate(DMC_status = ifelse(bonferroni < p_thresh & abs(delta_b) > b_thresh, 
+                                 'DMC', 'not DMC')) %>%
+      select(-bonferroni, -delta_b)  %>%
+    
+      # arrange by position
+      left_join(betas_gene %>% select(cpg, start)) %>%
+      distinct() %>%
+      arrange(desc(start)) %>%
+      mutate(cpg = factor(cpg, levels = unique(cpg))) %>%
+      
+      # facet variable
+      mutate(group = 'DMC status') %>%
+      
+      # separate group1
+      separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+      mutate(Celltype = case_when(Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+                                  Celltype == 'Strom_cs' ~ 'Stromal cs', 
+                                  Celltype == 'Endo_cs' ~ 'Endothelial cs',
+                                  Celltype == 'Troph_cs' ~ 'Trophoblasts cs')) %>%
+      unite('DMC_group', Trimester, Celltype, sep = ' - ') %>%
+      ggplot(aes(x = cpg, y = DMC_group, fill = DMC_status)) +
+      geom_tile(color = '#969696') +
+      facet_grid(group~.) +
+      guides(fill=guide_legend(ncol=1, override.aes=list(colour=NA))) +
+      theme_bw() +
+      theme(axis.text.x = element_blank(), 
+            axis.ticks.x = element_blank(),
+            plot.margin = margin(l=-0.1,unit="cm")) +
+      scale_y_discrete(expand = c(0,0)) +
+      scale_x_discrete(expand = c(0,0)) +
+      scale_fill_manual(values = c('DMC' = '#cccccc', 'not DMC' = '#f7f7f7')) +
+      labs(x = '', y = '', fill = '')
+    
+    # resize based on number of transcripts
+    ggarrange(p1, p4, p2, p3, ncol = 1, heights = c(42-(n_trans-7), 8, 7, n_trans))
+  } else {
+    ggarrange(p1, p2, p3, ncol = 1, heights = c(42-(n_trans-7), 7, n_trans))
+  }
+}
+
+# filter out second trimester villi samples
+pDat_filt_1_3 <- pDat_filt %>%
+  filter(Trimester != 'Second')
+betas_filt_1_3 <- betas_filt[,pDat_filt_1_3$Sample_Name]
+betas_XY_filt_1_3 <- betas_XY_filt[,pDat_filt_1_3$Sample_Name]
+
+plot_cpgs_in_gene('DNMT1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+plot_cpgs_in_gene('DNMT3A', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+plot_cpgs_in_gene('DNMT3B', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+plot_cpgs_in_gene('DNMT3L', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+
+plot_cpgs_in_gene('IL6', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+plot_cpgs_in_gene('FLT1', betas = betas_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+
+plot_cpgs_in_gene('XIST', betas = betas_XY_filt_1_3, pDat = pDat_filt, annotation = anno, dmcs)
+
+# filter to gene in annotation
+anno_gene <- anno %>%
+  filter(grepl('DNMT1', genes_symbol),
+         cpg %in% rownames(betas_filt)) %>%
+  arrange(start)
+```
+
