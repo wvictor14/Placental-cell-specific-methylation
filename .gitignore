@@ -12,4 +12,5 @@ data
 *.html
 *.docx
 *.xlsx
+.DS_Store
 Placent'omics_project_proposal_CELLS.docx
