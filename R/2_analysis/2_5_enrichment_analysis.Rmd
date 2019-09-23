@@ -245,40 +245,9 @@ tests <- tests %>%
 ## Visualize enrichment
 
 ```{r}
-
+# plot function
 plot_enrich <- function(x) {
-  
-  ggplot(data = x) +
-  geom_pointrange(aes(x = genomic_feature, y = Observed_p_minus_expected, ymin = ymin, ymax = ymax, 
-                      color =Celltype, shape = bonferroni01),
-                  fill = 'white',
-           stat = 'identity', position = position_dodge(width = 0.75),
-           fatten = 4) +
-  geom_hline(yintercept = 0, color = 'black', size = 1) +
-  scale_color_manual(values = colors)  + 
-  facet_grid(Direction ~ Trimester , scales = 'free_y', space = 'free') +
-  scale_y_continuous( expand = c(0.05,0)) +
-  theme_bw(base_size = 14) + 
-  theme(legend.position = 'right', legend.direction = 'vertical',
-        legend.spacing.y = unit(-0.2, 'cm')) +
-  labs(color = '', x = '', y = 'Observed - Expected frequency (in percentage)', shape = '', linetype = '') +
-  scale_shape_manual(values = c('TRUE' = 18, 'FALSE' = 21), na.translate = F, 
-                     labels = c('TRUE' = 'Bonferroni < 0.01', 'FALSE' = 'n.s.')) 
-}
-
-#chromosome
-background <- tibble(chr = paste0('chr', 1:22)) %>%
-  mutate(xmin = c(0, seq(1.5, 21.5, 1)),
-         xmax = c(seq(1.5, 21.5, 1), 23),
-         col = rep(c('white','grey'), 11))
-
-tests %>% 
-  filter(genomic_feature_category == 'chr',
-         !genomic_feature %in% c('chrX', 'chrY'),
-         Trimester == 'Third') %>%
-  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22))) %>%
-
-  ggplot() +
+  g <- ggplot(data = x) +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
                       ymin = confidence_interval_min, 
@@ -288,23 +257,71 @@ tests %>%
   geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
   facet_grid(Celltype~Direction) +
   scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
-  scale_y_continuous(breaks = c(0.5, 0.75, 1, 1.25, 1.5, 1.75)) +
-  scale_x_discrete(labels = 1:22) +
+  scale_y_log10() +
   scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
                      labels = c('Not significant', 'FDR < 0.01')) +
   coord_flip() +
-  labs(title = 'Third trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') +
   theme_bw() +
   theme(panel.grid.minor.x = element_blank(),
         panel.grid.major.y = element_blank(),
         axis.text.y = element_text(size = 8))
+  print(g)
+}
+#chromosome
+tests %>% 
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY'),
+         Trimester == 'Third') %>%
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22))) %>%
+  plot_enrich() +
+  scale_x_discrete(labels = 1:22) +
+  labs(title = 'Third trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') 
 
 tests %>% 
   filter(genomic_feature_category == 'chr',
          !genomic_feature %in% c('chrX', 'chrY'),
          Trimester == 'First') %>%
   mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22))) %>%
+  plot_enrich() +
+  scale_x_discrete(labels = 1:22) +
+  labs(title = 'Third trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') 
 
+#gene/enhancer/cpg island
+tests %>% 
+  filter(genomic_feature_category == 'gene' | 
+           genomic_feature == 'enhancer' |
+           genomic_feature_category == 'cpg_island',
+         Trimester == 'Third') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon',
+                                             'intron', 
+                                             'intronexonboundary','3UTR','intergenic',
+                                             
+                                             'island', 'shore', 'shelf', 'sea'))) %>% 
+  plot_enrich() +
+  labs(title = 'Third trimester DMCs', shape = '', y = 'Odds ratio', x = '') 
+
+tests %>% 
+  filter(genomic_feature_category == 'gene' | 
+           genomic_feature == 'enhancer' |
+           genomic_feature_category == 'cpg_island',
+         Trimester == 'First') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon',
+                                             'intron', 
+                                             'intronexonboundary','3UTR','intergenic',
+                                             
+                                             'island', 'shore', 'shelf', 'sea'))) %>% 
+  plot_enrich() +
+  labs(title = 'First trimester DMCs', shape = '', y = 'Odds ratio', x = '') 
+
+
+# cpg islands
+tests %>% 
+  filter(genomic_feature_category == 'cpg_island',
+         Trimester == 'Third') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('island', 'shore', 'shelf', 'sea'))) %>%
   ggplot() +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
@@ -315,90 +332,121 @@ tests %>%
   geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
   facet_grid(Celltype~Direction) +
   scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
-  scale_y_continuous(breaks = c(0.5, 0.75, 1, 1.25, 1.5, 1.75)) +
-  scale_x_discrete(labels = 1:22) +
+  scale_y_log10() +
+  #scale_x_discrete(labels = 1:22) +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  coord_flip() +
+  labs(title = 'Third trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') +
+  theme_bw() +
+  theme(#panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
+
+tests %>% 
+  filter(genomic_feature_category == 'cpg_island',
+         Trimester == 'First') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('island', 'shore', 'shelf', 'sea'))) %>%
+  ggplot() +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = genomic_feature, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, y = odds_ratio, color = Celltype),
+                  position = position_dodge(width =0.5 )) +
+  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(Celltype~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  scale_y_log10() +
+  #scale_x_discrete(labels = 1:22) +
   scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
                      labels = c('Not significant', 'FDR < 0.01')) +
   coord_flip() +
   labs(title = 'First trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') +
   theme_bw() +
-  theme(panel.grid.minor.x = element_blank(),
+  theme(#panel.grid.minor.x = element_blank(),
         panel.grid.major.y = element_blank(),
         axis.text.y = element_text(size = 8))
 
-# Gene element
-  
-
-#gene/enhancer
-tests %>% 
-  filter(genomic_feature_category == 'gene' | genomic_feature == 'enhancer') %>%
-  mutate(genomic_feature = factor(genomic_feature, 
-                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon', 'intron', 
-                                             'intronexonboundary','3UTR','intergenic')),
-
-         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
-    
-    # linerange ymin ymax values
-         ymin = pmin(Observed_p_minus_expected, 0),
-         ymax = pmax(Observed_p_minus_expected, 0)) %>%
-  ggplot(aes(x = Celltype, y = genomic_feature, fill = Observed_p_minus_expected)) +
-  geom_tile() +
-  geom_point(aes(shape = bonferroni01)) +
-  facet_grid(Trimester~Direction) +
-  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = '')) +
-  scale_fill_gradient2(low = '#1871ed', mid = 'white', high = '#f75c14', midpoint = 0) +
-  coord_equal()
-
-# cpg islands
-tests %>% 
-  filter(genomic_feature_category == 'cpg_island') %>%
-  mutate(genomic_feature = factor(genomic_feature, 
-                                  levels = c('island', 'shore', 'shelf', 'sea')),
-         
-         Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
-    
-    # linerange ymin ymax values
-         ymin = pmin(Observed_p_minus_expected, 0),
-         ymax = pmax(Observed_p_minus_expected, 0)) %>%
-  ggplot(aes(x = Celltype, y = genomic_feature, fill = Observed_p_minus_expected)) +
-  geom_tile() +
-  geom_point(aes(shape = bonferroni01)) +
-  facet_grid(Trimester~Direction) +
-  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = '')) +
-  scale_fill_gradient2(low = '#1871ed', mid = 'white', high = '#f75c14', midpoint = 0) +
-  coord_equal()
 
 # pmd
 tests %>% 
   filter(genomic_feature_category == 'pmd') %>%
-  mutate(Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
-    
-    # linerange ymin ymax values
-         ymin = pmin(Observed_p_minus_expected, 0),
-         ymax = pmax(Observed_p_minus_expected, 0)) %>%
-  ggplot(aes(x = Celltype, y = genomic_feature, fill = Observed_p_minus_expected)) +
-  geom_tile() +
-  geom_point(aes(shape = bonferroni01)) +
-  facet_grid(Trimester~Direction) +
-  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = '')) +
-  scale_fill_gradient2(low = '#1871ed', mid = 'white', high = '#f75c14', midpoint = 0) +
-  coord_equal()
+  ggplot() +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = Trimester, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, y = odds_ratio, color = Celltype),
+                  position = position_dodge(width =0.5 )) +
+#  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(.~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  scale_y_log10() +
+  #scale_x_discrete(labels = 1:22) +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  coord_flip() +
+  labs(title = 'Partially Methylated Domains', shape = '', y = 'Odds ratio', x = '') +
+  theme_bw() +
+  theme(#panel.grid.minor.x = element_blank(),
+        #panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
 
 # imprint
 tests %>% 
-  filter(genomic_feature_category == 'imprinting') %>%
-  mutate(Observed_p_minus_expected = 100*(Observed_p_in - Expected_p_in),
-    
-    # linerange ymin ymax values
-         ymin = pmin(Observed_p_minus_expected, 0),
-         ymax = pmax(Observed_p_minus_expected, 0)) %>%
-    ggplot(aes(x = Celltype, y = genomic_feature, fill = Observed_p_minus_expected)) +
-  geom_tile() +
-  geom_point(aes(shape = bonferroni01)) +
-  facet_grid(Trimester~Direction) +
-  scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = '')) +
-  scale_fill_gradient2(low = '#1871ed', mid = 'white', high = '#f75c14', midpoint = 0) +
-  coord_equal()
+  filter(genomic_feature_category == 'imprinting', 
+         Trimester == 'Third') %>%
+  ggplot() +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = genomic_feature, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, y = odds_ratio, color = Celltype),
+                  position = position_dodge(width =0.5 )) +
+#  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(Celltype~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  scale_y_log10() +
+  #scale_x_discrete(labels = 1:22) +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  coord_flip() +
+  labs(title = 'Third', shape = '', y = 'Odds ratio', x = '') +
+  theme_bw() +
+  theme(#panel.grid.minor.x = element_blank(),
+        #panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
+
+mult_format <- function() {
+     function(x) format(100*x,digits = 2) 
+}
+
+tests %>% 
+  filter(genomic_feature_category == 'imprinting', 
+         Trimester == 'First') %>%
+  ggplot() +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = genomic_feature, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, y = odds_ratio, color = Celltype),
+                  position = position_dodge(width =0.5 )) +
+#  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(Celltype~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  #scale_y_continuous(trans = scales::log2_trans(), labels = function(x) formatC(x,digits = 1)) +
+  #scale_x_discrete(labels = 1:22) +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(title = 'First', shape = '', y = 'Odds ratio', x = '') +
+  theme_bw() +
+  theme(#panel.grid.minor.x = element_blank(),
+        #panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
 ```
 
 ```{r}
@@ -426,7 +474,7 @@ tests %>%
          !genomic_feature %in% c('chrX', 'chrY')) %>%
   # create key
   mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
-         key = paste0(Trimester , '_', Celltype),
+         key = paste0(Trimester , '_', Celltype , '_', Direction),
          Observed_p_minus_expected = (Observed_p_in - Expected_p_in)) %>%
   select(key, genomic_feature, Observed_p_minus_expected)  %>%
   mutate(Observed_p_minus_expected = cb(Observed_p_minus_expected)) %>%
@@ -446,7 +494,7 @@ tests %>%
   
   # prepare text and shape of table
   mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22)),
-         key = paste0(Trimester , '_', Celltype)) %>%
+         key = paste0(Trimester , '_', Celltype , '_', Direction)) %>%
   select(key, genomic_feature, Observed_p_in, Expected_p_in, FDR01) %>%
   
    # prepare colors
@@ -622,6 +670,7 @@ densities %>%
                                          names(color_code_tissue[unique(.$Celltype)])))) +
     labs(x = '% methylation', y = 'density', color = '')
   }
+
 
 ## just pmds
 ggplot(densities) +
