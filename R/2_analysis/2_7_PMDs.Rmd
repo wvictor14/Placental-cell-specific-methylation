@@ -1,0 +1,252 @@
+---
+title: "2_7_PMDs"
+author: "Victor Yuan"
+date: "23/09/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Setup
+
+## Libraries
+
+
+```{r}
+# libraries and data
+library(tidyverse); theme_set(theme_bw())
+library(DT)
+```
+
+## Data
+
+```{r}
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
+mvals <- getM(mset_noob)
+
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# color key
+pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+# DMCs
+dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+# 450k annotation
+anno_450k <- read_csv('Z:/Victor/Data/DNAm annotations/HumanMethylation450_15017482_v1-2.csv',
+                      skip = 7)
+```
+
+## Remove samples
+
+remove contamined and non-interesting samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+# filter to first trimester
+mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
+betas_filt <- betas[,pDat_filt$Sample_Name]
+```
+
+# PMD
+
+## Filter cpgs
+
+D.I schroeder state that they remove probes in  the following regions:
+
+* promoters
+* cpg islands
+* cpg island shores
+
+
+```{r}
+# find cpgs in pmds and meeting above criteria
+anno_pmd_filt <- anno %>%
+  filter(!cpg_id %in% c('island', 'shore'),
+         !grepl('promoter', genes_id),
+         !is.na(pmd_id))
+nrow(anno); nrow(anno_pmd_filt) # 867052; 133370
+
+pmd_cpgs_epic <- intersect(anno_pmd_filt$cpg, rownames(betas_filt)) # 111378
+pmd_cpgs_450k <- intersect(anno_450k$IlmnID, pmd_cpgs_epic)
+
+length(pmd_cpgs_epic);length(pmd_cpgs_450k) # 111378;39142
+```
+
+## Calculate densities
+
+Now I can calculate the density per celltype / trimeseter. I follow the same code from my enrichment
+analysis.
+
+```{r}
+densities <- pDat_filt %>%
+  
+  # get sample names for each group
+  select(Trimester, Tissue, Sample_Name) %>%
+  dplyr::rename(Celltype = Tissue) %>%
+  group_by(Trimester, Celltype) %>%
+  summarize(Samples =list(Sample_Name)) %>%
+  
+  # duplicate rows
+  mutate(array = 'EPIC') %>%
+  ungroup() %>%
+  bind_rows( identity(.) %>% mutate(array = '450k')) %>%
+  
+  # Calculate densities
+  mutate(densities = case_when(
+    array == 'EPIC' ~ map(Samples, ~as.vector(betas_filt[pmd_cpgs_epic, .x]) %>% density()),
+    array == '450k' ~map(Samples, ~as.vector(betas_filt[pmd_cpgs_450k, .x]) %>% density())
+    ),
+         x = map(densities, 'x'),
+         y = map(densities, 'y')) %>%
+     
+ # clean up results
+ # remove input data
+  select(Trimester, Celltype, contains('x'), contains('y')) %>%
+  unnest()
+```
+
+## Plot
+
+density plots
+
+```{r}
+### EPIC
+densities %>% 
+  filter(array == 'EPIC') %>%
+  ggplot(data = .) +
+  geom_line(size = 2,aes(x = x, y = y, color = Celltype)) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '', title = 'EPIC')
+
+### 450k
+densities %>% 
+  filter(array == '450k') %>%
+  ggplot(data = .) +
+  geom_line(size = 2,aes(x = x, y = y, color = Celltype)) + theme_bw() +
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  facet_grid(Trimester~Celltype) +
+  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
+  labs(x = '% methylation', y = 'density', color = '', title = '450k')
+```
+
+Let's look at a few specific PMDs
+
+subset to those with a lot of cpg coverage
+
+```{r}
+# manually explore regions to plot
+anno %>%
+  # count number of cpgs per pmd, parse the pmd_id into position
+  group_by(pmd_id) %>%
+  summarize(n = n(), pmd_width = paste(unique(pmd_width), collapse = ', ')) %>%
+  filter(!is.na(pmd_id)) %>%
+  separate(pmd_id, into = c('chr', 'start', 'end')) %>%
+  mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
+         start = as.numeric(start),
+         end = as.numeric(end)) %>%
+  arrange(chr, start) %>%
+  
+  # filter out pmds with low coverage
+  filter(n > 20) %>%
+  datatable()
+```
+
+Region 1
+
+```{r}
+# chr1, start = 1020000, end = 1150000
+c <- 'chr1'
+s <- 1020000
+e <- 1150000
+
+region1 <- anno %>%
+  filter(chr == c, between(start, s, e)) %>%
+  pull(cpg)
+
+# subset to cpgs in region
+region1_data <- betas_filt[intersect(rownames(betas_filt), region1), ] %>%
+  
+  t() %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Name = rownames(.), .) %>%
+  
+  # melt
+  gather(cpg, beta, -Sample_Name) %>%
+  
+  # add trimester and sex
+  inner_join(pDat_filt %>% select(Sample_Name, Trimester, Tissue)) %>%
+  
+  # add cpg coordinates
+  inner_join(anno %>% select(cpg, chr, pos = start)) %>%
+  
+  # set a grouping variable to control alpha for placenta/troph
+  mutate(alpha_group = if_else(Tissue %in% c('Trophoblasts cs', 'Villi'),
+                               1, 0.6)) %>%
+  
+  # remove second trimester data
+  filter(Trimester != 'Second')
+
+# get pmd data
+pmd_data <- anno %>%
+  filter(chr == 'chr1', between(start, s, e), 
+         !is.na(pmd_id)) %>%
+  select(pmd_id) %>%
+  separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
+  mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
+         start = as.numeric(start),
+         end = as.numeric(end)) %>%
+  arrange(chr, start) %>%
+  distinct()
+
+ggplot(region1_data) +
+  geom_line(stat = 'smooth', span = 0.1, method = 'loess', se = FALSE,
+            aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
+  geom_rect(data = pmd_data, 
+            aes(xmin = start, xmax = end), 
+            ymin = 0, ymax = 0.05, fill = 'black') +
+  geom_rect(aes(xmin = pos - 50, xmax = pos + 50), 
+            ymin = -0.05, ymax = 0, fill = 'red') +
+  facet_wrap(~Trimester, ncol = 1) +
+  scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)]) +
+  scale_y_continuous(limits = c(-0.1, 1.1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  scale_alpha_identity() +
+  labs(x = paste0(c, ':', s, '-', e))
+  
+```
