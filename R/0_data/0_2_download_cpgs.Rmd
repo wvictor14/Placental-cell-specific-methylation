@@ -1,0 +1,20 @@
+---
+title: "0_2_download_cpgs"
+author: "Victor Yuan"
+date: "24/09/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is for downloading all cpgs of the genome. The purpose is so I can see how many cpgs 
+overlap with EPIC for pmd regions.
+
+# Libraries
+
+```{r, message = F, warning = F}
+library(BSgenome.Hsapiens.UCSC.hg19)
+library(Biostrings)
+
+```
+
