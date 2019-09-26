@@ -20,7 +20,7 @@ editor_options:
 ## Libraries
 
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
 # libraries and data
 library(tidyverse); theme_set(theme_bw())
 library(DT)
@@ -28,7 +28,7 @@ library(DT)
 
 ## Data
 
-```{r}
+```{r, message = FALSE, warning = FALS}
 pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
 pDat <- pDat %>%
   mutate(Tissue = case_when(
@@ -173,6 +173,9 @@ subset to those with a lot of cpg coverage
 ```{r}
 # manually explore regions to plot
 anno %>%
+  
+  filter(cpg %in% rownames(betas_filt)) %>%
+  
   # count number of cpgs per pmd, parse the pmd_id into position
   group_by(pmd_id) %>%
   summarize(n = n(), pmd_width = paste(unique(pmd_width), collapse = ', ')) %>%
@@ -186,67 +189,96 @@ anno %>%
   # filter out pmds with low coverage
   filter(n > 20) %>%
   datatable()
+
+# define plotting function
+plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
+                        filtered = TRUE, array = 'EPIC') {
+  
+  if (filtered) {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt),
+             !cpg_id %in% c('island', 'shore'),
+             !grepl('promoter', genes_id)) %>%
+      pull(cpg)
+  } else {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt)) %>%
+      pull(cpg)
+  }
+  
+  if (array == '450K') {
+    region1 <- intersect(anno_450k$Name, region1)
+  } 
+  
+  # subset to cpgs in region
+  region1_data <- betas_filt[region1, ] %>%
+    
+    t() %>%
+    as.data.frame() %>%
+    bind_cols(Sample_Name = rownames(.), .) %>%
+    
+    # melt
+    gather(cpg, beta, -Sample_Name) %>%
+    
+    # add trimester and sex
+    inner_join(pDat_filt %>% select(Sample_Name, Trimester, Tissue)) %>%
+    
+    # add cpg coordinates
+    inner_join(anno %>% select(cpg, chr, pos = start)) %>%
+    
+    # set a grouping variable to control alpha for placenta/troph
+    mutate(alpha_group = if_else(Tissue %in% c('Trophoblasts cs', 'Villi'),
+                                 1, 0.6)) %>%
+    
+    # remove second trimester data
+    filter(Trimester != 'Second')
+  
+  # get pmd data
+  pmd_data <- anno %>%
+    filter(chr == c, between(start, s, e), 
+           !is.na(pmd_id)) %>%
+    select(pmd_id) %>%
+    separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
+    mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
+           start = as.numeric(start),
+           end = as.numeric(end)) %>%
+    arrange(chr, start) %>%
+    distinct()
+  
+  ggplot(region1_data) +
+    geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
+              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
+    geom_rect(data = pmd_data, 
+              aes(xmin = start, xmax = end), 
+              ymin = 0.025, ymax = 0.05, fill = 'black') +
+    geom_rect(aes(xmin = pos - cpg_size/2, xmax = pos + cpg_size/2), 
+              ymin = 0, ymax = 0.025, fill = 'red') +
+    facet_wrap(~Trimester, ncol = 1) +
+    scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)]) +
+    scale_y_continuous(limits = c(0, 1.1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    scale_x_continuous(limits = c(s, e)) +
+    scale_alpha_identity() +
+    labs(x = paste0(c, ':', s, '-', e))
+}
 ```
 
-Region 1
+plot regions
 
-```{r}
-# chr1, start = 1020000, end = 1150000
-c <- 'chr1'
-s <- 1020000
-e <- 1150000
+```{r warning = FALSE, message = FALSE}
+plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25,filtered = T) 
+plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25, filtered = F) 
 
-region1 <- anno %>%
-  filter(chr == c, between(start, s, e)) %>%
-  pull(cpg)
+plot_region(c = 'chr4', s = 6400000, e = 6600000, span = 0.15, filtered = T)
+plot_region(c = 'chr4', s = 6400000, e = 6600000, span = 0.15, filtered = F) 
 
-# subset to cpgs in region
-region1_data <- betas_filt[intersect(rownames(betas_filt), region1), ] %>%
-  
-  t() %>%
-  as.data.frame() %>%
-  bind_cols(Sample_Name = rownames(.), .) %>%
-  
-  # melt
-  gather(cpg, beta, -Sample_Name) %>%
-  
-  # add trimester and sex
-  inner_join(pDat_filt %>% select(Sample_Name, Trimester, Tissue)) %>%
-  
-  # add cpg coordinates
-  inner_join(anno %>% select(cpg, chr, pos = start)) %>%
-  
-  # set a grouping variable to control alpha for placenta/troph
-  mutate(alpha_group = if_else(Tissue %in% c('Trophoblasts cs', 'Villi'),
-                               1, 0.6)) %>%
-  
-  # remove second trimester data
-  filter(Trimester != 'Second')
+plot_region(c = 'chr7', s = 850000, e = 1025000, span = 0.15, filtered = T)
+plot_region(c = 'chr7', s = 850000, e = 1025000, span = 0.15, filtered = F) 
 
-# get pmd data
-pmd_data <- anno %>%
-  filter(chr == 'chr1', between(start, s, e), 
-         !is.na(pmd_id)) %>%
-  select(pmd_id) %>%
-  separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
-  mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
-         start = as.numeric(start),
-         end = as.numeric(end)) %>%
-  arrange(chr, start) %>%
-  distinct()
-
-ggplot(region1_data) +
-  geom_line(stat = 'smooth', span = 0.1, method = 'loess', se = FALSE,
-            aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
-  geom_rect(data = pmd_data, 
-            aes(xmin = start, xmax = end), 
-            ymin = 0, ymax = 0.05, fill = 'black') +
-  geom_rect(aes(xmin = pos - 50, xmax = pos + 50), 
-            ymin = -0.05, ymax = 0, fill = 'red') +
-  facet_wrap(~Trimester, ncol = 1) +
-  scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)]) +
-  scale_y_continuous(limits = c(-0.1, 1.1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
-  scale_alpha_identity() +
-  labs(x = paste0(c, ':', s, '-', e))
-  
+# Figure 1d
+plot_region(c = 'chr21', s = 28000000, e = 45000000, span = 0.05, filtered = T, cpg_size = 5000,
+            array = '450k')
+plot_region(c = 'chr21', s = 28000000, e = 45000000, span = 0.05, filtered = T, cpg_size = 5000) 
+plot_region(c = 'chr21', s = 28000000, e = 45000000, span = 0.15, filtered = F, cpg_size = 5000) 
 ```
