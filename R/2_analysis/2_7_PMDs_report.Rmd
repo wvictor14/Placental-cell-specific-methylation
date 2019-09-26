@@ -1,0 +1,25 @@
+---
+title: "2_7_PMDs_report"
+author: "Victor Yuan"
+date: "24/09/2019"
+output:
+  html_document
+---
+
+# Summary
+
+This report describes the results of an analysis of PMD regions using placental cell DNAm data.
+
+The main point here is that I'm having difficulties seeing clear definition of PMDs in our data, where PMDs are regions of intermediate/low methylation lying within surrounding regions of high methylation.
+
+## Some background
+
+Placental PMDs were original discovered using MethylC sequencing over the entire genome:
+
+![Figure 1AD from [D.I. Schroeder et al. 2013](https://www.pnas.org/content/110/15/6037)](../../data/external/F1AD.png)
+
+Let's take note of the scales of the plots 1A and 1D. They are 15 - 30 mega-bp long. Second thing 
+
+
+I took the list of PMDs and annotated cpgs on the EPIC array.
+
