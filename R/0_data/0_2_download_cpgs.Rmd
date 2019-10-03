@@ -15,6 +15,66 @@ overlap with EPIC for pmd regions.
 ```{r, message = F, warning = F}
 library(BSgenome.Hsapiens.UCSC.hg19)
 library(Biostrings)
+library(tidyverse)
+library(fuzzyjoin)
+```
+
+# Find all cpgs in the genome
+
+```{r}
+genome <- BSgenome.Hsapiens.UCSC.hg19
+
+# target chromosomes
+seqnames(genome)[1:24] 
+
+# example counting cgs in chr 1
+countPattern(pattern = DNAString('cg'), genome$chr1)
+
+# target pattern
+pat <- DNAStringSet(list(cpg = DNAString('cg')))
+
+# find pattern across each chromosome
+results <- tibble(chr = seqnames(genome)[1:24]) %>%
+  
+  mutate(matches = map(chr, ~ extractAllMatches(genome[[.x]],
+                                                matchPDict(pat, genome[[.x]]))),
+         
+         # pull out start and end positions
+         start = map(matches, ~start(.x)),
+         end = map(matches, ~end(.x)))
+
+
+results <- results %>%
+  select(-matches) %>%
+  unnest()
+
+results
+```
+
+28 million cpgs, that's what we expect
+
+Let's verify that the EPIC cpgs are represented in our results
+
+```{r}
+EPIC <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+results %>%
+  genome_inner_join(EPIC %>% 
+                      select(cpg, chr, start, end),
+                    c('chr', 'start', 'end'))
+nrow(EPIC)
+
+EPIC %>% 
+  select(cpg, chr, start, end) %>%
+  genome_anti_join(results, c('chr', 'start', 'end')) %>%
+  tail
 
 ```
 
+Great! I found all cpgs in the genome, and they match up with the EPIC cpgs. The EPIC annotation also has non-cpg sites, which are obviously not included in the results. So that all makes sense.
+
+
+# Save results
+
+```{r, eval = F}
+saveRDS(results, '../../data/main/processed/0_2_all_cpgs_hg19.rds')
+```
