@@ -4,6 +4,7 @@ author: "Victor Yuan"
 date: "23/09/2019"
 output:
   html_document:
+    df_print: paged
     keep_md: true
     toc: true
     toc_depth: 4
@@ -14,21 +15,20 @@ editor_options:
   chunk_output_type: console
 ---
 
-
 # Setup
 
 ## Libraries
 
-
 ```{r, message = FALSE, warning = FALSE}
 # libraries and data
 library(tidyverse); theme_set(theme_bw())
-library(DT)
+library(kableExtra)
+library(glue)
 ```
 
 ## Data
 
-```{r, message = FALSE, warning = FALS}
+```{r, message = FALSE, warning = FALSE}
 pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
 pDat <- pDat %>%
   mutate(Tissue = case_when(
@@ -65,6 +65,9 @@ color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 # 450k annotation
 anno_450k <- read_csv('Z:/Victor/Data/DNAm annotations/HumanMethylation450_15017482_v1-2.csv',
                       skip = 7)
+
+# all cpgs in the genome
+hg19_cpgs <- readRDS('../../data/main/processed/0_2_all_cpgs_hg19.rds')
 ```
 
 ## Remove samples
@@ -82,7 +85,7 @@ mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
 betas_filt <- betas[,pDat_filt$Sample_Name]
 ```
 
-# PMD
+# PMD analysis
 
 ## Filter cpgs
 
@@ -92,19 +95,43 @@ D.I schroeder state that they remove probes in  the following regions:
 * cpg islands
 * cpg island shores
 
+So here I compare this filter to an unfiltered set of cpgs, and also 450k / EPIC
+
+A table of number of cpgs per filtered/ unfiltered, and 450k/epic cpgs:
 
 ```{r}
-# find cpgs in pmds and meeting above criteria
-anno_pmd_filt <- anno %>%
-  filter(!cpg_id %in% c('island', 'shore'),
-         !grepl('promoter', genes_id),
-         !is.na(pmd_id))
-nrow(anno); nrow(anno_pmd_filt) # 867052; 133370
+# different sets of cpgs
+cpg_sets <- expand_grid(filt = c('unfiltered', 'filtered'), 
+                        array = c('450k', 'EPIC'))
 
-pmd_cpgs_epic <- intersect(anno_pmd_filt$cpg, rownames(betas_filt)) # 111378
-pmd_cpgs_450k <- intersect(anno_450k$IlmnID, pmd_cpgs_epic)
+# all cpgs in pmds (unfiltered, filtered)
+cpg_pmd_unfilt <- anno %>%
+  filter(!is.na(pmd_id),
+         cpg %in% rownames(betas_filt)) 
+cpg_pmd_filt <- cpg_pmd_unfilt %>%
+  filter(!is.na(pmd_id),
+         !cpg_id %in% c('island', 'shore'),
+         !grepl('promoter', genes_id))
 
-length(pmd_cpgs_epic);length(pmd_cpgs_450k) # 111378;39142
+# get cpgs per set
+cpg_sets <- cpg_sets %>%
+  mutate(cpg = case_when(
+    filt == 'unfiltered' & array == 'EPIC' ~ list(cpg_pmd_unfilt$cpg),
+    filt == 'unfiltered' & array == '450k' ~ list(intersect(cpg_pmd_unfilt$cpg, anno_450k$IlmnID)),
+    
+    filt == 'filtered' & array == 'EPIC' ~ list(cpg_pmd_filt$cpg),
+    filt == 'filtered' & array == '450k' ~ list(intersect(cpg_pmd_filt$cpg, anno_450k$IlmnID))
+  ))
+
+#display number of cpgs
+cpg_sets %>%
+  mutate(n = map_int(cpg, length)) %>%
+  select(-cpg) %>%
+  pivot_wider(
+    id_cols = filt,
+    names_from = array,
+    values_from = n
+  )
 ```
 
 ## Calculate densities
@@ -112,32 +139,54 @@ length(pmd_cpgs_epic);length(pmd_cpgs_450k) # 111378;39142
 Now I can calculate the density per celltype / trimeseter. I follow the same code from my enrichment
 analysis.
 
+I create a new column in `cpg_sets` that is a nested data frame that corresponds to the density over the betas for each celltype/trimester across cpgs in each cpg set.
+
 ```{r}
-densities <- pDat_filt %>%
+# get betas in pmds, by cell type and trimester,
+betas_pmds <- cpg_sets %>%
   
-  # get sample names for each group
-  select(Trimester, Tissue, Sample_Name) %>%
-  dplyr::rename(Celltype = Tissue) %>%
-  group_by(Trimester, Celltype) %>%
-  summarize(Samples =list(Sample_Name)) %>%
+  # add a data-frame column that is the pDat with a nested sample names column
+  mutate(pdat = list(
+           pDat_filt %>%
   
-  # duplicate rows
-  mutate(array = 'EPIC') %>%
-  ungroup() %>%
-  bind_rows( identity(.) %>% mutate(array = '450k')) %>%
+           # get sample names for each group
+           select(Trimester, Tissue, Sample_Name) %>%
+           dplyr::rename(Celltype = Tissue) %>%
+           group_by(Trimester, Celltype) %>%
+           summarize(Samples =list(Sample_Name))
+           )) %>%
   
-  # Calculate densities
-  mutate(densities = case_when(
-    array == 'EPIC' ~ map(Samples, ~as.vector(betas_filt[pmd_cpgs_epic, .x]) %>% density()),
-    array == '450k' ~map(Samples, ~as.vector(betas_filt[pmd_cpgs_450k, .x]) %>% density())
-    ),
-         x = map(densities, 'x'),
-         y = map(densities, 'y')) %>%
-     
- # clean up results
- # remove input data
-  select(Trimester, Celltype, contains('x'), contains('y')) %>%
-  unnest()
+  # get betas for each group
+  unnest(pdat) %>%
+  mutate(betas = 
+           map2(cpg, Samples,
+                ~ as.vector(betas_filt[.x, .y]))) %>%
+  select(-cpg, -Samples)
+
+ # calculate density
+densities_pmds <- betas_pmds %>% 
+  mutate(density = map(betas, density),
+         x = map(density, 'x'),
+         y = map(density, 'y')) %>%
+  
+  # clean up
+  select(-betas, -density) %>%
+  unnest(c(x, y))
+
+
+# calculate percent methylation over regions
+counts_pmds <- betas_pmds %>%
+  unnest(betas) %>%
+  mutate(range = cut(betas, 
+                     c(-Inf, 0.4, 0.7, Inf), 
+                     labels = c('Unmethylated (<0.4)', 'Intermediate (0.4-0.7)', 
+                                'Methylated (>0.7)'))) %>%
+  group_by(filt, array, Trimester, Celltype, range) %>%
+  summarize(n = n(),
+            )
+
+counts_pmds %>%
+  dplyr::count(range)
 ```
 
 ## Plot
@@ -145,25 +194,22 @@ densities <- pDat_filt %>%
 density plots
 
 ```{r}
-### EPIC
-densities %>% 
-  filter(array == 'EPIC') %>%
-  ggplot(data = .) +
-  geom_line(size = 2,aes(x = x, y = y, color = Celltype)) + theme_bw() +
-  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
-  facet_grid(Trimester~Celltype) +
-  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
-  labs(x = '% methylation', y = 'density', color = '', title = 'EPIC')
+densities_pmds_plots <- densities_pmds %>%
+  filter(Trimester != 'Second') %>%
+  nest(c(Trimester:y)) %>%
+  mutate(plots = 
+           pmap(list(filt, array, data),
+                ~ ggplot(data = ..3) +
+                  geom_line(size = 2, aes(x = x, y = y, color = Celltype)) +
+                  theme_bw() +
+                  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+                  facet_grid(Trimester~Celltype) +
+                  scale_color_manual(values =
+                                       color_code_tissue[unique(densities_pmds$Celltype)]) +
+                  labs(x = '% methylation', y = 'density', color = '', 
+                       title = glue('array: {..2}, cpgs: {..1}'))))
 
-### 450k
-densities %>% 
-  filter(array == '450k') %>%
-  ggplot(data = .) +
-  geom_line(size = 2,aes(x = x, y = y, color = Celltype)) + theme_bw() +
-  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
-  facet_grid(Trimester~Celltype) +
-  scale_color_manual(values= color_code_tissue[unique(densities$Celltype)]) +
-  labs(x = '% methylation', y = 'density', color = '', title = '450k')
+densities_pmds_plots$plots %>% print()
 ```
 
 Let's look at a few specific PMDs
@@ -235,6 +281,17 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
     # remove second trimester data
     filter(Trimester != 'Second')
   
+  # cpg density for measured cpgs
+  cpg_dens <- anno %>%
+    filter(cpg %in% region1) %>%
+    select(chr, start, end) %>%
+    mutate(dens = approxfun(density(start))(start))
+  
+  # cpg density for all cpgs
+  cpg_dens_all <- hg19_cpgs %>%
+    filter(chr == c, start > s, end < e) %>%
+    mutate(dens = approxfun(density(start))(start))
+  
   # get pmd data
   pmd_data <- anno %>%
     filter(chr == c, between(start, s, e), 
@@ -253,21 +310,26 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
     geom_rect(data = pmd_data, 
               aes(xmin = start, xmax = end), 
               ymin = 0.025, ymax = 0.05, fill = 'black') +
-    geom_rect(aes(xmin = pos - cpg_size/2, xmax = pos + cpg_size/2), 
-              ymin = 0, ymax = 0.025, fill = 'red') +
+    geom_rect(data = cpg_dens, aes(xmin = start - cpg_size/2, xmax = start + cpg_size/2,
+                                   fill = dens),
+              ymin = 0, ymax = 0.025) +
+    geom_rect(data = cpg_dens_all, aes(xmin = start - cpg_size/4, xmax = start + cpg_size/4,
+                                   fill = dens),
+              ymin = -0.025, ymax = 0) +
     facet_wrap(~Trimester, ncol = 1) +
     scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)]) +
+    scale_fill_viridis_c() +
     scale_y_continuous(limits = c(0, 1.1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
     scale_x_continuous(limits = c(s, e)) +
     scale_alpha_identity() +
-    labs(x = paste0(c, ':', s, '-', e))
+    labs(x = paste0(c, ':', s, '-', e), fill = 'density')
 }
 ```
 
 plot regions
 
 ```{r warning = FALSE, message = FALSE}
-plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25,filtered = T) 
+plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25,filtered = T, cpg_size = 250) 
 plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25, filtered = F) 
 
 plot_region(c = 'chr4', s = 6400000, e = 6600000, span = 0.15, filtered = T)
@@ -277,8 +339,15 @@ plot_region(c = 'chr7', s = 850000, e = 1025000, span = 0.15, filtered = T)
 plot_region(c = 'chr7', s = 850000, e = 1025000, span = 0.15, filtered = F) 
 
 # Figure 1d
-plot_region(c = 'chr21', s = 28000000, e = 45000000, span = 0.05, filtered = T, cpg_size = 5000,
-            array = '450k')
-plot_region(c = 'chr21', s = 28000000, e = 45000000, span = 0.05, filtered = T, cpg_size = 5000) 
-plot_region(c = 'chr21', s = 28000000, e = 45000000, span = 0.15, filtered = F, cpg_size = 5000) 
+plot_region(c = 'chr21', s = 28000000, e = 47000000, span = 0.05, filtered = T, cpg_size = 5000,
+            array = '450k')  
+plot_region(c = 'chr21', s = 28000000, e = 47000000, span = 0.05, filtered = T, cpg_size = 5000,
+            array = 'EPIC')  
+
+# Figure S1c
+plot_region(c = 'chr21', s = 13000000, e = 48000000, span = 0.01, filtered = T, cpg_size = 5000,
+            array = '450k') +
+  scale_x_continuous(limits = c(13000000, 48000000), breaks = seq(15000000, 45000000, 
+                                                                  length.out = 4),
+                     labels = seq(15000000, 45000000, length.out = 4) / 1000000) 
 ```
