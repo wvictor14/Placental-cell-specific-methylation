@@ -212,6 +212,21 @@ counts_pmds <- betas_pmds %>%
              grepl('0.4-0.7', range) ~ 0.7,
              grepl('>0.7', range) ~ max(densities_pmds$x)) + 0.001)
 
+# Repeat but with more resolution:
+counts_pmds_high_res <- betas_pmds %>%
+  unnest(betas) %>%
+  mutate(range = cut(betas, 
+                     c(-Inf, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, Inf))) %>%
+  
+  # count
+  group_by(filt, array, Trimester, Celltype, range) %>%
+  summarize(n = n())  %>%
+  
+  # proportion
+  mutate(prop = n/sum(n),
+         prop_label = percent(prop)) %>%
+  ungroup()
+
 # join to densities_pmds
 densities_pmds %>%
   inner_join(counts_pmds, by = c('filt', 'array', 'Trimester', 'Celltype')) %>%
@@ -582,4 +597,5 @@ total %>%
 ```{r, eval = FALSE}
 saveRDS(densities_pmds_plots, '../../data/main/interim/2_7_pmd_density_plots.rds')
 saveRDS(total, '../../data/main/interim/2_7_pmd_coverage.rds')
+saveRDS(counts_pmds_high_res, '../../data/main/interim/2_7_pmd_high_res_density.rds')
 ```
