@@ -3,23 +3,215 @@ title: "2_7_PMDs_report"
 author: "Victor Yuan"
 date: "24/09/2019"
 output:
-  html_document
+  html_document:
+    df_print: kable
+    keep_md: false
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Summary
 
 This report describes the results of an analysis of PMD regions using placental cell DNAm data.
 
-The main point here is that I'm having difficulties seeing clear definition of PMDs in our data, where PMDs are regions of intermediate/low methylation lying within surrounding regions of high methylation.
+- PMDs 
 
-## Some background
+
+# Some background
 
 Placental PMDs were original discovered using MethylC sequencing over the entire genome:
 
 ![Figure 1AD from [D.I. Schroeder et al. 2013](https://www.pnas.org/content/110/15/6037)](../../data/external/F1AD.png)
 
-Let's take note of the scales of the plots 1A and 1D. They are 15 - 30 mega-bp long. Second thing 
+They validate many of these PMDs with pyrosequencing in additional placentas, and also use some 450k array data.
+
+For the 450k array validation, they filtered out cpgs to account for the biased cpg-representation: 
+
+"Because the arrays are biased toward coverage of promoters, CpG islands, and CpG island shores, which often have low methylation, we removed them from the Infinium data and separated the remaining CpG sites into our previously defined placental PMDs and HMDs"
+
+They did not show what the PMDs looked like before filtering (i.e. whether this is adequate enough to account for any bias in representation). Plus we have 850k data now. So below I compare what PMD methylation looks like **with/without filtering**, and on **450k/850k** cpgs.
+
+# Genome build is important
+
+Before going into the analysis, **I wanted to mention that my previous reports involving pmd analysis will need to be revised**. This is because I just recently found out that the list of PMDs were in *hg18* coordinates, whereas all my work has been in *hg19.* So in this report I repeat some of the analysis before, using the remapped coordinates.
+
+Here is the location of the PMDs (black bars) using the **wrong** coordinates:
+
+![*PMDs are in hg18 coordinates, whereas methylation is in hg19 coordinates*](2_7_pmds_wrong_coords.png)
 
 
-I took the list of PMDs and annotated cpgs on the EPIC array.
+I noticed the black bars were not lined up to any dips in methylation (definition of a PMD), so I double-checked everything and found out I had the wrong genome build. Here is the same region with the **correct** coordinates:
+
+![*Both PMDs and methylation data are on hg19 coordinates*](2_7_pmds_right_coords.png)
+
+Notice that the black bars corresponding to the pmd locations are now overlapping regions of intermediate methylation (in villi).
+
+**Takeaway**: Always explore the data, especially if anything is unusual. To quote Maria, "never hesitate to doubt".
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=F, warning = F) #hide code
+```
+
+```{r, message = FALSE, warning = FALSE}
+# libraries and data
+library(tidyverse); theme_set(theme_bw())
+library(glue)
+library(scales)
+
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+
+# raw methylation data
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+colnames(betas) <- pDat$Sample_Name
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+# filter to first trimester
+betas_filt <- betas[,pDat_filt$Sample_Name]
+
+densities_pmds_plots <- readRDS('../../data/main/interim/2_7_pmd_density_plots.rds')
+coverage <- readRDS('../../data/main/interim/2_7_pmd_coverage.rds') 
+
+#color code
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+w1 <- 5.5
+f1 <- 8
+e1 <- TRUE
+```
+
+# Addressing bias for assessing PMD methylation 
+
+A problem with assessing PMD methylation with arrays, is that 450k is biased towards gene-rich regions, whereas PMDs tend to occur in gene-porr regions. 850k theoretically should be better, because of improved coverage to enhancer and gene-poor regions 
+
+## 450k/EPIC coverage of PMDs
+
+For each PMD, what percent of CpGs are measured on the 450k/850k arrays?
+
+```{r}
+coverage %>%
+  ggplot(aes(y = prop, x = count_type)) +
+  geom_boxplot() +
+  scale_y_continuous(labels = percent) +
+  labs(y = 'Coverage over PMDs', x = '')
+```
+
+```{r}
+coverage %>% 
+  group_by(count_type) %>%
+  summarize(median = median(prop), IQR = IQR(prop),
+            mean = mean(prop), sd = sd(prop)) %>%
+  mutate_if(is.numeric, percent) 
+```
+
+The EPIC array has more mean coverage over PMDs than the 450k array **(2.072% vs 1.429%)**
+
+# Distribution of PMD methylation {.tabset}
+
+We have an expectation that in placental villi, PMD methylation is highly intermediate. How does this compare to PMD methylation in placental cell types?
+
+The below plots show the distribution of methylation across all PMDs, in first/third trimester cell samples and villi. I decided to compare 450k/850k and unfiltered/filtered cpg sets.
+
+*Note that "filtered" here means, "cpgs not in **shores**, **islands**, or gene **promoter** regions".*
+
+**Technical observations, comparing between plots:**
+
+- EPIC cpgs have more intermediate methylation (0.4-0.7) than 450k cpgs across all subsets, indicating that there is better coverage of PMDs with EPIC data. This makes sense given that a major objective with the EPIC was to cover more gene-poor regions (where PMDs tend to also lie).
+- Comparing Filtered/EPIC vs Unfiltered/EPIC, we can see that, as expected, more cpgs are intermediate and highly methylated in the filtered set. 
+- However, it seems that the differences between tissues remains unchanged, whether we look at filtered or unfiltered. 
+
+**Takeaway**: Prefer using filtered EPIC data for assessing PMD methylation. But unfiltered and 450k are probably fine too.
+
+**Notes on the biology, comparing between tissues within plots:**
+
+Here I look at the "filtered EPIC" plot, because that's what I decided to use in the end, and note down any interesting observations
+
+- There is more *hypomethylation* (0-0.4) in trophoblast and villi compared to other cell types (range 37.3%-46.6% vs 12.6%-29.75%)
+- There is more *intermediate methylation* (0.4-0.7) in trophoblast and villi compared to other cell types (33.0%-43.9% vs 17.8%-39.0%)
+- There is less *hypermethylation* (0.7-1.0) in trophoblast and villi compared to other cell types (17.2%-20.6% vs 37.86%-69.6%)
+
+**Takeaway**: Villi and trophoblast have similar PMD methylation profiles, with lower methylation across most sites (hypo- and intermediate). Hofbaeur is very hypermethylated compared to others.
+
+## Unfiltered, 450k
+
+```{r, fig.width=w1, fig.height=f1, eval = e1}
+densities_pmds_plots$plots[[1]]
+```
+
+## Unfiltered, EPIC
+
+```{r, fig.width=w1, fig.height=f1, eval = e1}
+densities_pmds_plots$plots[[2]]
+```
+
+## Filtered, 450k
+
+```{r, fig.width=w1, fig.height=f1, eval = e1}
+densities_pmds_plots$plots[[3]]
+```
+
+## Filtered, EPIC
+
+```{r, fig.width=w1, fig.height=f1}
+densities_pmds_plots$plots[[4]]
+```
+
+# PMD methylation across gestation
+
+Here we examine the change in methylation within cell types, between third and first trimester.
+
+* All cell types show an increase in hypomethylated sites with gestation
+* Proportion of sites with intermediate methylation goes down in all cell types, except hofbauer cells
+* There is a slight increase in hypermethylated sites for Villi and trophoblast, a decrease for endo and hofbauer cells. Stromal cells stay the same.
+
+
+```{r}
+densities_pmds_plots %>%
+  # extract data
+  filter(filt == 'filtered', array == 'EPIC') %>%
+  pull(density) %>%
+  .[[1]] %>%
+  
+  # remove density coords
+  select(Trimester, Celltype, range, prop) %>%
+  distinct() %>%
+  
+  {
+    ggplot(data = ., aes(x = Trimester, y = prop, col = Celltype)) +
+      geom_point() +
+      geom_line(aes(group = Celltype)) +
+      facet_wrap(~range) +
+      scale_color_manual(values= color_code_tissue[unique(.$Celltype)]) +
+      scale_y_continuous(limits = c(0,NA), breaks = seq(0, 0.7, 0.1), labels = percent) +
+      labs(color = '', title = 'Percent of total CpGs in different methylation intervals',
+           y = '') 
+  }
+```
+
+# Exploring specific regions containing PMDs
+
 
