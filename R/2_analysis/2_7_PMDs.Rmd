@@ -383,25 +383,203 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
 plot regions
 
 ```{r warning = FALSE, message = FALSE}
+# filtered
 plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25,filtered = T, cpg_size = 250) 
+
+# unfiltered
 plot_region(c = 'chr1', s = 1000000, e = 1130000, span = 0.25, filtered = F) 
 
+# filtered
 plot_region(c = 'chr4', s = 6400000, e = 6600000, span = 0.15, filtered = T)
+
+# unfiltered
 plot_region(c = 'chr4', s = 6400000, e = 6600000, span = 0.15, filtered = F) 
 
+
+# filtered
 plot_region(c = 'chr7', s = 850000, e = 1025000, span = 0.15, filtered = T)
+# unfiltered
 plot_region(c = 'chr7', s = 850000, e = 1025000, span = 0.15, filtered = F) 
 
 # Figure 1d
+# filtered, 450k
 plot_region(c = 'chr21', s = 28000000, e = 47000000, span = 0.05, filtered = T, cpg_size = 5000,
             array = '450k')  
+
+# filtered, EPIC
 plot_region(c = 'chr21', s = 28000000, e = 47000000, span = 0.05, filtered = T, cpg_size = 5000,
             array = 'EPIC')  
 
-# Figure S1c
+# unfiltered, 450k
+plot_region(c = 'chr21', s = 28000000, e = 47000000, span = 0.05, filtered = F, cpg_size = 5000,
+            array = '450k')  
+
+# unfiltered, EPIC
+plot_region(c = 'chr21', s = 28000000, e = 47000000, span = 0.05, filtered = F, cpg_size = 5000,
+            array = 'EPIC')  
+
+# Figure S1c, filtered, 450k
 plot_region(c = 'chr21', s = 13000000, e = 48000000, span = 0.01, filtered = T, cpg_size = 5000,
             array = '450k') +
   scale_x_continuous(limits = c(13000000, 48000000), breaks = seq(15000000, 45000000, 
                                                                   length.out = 4),
                      labels = seq(15000000, 45000000, length.out = 4) / 1000000) 
+
+# Figure S1c, unfiltered, 450k
+plot_region(c = 'chr21', s = 13000000, e = 48000000, span = 0.01, filtered = F, cpg_size = 5000,
+            array = '450k') +
+  scale_x_continuous(limits = c(13000000, 48000000), breaks = seq(15000000, 45000000, 
+                                                                  length.out = 4),
+                     labels = seq(15000000, 45000000, length.out = 4) / 1000000) 
+# Figure S1c, filtered, EPIC
+plot_region(c = 'chr21', s = 13000000, e = 48000000, span = 0.01, filtered = T, cpg_size = 5000,
+            array = 'EPIC') +
+  scale_x_continuous(limits = c(13000000, 48000000), breaks = seq(15000000, 45000000, 
+                                                                  length.out = 4),
+                     labels = seq(15000000, 45000000, length.out = 4) / 1000000) 
+# Figure S1c, unfiltered, EPIC
+plot_region(c = 'chr21', s = 13000000, e = 48000000, span = 0.01, filtered = T, cpg_size = 5000,
+            array = 'EPIC') +
+  scale_x_continuous(limits = c(13000000, 48000000), breaks = seq(15000000, 45000000, 
+                                                                  length.out = 4),
+                     labels = seq(15000000, 45000000, length.out = 4) / 1000000) 
+```
+
+# Coverage 450k/850k
+
+Here I examine the coverage over PMDs with 450k/850k data
+
+## Convert hg18 to hg19
+
+```{r}
+# make an identifier for original pmds
+pmds <- pmds %>% 
+  mutate(width = end-start,
+         ID = paste0('pmd_', 1:n()))
+
+# load chain file
+chain_hg18_hg19 <- import.chain("Z:/Victor/Repositories/EPIC_annotation/hg18ToHg19.over.chain")
+chain_hg18_hg19
+
+
+# coerce to granges object
+pmds_hg18 <- pmds %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T)
+
+# hg18 to hg19 coordinates
+pmds_hg19 <- liftOver(pmds_hg18, chain_hg18_hg19) %>% unlist
+
+length(pmds_hg18); length(pmds_hg19)
+```
+
+It looks like many pmds are being broken after mapping to hg19.
+
+```{r}
+pmds_hg18 %>% 
+  as_tibble() %>%
+  mutate(build = 'hg18') %>%
+  bind_rows(., pmds_hg19 %>% as_tibble() %>% mutate(build = 'hg19')) %>%
+  ggplot(aes(x = width, fill = build)) +
+  geom_histogram() +
+  scale_y_log10(expand = c(0,0)) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, 4000000)) +
+  labs(x = 'Size of PMD', fill = 'Genome build')
+```
+
+What should I do about this?
+
+One might want to expand the remapped pmds so that they are no longer broken (reuslting in the same number of pmds before remapping). However, if the gaps between broken pieces is large, this might not make sense (because cpgs in those regions may be hypermethylated).
+
+One could do the above merging, only when broken up pieces have small gaps (e.g. less than 500 bp). However, this would take some data manipulation.
+
+For my question (what is the coverage of cpgs over known pmds), I think I can leave as is. CpGs in the broken gaps were not previously assessed, and therefore don't need to be included. 
+
+Below, I
+- count number of total cpgs overalapping each pmd region
+- count number of EPIC cpgs overlapping each pmd region
+- count number of 450k cpgs overlapping each pmd region
+
+```{r}
+# clean up
+pmds_hg19 <- pmds_hg19 %>% 
+  as_tibble() %>%
+  select(-strand) %>%
+  dplyr::rename(chr = seqnames) %>%
+  mutate(chr = as.character(chr)) 
+
+# all cpgs to pmds
+pmds_hg19_cpg <- pmds_hg19 %>% 
+  
+  #join
+  genome_left_join(hg19_cpgs %>% 
+                     mutate(cpg = paste0('cpg', 1:n())),
+                   
+                   by = c('chr', 'start', 'end')) %>%
+  select(-contains('.y')) %>%
+  dplyr::rename(chr = chr.x, start = start.x, end = end.x)
+
+# count number of cpgs per pmd
+total <- pmds_hg19_cpg %>%
+  group_by(ID) %>%
+  summarize(Total = n(),
+            width = dplyr::first(width))
+
+# number of epic cpgs
+epic <- pmds_hg19 %>% 
+  genome_left_join(anno %>% 
+                     filter(!cpg_id %in% c('island', 'shore'),
+                            !grepl('promoter', genes_id)) %>%
+                     select(chr, start, end, cpg_epic = cpg)) %>%
+  select(-contains('.y')) %>%
+  dplyr::rename(chr = chr.x, start = start.x, end = end.x) %>%
+  dplyr::count(ID, name = 'EPIC')
+
+k450 <- pmds_hg19 %>% 
+  genome_left_join(anno %>% 
+                     filter(cpg %in% anno_450k$Name,
+                            !cpg_id %in% c('island', 'shore'),
+                            !grepl('promoter', genes_id)) %>%
+                     select(chr, start, end, cpg_epic = cpg)) %>%
+  select(-contains('.y')) %>%
+  dplyr::rename(chr = chr.x, start = start.x, end = end.x) %>%
+  dplyr::count(ID, name = '450k')
+
+total <- total %>% 
+  
+  # join data
+  left_join(epic) %>%
+  left_join(k450) %>%
+  
+  # tidy
+  pivot_longer(cols = c(Total, EPIC, `450k`),
+               names_to = 'count_type',
+               values_to = 'n') %>%
+  
+  # get proportion
+  group_by(ID) %>%
+  mutate(prop = n/max(n)) %>%
+  
+  filter(count_type != 'Total', prop < 0.1)
+  
+# plot
+total %>%
+  ggplot(aes(y = prop, x = count_type)) +
+  geom_boxplot() +
+  scale_y_continuous(labels = percent) +
+  labs(y = 'Coverage over PMDs', x = '')
+
+total %>% 
+  group_by(count_type) %>%
+  summarize(median = median(prop), IQR = IQR(prop),
+            mean = mean(prop), sd = sd(prop)) %>%
+  mutate_if(is.numeric, percent) %>%
+  kable() %>%
+  kable_styling()
+```
+
+# Save
+
+```{r, eval = FALSE}
+saveRDS(densities_pmds_plots, '../../data/main/interim/2_7_pmd_density_plots.rds')
+saveRDS(total, '../../data/main/interim/2_7_pmd_coverage.rds')
 ```
