@@ -24,6 +24,11 @@ editor_options:
 library(tidyverse); theme_set(theme_bw())
 library(kableExtra)
 library(glue)
+library(scales)
+library(rtracklayer) 
+library(DT)
+library(readxl)
+library(fuzzyjoin)
 ```
 
 ## Data
@@ -68,6 +73,11 @@ anno_450k <- read_csv('Z:/Victor/Data/DNAm annotations/HumanMethylation450_15017
 
 # all cpgs in the genome
 hg19_cpgs <- readRDS('../../data/main/processed/0_2_all_cpgs_hg19.rds')
+
+#pmds
+pmds <- read_xls('Z:/Victor/Projects/NIH - cells/data/external/placental_pmds.xls', col_names = F)
+colnames(pmds) <- c('chr', 'start', 'end')
+
 ```
 
 ## Remove samples
@@ -181,32 +191,76 @@ counts_pmds <- betas_pmds %>%
                      c(-Inf, 0.4, 0.7, Inf), 
                      labels = c('Unmethylated (<0.4)', 'Intermediate (0.4-0.7)', 
                                 'Methylated (>0.7)'))) %>%
+  
+  # count
   group_by(filt, array, Trimester, Celltype, range) %>%
-  summarize(n = n(),
-            )
+  summarize(n = n())  %>%
+  
+  # proportion
+  mutate(prop = n/sum(n),
+         prop_label = percent(prop),
+         
+         # create x min and x max
+         xmin = 
+           case_when(
+             grepl('<0.4', range) ~ min(densities_pmds$x)-0.0001,
+             grepl('0.4-0.7', range) ~ 0.4,
+             grepl('>0.7', range) ~ 0.7),
+         xmax = 
+           case_when(
+             grepl('<0.4', range) ~ 0.4,
+             grepl('0.4-0.7', range) ~ 0.7,
+             grepl('>0.7', range) ~ max(densities_pmds$x)) + 0.001)
 
-counts_pmds %>%
-  dplyr::count(range)
+# join to densities_pmds
+densities_pmds %>%
+  inner_join(counts_pmds, by = c('filt', 'array', 'Trimester', 'Celltype')) %>%
+  filter(x >= xmin, x <= xmax)
 ```
 
 ## Plot
 
 density plots
 
-```{r}
-densities_pmds_plots <- densities_pmds %>%
-  filter(Trimester != 'Second') %>%
-  nest(c(Trimester:y)) %>%
+```{r, fig.width=5.5, fig.height=7.5}
+densities_pmds
+
+densities_pmds_plots <- 
+  
+  # join to densities_pmds
+  densities_pmds %>%
+  inner_join(counts_pmds, by = c('filt', 'array', 'Trimester', 'Celltype')) %>%
+  filter(x >= xmin, x <= xmax) %>%
+  
+  nest(density = c(Trimester:xmax)) %>%
   mutate(plots = 
-           pmap(list(filt, array, data),
-                ~ ggplot(data = ..3) +
-                  geom_line(size = 2, aes(x = x, y = y, color = Celltype)) +
-                  theme_bw() +
-                  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
-                  facet_grid(Trimester~Celltype) +
-                  scale_color_manual(values =
-                                       color_code_tissue[unique(densities_pmds$Celltype)]) +
-                  labs(x = '% methylation', y = 'density', color = '', 
+           pmap(list(filt, array, density),
+                ~ ggplot(data = filter(..3,  Trimester != 'Second')) +
+                  
+                  # density line
+                    geom_line(size = 2, aes(x = x, y = y, color = Celltype)) +
+                    
+                  # shaded area
+                    geom_area(aes(x = x, y = y, fill = Celltype, alpha = range), color = NA) +
+                    
+                  # percentage / AUC
+                    geom_text(data = filter(..3,  Trimester != 'Second') %>%
+                                 group_by(Trimester, Celltype, range) %>%
+                                 summarize(x = mean(x),
+                                           prop_label = prop_label[1]),
+                               aes(x = x, y = -0.2, label = prop_label),
+                              size = 3) +
+                    theme_bw() +
+                    scale_x_continuous(breaks = c(0, 0.4, 0.7, 1)) +
+                    scale_y_continuous(limits = c(-0.3, NA)) +
+                    facet_grid(Celltype~Trimester) +
+                    scale_color_manual(values =
+                                         color_code_tissue[unique(densities_pmds$Celltype)],
+                                       guide = "none") +
+                    scale_fill_manual(values =
+                                         color_code_tissue[unique(densities_pmds$Celltype)]) +
+                    scale_alpha_manual(values = c(0.1, 0.5, 0.1), guide = "none") +
+                    labs(x = '% methylation', y = 'density', color = '',  fill = '',
                        title = glue('array: {..2}, cpgs: {..1}'))))
 
 densities_pmds_plots$plots %>% print()
