@@ -16,6 +16,11 @@ editor_options:
   chunk_output_type: console
 ---
 
+**Update [October 10th, 2019]:**
+
+* Changed methylation interval from (<0.4, 0.4-0.7, >0.7) to (<0.7, >0.7) for distribution across PMDs analysis.
+* Added PM324_V1 and PM324_V4 methylation lines to compare to other villi.
+
 # Summary
 
 This report describes the results of an analysis of PMD regions using placental cell DNAm data.
@@ -65,6 +70,7 @@ library(tidyverse); theme_set(theme_bw())
 library(glue)
 library(scales)
 library(DT)
+library(viridisLite)
 
 pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
 pDat <- pDat %>%
@@ -135,6 +141,8 @@ The EPIC array has more mean coverage over PMDs than the 450k array **(2.072% vs
 
 # Distribution of PMD methylation {.tabset}
 
+*__Note__ that I have updated this analysis by separating out methylation intervals to 0-0.7 and 0.7-1. I only updated the plots and the "Tissue differences" section to reflect this new analysis.*
+
 We have an expectation that in placental villi, PMD methylation is highly intermediate. How does this compare to PMD methylation in placental cell types?
 
 The below plots show the distribution of methylation across all PMDs, in first/third trimester cell samples and villi. I decided to compare 450k/850k and unfiltered/filtered cpg sets.
@@ -153,9 +161,7 @@ The below plots show the distribution of methylation across all PMDs, in first/t
 
 Here I look at the "filtered EPIC" plot, 
 
-- There is more *hypomethylation* (0-0.4) in trophoblast and villi compared to other cell types (range 37.3%-46.6% vs 12.6%-29.75%)
-- There is more *intermediate methylation* (0.4-0.7) in trophoblast and villi compared to other cell types (33.0%-43.9% vs 17.8%-39.0%)
-- There is less *hypermethylation* (0.7-1.0) in trophoblast and villi compared to other cell types (17.2%-20.6% vs 37.86%-69.6%)
+- There is more *hypo- and intermediate methylation* (<0.7) in trophoblast and villi compared to other cell types (range 79.4%-82.8% vs 30.4%-62.1%)
 
 **Takeaway**: Villi and trophoblast have similar PMD methylation profiles, with lower methylation across most sites (hypo- and intermediate). Hofbaeur is very hypermethylated compared to others.
 
@@ -275,6 +281,7 @@ I wanted to explore a couple of regions containing PMDs.
 plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
                         filtered = TRUE, array = 'EPIC') {
   
+  # determine which cpgs to use, based on c, s, e
   if (is.null(cpg_size)) {
     cpg_size <- (e-s)*0.0005
   }
@@ -298,7 +305,7 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
     region1 <- intersect(anno_450k$Name, region1)
   } 
   
-  # subset to cpgs in region
+  # subset to betas to cpg in region, then make in plottable format
   region1_data <- betas_filt[region1, ] %>%
     
     t() %>%
@@ -327,7 +334,7 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
     select(chr, start, end) %>%
     mutate(dens = approxfun(density(start))(start))
   
-  # get pmd data
+  # get pmd start/end for plotting pmd track
   pmd_data <- anno %>%
     filter(chr == c, between(start, s, e), 
            !is.na(pmd_id)) %>%
@@ -340,11 +347,17 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
     distinct()
   
   ggplot(region1_data) +
+    
+    # methylation track
     geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
               aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
+    
+    # pmd track
     geom_rect(data = pmd_data, 
               aes(xmin = start, xmax = end), 
               ymin = 0.025, ymax = 0.05, fill = 'black') +
+    
+    # cpg density track
     geom_rect(data = cpg_dens, aes(xmin = start - cpg_size/2, xmax = start + cpg_size/2,
                                    fill = dens),
               ymin = 0, ymax = 0.025) +
@@ -402,12 +415,153 @@ plot_region(c = 'chr21', s = 13000000, e = 48000000, span = 0.01, filtered = T, 
 
 Giulia sent me the coordinates for the CNVs of PM324_v1. I thought it would be interesting to see the methylation at any PMDs that are impacted by these CNVs.
 
+**Update:**
+
+- **I added PM324 V1 and V4 as separate lines**
+- **I removed other cell types as it made it hard to see**
+
 *Dashed vertical lines correspond to CNV boundaries*
+
+```{r}
+# define plotting function
+plot_region2 <- function(c, s, e, span = 0.1, cpg_size = NULL,
+                        filtered = TRUE, array = 'EPIC',
+                        highlight_samples = c('PM324_V1', 'PM324_V4')) {
+  # requires anno, betas_filt, anno_450k, pDat_filt, color_code_tissue for colors
+  # c = chromosome
+  # s = start
+  # e  = end
+  # span: the level of smoothing
+  # cpg_size: the width of cpg markers on the cpg track, by default is proportional to e-s
+  # filtered: filter out cpgs in promoters, islands, shores
+  # array: use 450k cpgs or EPIC cpgs
+  # highlight_samples: which samples to plot separately from others
+  
+  # set width of cpg markers, on cpg track
+  if (is.null(cpg_size)) {
+    cpg_size <- (e-s)*0.0005
+  }
+  
+  # determine which cpgs to use, based on c, s, e, filtered, and array arguments
+  if (filtered) {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt),
+             !cpg_id %in% c('island', 'shore'),
+             !grepl('promoter', genes_id)) %>%
+      pull(cpg)
+  } else {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt)) %>%
+      pull(cpg)
+  }
+  
+  if (array == '450K') {
+    region1 <- intersect(anno_450k$Name, region1)
+  } 
+  
+  # subset to betas to cpg in region, then make in plottable format
+  region1_data <- betas_filt[region1, ] %>%
+    
+    t() %>%
+    as.data.frame() %>%
+    bind_cols(Sample_Name = rownames(.), .) %>%
+    
+    # melt
+    gather(cpg, beta, -Sample_Name) %>%
+    
+    # add trimester and sex
+    inner_join(pDat_filt %>% select(Sample_Name, Trimester, Tissue)) %>%
+    
+    # add cpg coordinates
+    inner_join(anno %>% select(cpg, chr, pos = start)) %>%
+    
+    # remove other tissues
+    filter(Tissue == 'Villi') %>%
+    
+    # Set up color variable
+    mutate(# Add highlighted samples into color grouping (tissue)
+           Tissue = if_else(Sample_Name %in% highlight_samples, 
+                            Sample_Name,
+                            Tissue) %>%
+             as.factor() %>%
+             fct_relevel(highlight_samples, after = Inf),
+           
+           # make Highlight samples opaque, others translucent and dashed
+           alpha_group = if_else(Sample_Name %in% highlight_samples,
+                                 0.75, 
+                                 0.75),
+           linetype_group = if_else(Sample_Name %in% highlight_samples,
+                                    'solid',
+                                    'solid')) %>%
+  
+    
+    # only third trimester data
+    filter(Trimester == 'Third')
+  
+  # set up color object
+  
+  ## Take tissues first
+  color_key <- color_code_tissue[intersect(unique(region1_data$Tissue), names(color_code_tissue))]
+  
+  ## add highlighted samples
+  color_key <- c(color_key,
+                 setNames(c('#fcba03', '#2c84db'), 
+                          nm = highlight_samples))
+  
+  # cpg density for measured cpgs
+  cpg_dens <- anno %>%
+    filter(cpg %in% region1) %>%
+    select(chr, start, end) %>%
+    mutate(dens = approxfun(density(start))(start))
+  
+  # get pmd start/end for plotting pmd track
+  pmd_data <- anno %>%
+    filter(chr == c, between(start, s, e), 
+           !is.na(pmd_id)) %>%
+    select(pmd_id) %>%
+    separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
+    mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
+           start = as.numeric(start),
+           end = as.numeric(end)) %>%
+    arrange(chr, start) %>%
+    distinct()
+  
+  ggplot(region1_data) +
+    
+    # methylation track
+    geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE, size = 1.25,
+              aes(x = pos, y = beta, 
+                  color = Tissue, alpha = alpha_group, linetype = linetype_group)) +
+    
+    # pmd track
+    geom_rect(data = pmd_data, 
+              aes(xmin = start, xmax = end), 
+              ymin = 0.025, ymax = 0.05, fill = 'black') +
+    
+    # cpg density track
+    geom_rect(data = cpg_dens, aes(xmin = start - cpg_size/2, xmax = start + cpg_size/2,
+                                   fill = dens),
+              ymin = 0, ymax = 0.025) +
+    theme_bw(base_size = 18) +
+    facet_wrap(~Trimester, ncol = 1) +
+    scale_color_manual(values= color_key) +
+    scale_fill_viridis_c(option = 'inferno', end = 0.75, guide = "none") +
+    scale_y_continuous(expand = c(0,0), limits = c(0, 1.1), 
+                       breaks = c(0, 0.25, 0.5, 0.75, 1), labels = percent) +
+    scale_x_continuous(limits = c(s, e), labels = comma) +
+    scale_alpha_identity() +
+    scale_linetype_identity() +
+    labs(x = 'Chromosome position (bp)', y = 'Methylation',
+         title = paste0(c, ':', comma(s), '-', comma(e)), color = '')
+}
+```
 
 ### 1q32.1
 
 ```{r, fig.width = w2, fig.height = h2}
-plot_region(c = 'chr1', s = 167000000, e = 173500000, span = 0.08, filtered = T, #cpg_size = 10000,
+plot_region2(c = 'chr1', s = 167000000, e = 173500000, span = 0.08, filtered = FALSE, 
             array = 'EPIC') +
   geom_vline(xintercept = 169133115, linetype = 'dashed') +
   geom_vline(xintercept = 172752205, linetype = 'dashed')
@@ -416,7 +570,7 @@ plot_region(c = 'chr1', s = 167000000, e = 173500000, span = 0.08, filtered = T,
 We can zoom into this CNV region more closely
 
 ```{r, fig.width = w2, fig.height = h2}
-plot_region(c = 'chr1', s = 169133115, e = 172752205, span = 0.06, filtered = T, 
+plot_region2(c = 'chr1', s = 169133115, e = 172752205, span = 0.06, filtered = FALSE, 
             cpg_size = 0.005 * (172752205-169133115),
             array = 'EPIC') 
 ```
@@ -427,8 +581,8 @@ plot_region(c = 'chr1', s = 169133115, e = 172752205, span = 0.06, filtered = T,
 cnv_start <- 169133115
 cnv_end <- 172752205
 
-plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.05, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.05, filtered = FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
@@ -439,8 +593,8 @@ plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000,
 cnv_start <- 66855754
 cnv_end <- 69301518
 
-plot_region(c = 'chr6', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.08, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr6', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.08, filtered =FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
@@ -451,8 +605,8 @@ plot_region(c = 'chr6', s = cnv_start - 3500000, e = cnv_end + 3500000,
 cnv_start <- 65791671
 cnv_end <- 69249095
 
-plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.08, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.08, filtered = FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
@@ -463,8 +617,8 @@ plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000,
 cnv_start <- 92757374
 cnv_end <- 96311905
 
-plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.08, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.08, filtered = FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
@@ -475,8 +629,8 @@ plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000,
 cnv_start <- 43851111
 cnv_end <- 47385923
 
-plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.08, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.08, filtered = FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
@@ -487,8 +641,8 @@ plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000,
 cnv_start <- 90310352
 cnv_end <- 93636999
 
-plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.08, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.08, filtered = FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
@@ -499,8 +653,8 @@ plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000,
 cnv_start <- 48475076
 cnv_end <- 52011849
 
-plot_region(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
-            span = 0.08, filtered = T, array = 'EPIC') +
+plot_region2(c = 'chr5', s = cnv_start - 3500000, e = cnv_end + 3500000, 
+            span = 0.08, filtered = FALSE, array = 'EPIC') +
   geom_vline(xintercept = cnv_start, linetype = 'dashed') +
   geom_vline(xintercept = cnv_end, linetype = 'dashed')
 ```
