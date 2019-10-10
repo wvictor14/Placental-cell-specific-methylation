@@ -188,8 +188,8 @@ densities_pmds <- betas_pmds %>%
 counts_pmds <- betas_pmds %>%
   unnest(betas) %>%
   mutate(range = cut(betas, 
-                     c(-Inf, 0.4, 0.7, Inf), 
-                     labels = c('Unmethylated (<0.4)', 'Intermediate (0.4-0.7)', 
+                     c(-Inf, 0.7, Inf), 
+                     labels = c('Partially methylated (<0.7)', 
                                 'Methylated (>0.7)'))) %>%
   
   # count
@@ -203,13 +203,11 @@ counts_pmds <- betas_pmds %>%
          # create x min and x max
          xmin = 
            case_when(
-             grepl('<0.4', range) ~ min(densities_pmds$x)-0.0001,
-             grepl('0.4-0.7', range) ~ 0.4,
+             grepl('<0.7', range) ~ min(densities_pmds$x)-0.0001,
              grepl('>0.7', range) ~ 0.7),
          xmax = 
            case_when(
-             grepl('<0.4', range) ~ 0.4,
-             grepl('0.4-0.7', range) ~ 0.7,
+             grepl('<0.7', range) ~ 0.7,
              grepl('>0.7', range) ~ max(densities_pmds$x)) + 0.001)
 
 # Repeat but with more resolution:
@@ -274,7 +272,7 @@ densities_pmds_plots <-
                                        guide = "none") +
                     scale_fill_manual(values =
                                          color_code_tissue[unique(densities_pmds$Celltype)]) +
-                    scale_alpha_manual(values = c(0.1, 0.5, 0.1), guide = "none") +
+                    scale_alpha_manual(values = c(0.5, 0.2), guide = "none") +
                     labs(x = '% methylation', y = 'density', color = '',  fill = '',
                        title = glue('array: {..2}, cpgs: {..1}'))))
 
@@ -308,7 +306,12 @@ anno %>%
 # define plotting function
 plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
                         filtered = TRUE, array = 'EPIC') {
+  # requires:
+  ## anno - my epic annotation, needs a columns cpg, chr, start
+  ## pDat_filt - a pdata data.frame with trimester/celltype to color by
+  ## betas_filt - a matrix of betas (rows as cpgs)
   
+  # take out cpgs depending on filtered and array arguments
   if (filtered) {
     region1 <- anno %>%
       filter(chr == c, between(start, s, e),
@@ -330,6 +333,7 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
   # subset to cpgs in region
   region1_data <- betas_filt[region1, ] %>%
     
+    # transpose, remove rownames
     t() %>%
     as.data.frame() %>%
     bind_cols(Sample_Name = rownames(.), .) %>%
@@ -343,7 +347,7 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
     # add cpg coordinates
     inner_join(anno %>% select(cpg, chr, pos = start)) %>%
     
-    # set a grouping variable to control alpha for placenta/troph
+    # set up grouping variable to make non-troph/villi tissues more transparent
     mutate(alpha_group = if_else(Tissue %in% c('Trophoblasts cs', 'Villi'),
                                  1, 0.6)) %>%
     
@@ -361,11 +365,15 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
     filter(chr == c, start > s, end < e) %>%
     mutate(dens = approxfun(density(start))(start))
   
-  # get pmd data
+  # get pmd data for plotting pmd track
   pmd_data <- anno %>%
+    
+    # filter to cpgs in the region
     filter(chr == c, between(start, s, e), 
            !is.na(pmd_id)) %>%
     select(pmd_id) %>%
+    
+    # get the pmd end points
     separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
     mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
            start = as.numeric(start),
@@ -374,14 +382,22 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = 500,
     distinct()
   
   ggplot(region1_data) +
+    
+    # methylation track
     geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
               aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
+    
+    # pmd track
     geom_rect(data = pmd_data, 
               aes(xmin = start, xmax = end), 
               ymin = 0.025, ymax = 0.05, fill = 'black') +
+    
+    # density of epic/450k cpgs
     geom_rect(data = cpg_dens, aes(xmin = start - cpg_size/2, xmax = start + cpg_size/2,
                                    fill = dens),
               ymin = 0, ymax = 0.025) +
+    
+    # density of all cpgs in genome
     geom_rect(data = cpg_dens_all, aes(xmin = start - cpg_size/4, xmax = start + cpg_size/4,
                                    fill = dens),
               ymin = -0.025, ymax = 0) +
