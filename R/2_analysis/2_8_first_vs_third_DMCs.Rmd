@@ -1,0 +1,215 @@
+---
+title: "2_8_first_vs_third_DMCs"
+author: "Victor Yuan"
+date: "17/10/2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# Setup
+
+## Libraries
+
+```{r}
+# libraries and data
+library(tidyverse)
+library(minfi)
+library(limma)
+library(biobroom)
+library(scales)
+library(ggrepel)
+theme_set(theme_bw())
+```
+
+## Data
+
+```{r}
+pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+
+mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
+mvals <- getM(mset_noob)
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+anno <- anno %>%
+  as_tibble() %>%
+  filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
+probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+
+# color key
+pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+
+color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+## Remove samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs', 'Villi'),)
+
+# filter to first trimester
+mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
+betas_filt <- betas[,pDat_filt$Sample_Name]
+```
+
+#Linear modelling
+
+## DMCs
+
+```{r}
+# design matrix with Tissue and trimester
+design <- pDat_filt %>% 
+  select(Tissue, Case_ID, Trimester, Sex) %>%
+  mutate(Tissue = gsub('Endothelial cs', 'Endo_cs',
+                       gsub('Hofbauer cs', 'Hofb_cs',
+                            gsub('Trophoblasts cs', 'Troph_cs',
+                                 gsub('Stromal cs', 'Strom_cs',
+                                      gsub(':', '\\.', 
+                                           Tissue))))))
+
+design <- model.matrix(~0 + Trimester:Tissue, data = design)
+colnames(design) <- gsub(':', '\\.', 
+                               gsub('Tissue', '',
+                                    gsub('Trimester', '', 
+                                         colnames(design)))) # rename columns
+
+# account for subject-specific variation
+#corfit <- duplicateCorrelation(mvals_filt, design, block = pDat_filt$Case_ID)
+#corfitb <- duplicateCorrelation(betas_filt, design, block = pDat_filt$Case_ID)
+#saveRDS(list(m = corfit, b = corfitb), '../../data/main/interim/2_4_corfit_mvals.rds')
+#corfit <- readRDS('../../data/main/interim/2_4_corfit_mvals.rds')
+#corfitb <- corfit$b
+#corfitm <- corfit$m;rm(corfit)
+
+#START HEREE JULY 9
+contMatrix <- makeContrasts(
+  Third.Endo_cs - First.Endo_cs,
+  Third.Hofb_cs - First.Hofb_cs,
+  Third.Strom_cs - First.Strom_cs,
+  Third.Troph_cs - First.Troph_cs,
+  
+  levels=design)
+
+# fit the linear model
+fit_m <- lmFit(mvals_filt, design) %>%
+  contrasts.fit(contMatrix) %>%
+  eBayes()%>%
+  tidy()  %>%
+  group_by(term) %>%
+  mutate(fdr = p.adjust(p.value, method = "fdr"),
+         bonferroni = p.adjust(p.value, method = 'bonferroni'))  %>%
+  ungroup() 
+
+# add delta betas
+fit_b <- lmFit(betas_filt, design) %>%
+  contrasts.fit(contMatrix) %>%
+  eBayes() %>%
+  tidy() %>%
+  dplyr::rename(delta_b = estimate) %>%
+  select(gene, term, delta_b)
+
+dmcs <- fit_m %>% left_join(fit_b) %>%
+  mutate(Tissue = case_when(
+           grepl('Endo', term) ~ 'Endothelial cs',
+           grepl('Strom', term) ~ 'Stromal cs',
+           grepl('Hofb', term) ~ 'Hofbauer cs',
+           grepl('Troph', term) ~ 'Trophoblasts cs'))
+```
+
+
+## Summarize
+
+```{r}
+# all effect sizes, calculate density:
+effect_size_dens <- dmcs %>%
+  group_by(Tissue) %>%
+  summarize(density = list(density(delta_b, n = 45))) %>%
+  mutate(x = map(density, 'x'),
+         y = map(density, 'y')) %>%
+  select(-density) %>%
+  unnest(c(x, y)) %>%
+  
+  # make bins
+  group_by(Tissue) %>%
+  mutate(xmin = lag(x, order_by = x),
+         xmax = x) %>%
+  
+  # categorize bins
+  rowwise() %>%
+  mutate(xmean = mean(c(xmin, xmax), na.rm = T)) %>%
+  group_by(Tissue) %>%
+  mutate(alpha = ifelse(xmean >= 0, 'Increases', 'Decreases')) %>%
+  filter(!is.na(xmin), !is.na(xmax))
+
+  
+# proportion hypo / hyper
+effect_size_prop <- dmcs %>%
+  group_by(Tissue) %>%
+  summarize(Decreases = percent(sum(delta_b < 0) / n()),
+            Increases = percent(sum(delta_b > 0) / n())) %>%
+  pivot_longer(cols = -Tissue,
+               names_to = 'alpha',
+               values_to = 'proportion') %>%
+  
+  # make coordinates for label position
+  mutate(x = ifelse(alpha == 'Decreases', -0.2, 0.2),
+         y = 3)
+
+
+# plot
+ggplot(data = effect_size_dens) +
+  geom_rect( aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = y, 
+                  fill = Tissue, color = Tissue, alpha = alpha)) +
+  geom_label(data = effect_size_prop, 
+                   aes(label = proportion, x = x, y= y,
+                       color = Tissue),
+             show.legend = FALSE) + 
+  facet_wrap(~Tissue) +
+  scale_fill_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+  scale_color_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+  scale_alpha_manual(values = c(0.4, 0.85), guide = "none") +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(expand = c(0,0)) +
+  coord_cartesian(xlim = c(-0.5, 0.5), ylim = c(0, 11)) +
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  labs(x = 'DNA methylation (%)', y = 'Density', fill = '', color = '')
+
+
+# define cutoffs
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# count number of significant cpgs per cell
+dmcs_sig <- dmcs %>% 
+  group_by(term) %>% 
+  summarize(b001db50_all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
+            b001db50_hypo = sum(bonferroni < p_thresh & delta_b < -b_thresh),
+            b001db50_hyper = sum(bonferroni < p_thresh & delta_b > b_thresh)) 
+```
