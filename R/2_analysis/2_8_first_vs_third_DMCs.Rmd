@@ -28,13 +28,20 @@ library(limma)
 library(biobroom)
 library(scales)
 library(ggrepel)
+library(here)
+library(missMethyl)
+library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+library(ggridges)
+library(ggbeeswarm)
 theme_set(theme_bw())
 ```
 
 ## Data
 
 ```{r}
-pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+base_path <- file.path('data', 'main', 'interim')
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
 pDat <- pDat %>%
   mutate(Tissue = case_when(
     !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
@@ -43,9 +50,9 @@ pDat <- pDat %>%
   )) 
 
 # raw methylation data
-betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 
-mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+mset_noob <- readRDS(here(base_path, '1_4_mset_noob.rds')) # for mvals
 colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
 mvals <- getM(mset_noob)
 
@@ -54,12 +61,12 @@ anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds
 anno <- anno %>%
   as_tibble() %>%
   filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
-probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
 
 # color key
-pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+pheatmap_color_code <- readRDS(here(base_path, '1_1_color_code.rds'))
 
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 ```
 
@@ -143,73 +150,577 @@ dmcs <- fit_m %>% left_join(fit_b) %>%
 ```
 
 
-## Summarize
+## Distribution of mean change in methylation across gestation
+
+What is the general direction of methylation change between third and first trimester samples across all EPIC cpgs?
+
+Here I find the change in mean methylation between third and first trimester cells for each cpg, and then plot the distribution
 
 ```{r}
-# all effect sizes, calculate density:
-effect_size_dens <- dmcs %>%
-  group_by(Tissue) %>%
-  summarize(density = list(density(delta_b, n = 45))) %>%
-  mutate(x = map(density, 'x'),
-         y = map(density, 'y')) %>%
-  select(-density) %>%
-  unnest(c(x, y)) %>%
+# generate histogram on delta betas across tissue
+histogram_dmc <- function(data, 
+                          
+                          xlim = c(-0.5, 0.5), ylim = NULL, 
+                          label_x = 20, label_y = 6) {
+    
+  # set xlim and ylim to NULL if you want the axes to be auto-zoomed
+  # label_y / label_x is the position of the labels
   
-  # make bins
-  group_by(Tissue) %>%
-  mutate(xmin = lag(x, order_by = x),
-         xmax = x) %>%
+  # all effect sizes, calculate density:
+  effect_size_dens <- data %>%
+    group_by(Tissue) %>%
+    summarize(hist = list(hist(delta_b, breaks = seq(-1, 1, 0.04), plot = FALSE))) %>%
+    
+    mutate(# get the xmin/xmax of bins,
+           breaks = map(hist, 'breaks'),
+           xmin = map(breaks, ~.[1:length(.)-1]),
+           xmax = map(breaks, ~.[2:length(.)]),
+           
+           # midpoint of bin
+           xmean = map(hist, 'mids'),
+           
+           # density is the height of the bins
+           y = map(hist, 'density')) %>%
+    select(-hist, -breaks) %>%
+    unnest(c(xmin:y)) %>%
+    
+    # categorize bins
+    mutate(alpha = ifelse(xmean >= 0, 'Increases', 'Decreases'))
   
-  # categorize bins
-  rowwise() %>%
-  mutate(xmean = mean(c(xmin, xmax), na.rm = T)) %>%
-  group_by(Tissue) %>%
-  mutate(alpha = ifelse(xmean >= 0, 'Increases', 'Decreases')) %>%
-  filter(!is.na(xmin), !is.na(xmax))
-
+    
+  # proportion hypo / hyper
+  effect_size_prop <- data %>%
+    group_by(Tissue) %>%
+    summarize(Decreases = percent(sum(delta_b < 0) / n()),
+              Increases = percent(sum(delta_b > 0) / n())) %>%
+    pivot_longer(cols = -Tissue,
+                 names_to = 'alpha',
+                 values_to = 'proportion') %>%
+    
+    # make coordinates for label position
+    mutate(x = ifelse(alpha == 'Decreases', -label_x/100, label_x/100),
+           y = label_y)
   
-# proportion hypo / hyper
-effect_size_prop <- dmcs %>%
-  group_by(Tissue) %>%
-  summarize(Decreases = percent(sum(delta_b < 0) / n()),
-            Increases = percent(sum(delta_b > 0) / n())) %>%
-  pivot_longer(cols = -Tissue,
-               names_to = 'alpha',
-               values_to = 'proportion') %>%
+  # plot
+  p <- ggplot(data = effect_size_dens) +
+    geom_rect(aes(xmin = xmin, 
+                  xmax = xmax, 
+                  ymin = 0, 
+                  ymax = y, 
+                    
+                  fill = Tissue, 
+                  color = Tissue, 
+                  alpha = alpha)) +
+    geom_label(data = effect_size_prop,
+               aes(label = proportion, 
+                   x = x, 
+                   y = y,
+                   fill = Tissue),
+               colour = 'white', 
+               alpha = 0.85, 
+               show.legend = FALSE) + 
+    geom_vline(xintercept = 0, 
+               color = '#454343', 
+               linetype = 'dashed', 
+               size = 1) +
+    facet_wrap(~Tissue) +
+    scale_fill_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+    scale_color_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+    scale_alpha_manual(values = c(0.4, 0.85), 
+                       guide = "none") +
+    scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                       breaks = seq(-1, 1, 0.2)) +
+    scale_y_continuous(expand = c(0,0)) +
+    coord_cartesian(xlim = xlim, ylim = ylim) +
+    theme(panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank()) +
+    labs(x = '(Third trimester) - (First trimester)\nDNA methylation', 
+         y = 'Density', 
+         fill = '', 
+         color = '')
   
-  # make coordinates for label position
-  mutate(x = ifelse(alpha == 'Decreases', -0.2, 0.2),
-         y = 3)
+  p
+}
 
+histogram_dmc(dmcs)
+```
 
-# plot
-ggplot(data = effect_size_dens) +
-  geom_rect( aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = y, 
-                  fill = Tissue, color = Tissue, alpha = alpha)) +
-  geom_label(data = effect_size_prop, 
-                   aes(label = proportion, x = x, y= y,
-                       color = Tissue),
-             show.legend = FALSE) + 
-  facet_wrap(~Tissue) +
-  scale_fill_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
-  scale_color_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
-  scale_alpha_manual(values = c(0.4, 0.85), guide = "none") +
-  scale_x_continuous(labels = percent) +
-  scale_y_continuous(expand = c(0,0)) +
-  coord_cartesian(xlim = c(-0.5, 0.5), ylim = c(0, 11)) +
-  theme(panel.grid.minor.y = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  labs(x = 'DNA methylation (%)', y = 'Density', fill = '', color = '')
+Let's see how this distribution changes as we filter to statistically / biologically significant CpGs / DMCs:
 
+```{r}
+# bonferroni p < 0.01
+dmcs %>%
+  filter(bonferroni < 0.01) %>%
+  histogram_dmc(xlim = c(-0.75, 0.75), ylim = c(0, 4), 
+                label_x = 50, label_y = 2) +
+  scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                     breaks = seq(-0.75, 0.75, 0.25)) 
+
+# bonferroni p < 0.01, delta_b > 0.05
+dmcs %>%
+  filter(bonferroni < 0.01, abs(delta_b) > 0.05) %>%
+  histogram_dmc(xlim = c(-0.75, 0.75), ylim = c(0, 4), 
+                label_x = 50, label_y = 2) +
+  scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                     breaks = seq(-0.75, 0.75, 0.25))
 
 # define cutoffs
 p_thresh <- 0.01
-b_thresh <- 0.25
+b_thresh <- 0.05
 
 # count number of significant cpgs per cell
 dmcs_sig <- dmcs %>% 
   group_by(term) %>% 
-  summarize(b001db50_all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
-            b001db50_hypo = sum(bonferroni < p_thresh & delta_b < -b_thresh),
-            b001db50_hyper = sum(bonferroni < p_thresh & delta_b > b_thresh)) 
+  summarize(b01db05_all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
+            b01db05_hypo = sum(bonferroni < p_thresh & delta_b < -b_thresh),
+            b01db05_hyper = sum(bonferroni < p_thresh & delta_b > b_thresh)) 
+dmcs_sig
 ```
+
+# Functional enrichment
+
+## GO terms
+
+```{r}
+#GO testing
+gst <- dmcs %>% 
+  group_by(term) %>%
+  nest(lm_summary = -term) %>%
+  mutate(GO_results = map(lm_summary, . %>% 
+                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+                            pull(gene) %>% 
+                            gometh(all.cpg= rownames(betas), 
+                                   collection = 'GO',
+                                   array.type = 'EPIC') %>%
+                            mutate(ID = rownames(.)) %>%
+                            arrange(FDR)),
+         # number significnat at FDR < 0.05
+         FDR05_signif = map_dbl(GO_results, . %>% filter(FDR < 0.05) %>% nrow())) %>%
+  
+  # process results
+  mutate(Celltype = case_when(
+    grepl("Endo_cs", term) ~ 'Endothelial cs',
+    grepl('Hofb_cs', term) ~ 'Hofbauer cs',
+    grepl('Strom_cs', term) ~ 'Stromal cs',
+    grepl('Troph_cs', term) ~ 'Trophoblasts cs'),
+    
+    # filter to significant results
+    GO_results = map(GO_results, . %>% filter(FDR < 0.05))) %>%
+  
+  select(-lm_summary) %>%
+  unnest(GO_results) %>% 
+  
+  # number of DE cpgs per total cpgs in each gene
+  mutate(Generatio = DE/N, 
+         neg_log_P = -log(P.DE, base = 10)) %>%
+  
+  # set up ordering for plot
+  ungroup() %>%
+  arrange(Celltype, Generatio) %>%
+  mutate(Order = row_number())
+
+# plot results
+gst %>%
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Celltype), scales = 'free_y') +
+  scale_x_continuous(breaks = gst$Order,
+                     labels = gst$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(p-value)', x = '', 
+       y = '(# of DMCs in associated genes) / (Total # of CpGs in associated genes)')
+```
+
+## KEGG
+
+```{r}
+kegg <- dmcs %>% 
+  group_by(term) %>%
+  nest(lm_summary = -term) %>%
+  mutate(results = map(lm_summary, . %>% 
+                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+                            pull(gene) %>% 
+                            gometh(all.cpg= rownames(betas), 
+                                   collection = 'KEGG',
+                                   array.type = 'EPIC') %>%
+                            mutate(ID = rownames(.)) %>%
+                            arrange(FDR)),
+         # number significnat at FDR < 0.05
+         FDR05_signif = map_dbl(results, . %>% filter(FDR < 0.05) %>% nrow())) %>%
+  
+  # process results
+  mutate(Celltype = case_when(
+    grepl("Endo_cs", term) ~ 'Endothelial cs',
+    grepl('Hofb_cs', term) ~ 'Hofbauer cs',
+    grepl('Strom_cs', term) ~ 'Stromal cs',
+    grepl('Troph_cs', term) ~ 'Trophoblasts cs'),
+    
+    # filter to significant results
+    results = map(results, . %>% filter(FDR < 0.05))) %>%
+  
+  select(-lm_summary) %>%
+  unnest(results) %>% 
+  
+  # number of DE cpgs per total cpgs in each gene
+  mutate(Generatio = DE/N, 
+         neg_log_P = -log(P.DE, base = 10)) %>%
+  
+  # set up ordering for plot
+  ungroup() %>%
+  arrange(Celltype, Generatio) %>%
+  mutate(Order = row_number())
+
+# plot results
+kegg %>%
+  
+  # take top 10 significant
+  group_by(term) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Celltype), scales = 'free_y') +
+  scale_x_continuous(breaks = kegg$Order,
+                     labels = kegg$Description) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(p-value)', x = '', 
+       y = '(# of DMCs in associated genes) / (Total # of CpGs in associated genes)')
+```
+
+
+# Genomic enrichment
+
+*Copied from `2_5_enrichment_analysis.Rmd`*
+
+## Conduct tests
+
+```{r}
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# dummy variable all categories
+annotation <- anno %>% 
+  
+  # mutate spread is clean, but slow. Can only work with those that have non-duplicated strings in each element
+  mutate(var = 1) %>%
+  spread(cpg_id, var, fill = 0) %>% 
+  
+  mutate(var = 1) %>%
+  spread(chr, var, fill = 0) %>% 
+  
+  mutate(
+         # cannot follow the spread strategy above, since we have numerous occurences in each element
+         `1to5kb` = ifelse(grepl('1to5kb', genes_id), 1, 0),
+         `3UTR` = ifelse(grepl('3UTR', genes_id), 1, 0),
+         `5UTR` = ifelse(grepl('5UTR', genes_id), 1, 0),
+         exon = ifelse(grepl("exon", genes_id), 1, 0),
+         intergenic = ifelse(grepl('intergenic', genes_id), 1, 0),
+         intron = ifelse(grepl('intron', genes_id), 1, 0),
+         intronexonboundary = ifelse(grepl('intronexonboundary', genes_id), 1, 0),
+         promoter = ifelse(grepl("promoter", genes_id), 1, 0),
+         
+         enhancer = !is.na(enhancers_id),
+         pmd = !is.na(pmd_id),
+         imprinted_gene_placenta = !is.na(imprinted_gene_placenta),
+         imprinted_gene_general = !is.na(imprinted_gene_general),
+         imprinted_dmr_general = !is.na(imprinted_dmr_general),
+         imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta))
+
+# add gene annotation to dmcs
+dmcs <- dmcs %>% left_join(annotation, by = c('gene' = 'cpg'))
+
+# filter to all tested cpgs
+annotation <- annotation %>%
+  filter(cpg %in% dmcs$gene)
+  
+# tabulate the background frequency per genomic element
+expected <-  annotation %>%
+  dplyr::select(cpg, island:pmd, contains('imprint')) %>%
+  gather(key = genomic_feature, value = present, -cpg) %>%
+  
+  group_by(genomic_feature) %>%
+  summarize(Expected_n_in = sum(present), 
+            
+            Expected_n_out = nrow(annotation) - Expected_n_in,
+            Expected_p_in = Expected_n_in/ nrow(annotation),
+            Expected_p_out = Expected_n_out / nrow(annotation))
+
+# tabulate observed frequency for significant cpgs
+observed <- dmcs %>% 
+  
+  # add hypo hyper as group
+  mutate(Group1 = paste0(Tissue, ifelse(delta_b > 0, '.Hyper', '.Hypo'))) %>%
+  
+  # calculate total dmcs per cell type
+  group_by(Group1) %>%
+  mutate(n_total = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh )) %>%
+  
+  # filter to just dmcs
+  filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+  select(Group1, gene, island:pmd, contains('imprint'), n_total) %>%
+
+  # calculated the number of dmcs in each feature, and then the number out
+  gather(key = genomic_feature, value = present, -gene, -Group1, -n_total) %>%
+  group_by(Group1, genomic_feature) %>%
+  summarize(Observed_n_in = sum(present), 
+            
+            Observed_n_out = unique(n_total) - Observed_n_in,
+            Observed_p_in = Observed_n_in / unique(n_total),
+            Observed_p_out = Observed_n_out / unique(n_total))
+
+# fisher's test for enrichment
+# (1) # of DMCs on var1 (already calcualted, 'Freq')
+# (2) # of non-DMCs on var1
+# (3) # of DMCs not on var1
+# (4) # of non-DMCs not on var1
+
+
+# calculate (2) (3) (4), and test enrichment
+tests <- observed %>%
+  
+  ungroup() %>%
+  
+  # add in all_cpgs datarfame for calculations
+  left_join(expected, by = 'genomic_feature') %>%
+  
+  # calculate (2), (4)
+  mutate(Observed_notDMC_in = Expected_n_in - Observed_n_in,   #(2) # non-DMCs in var1
+         
+         # for (4)
+         Observed_notDMC_out = Expected_n_out - Observed_n_out) %>%  # of non-DMCs out of Var1
+  
+  # test enrichment
+  rowwise() %>%
+  mutate(test_in = list(matrix(c(Observed_n_in, Observed_notDMC_in, 
+                                   Observed_n_out, Observed_notDMC_out),2,2))) %>%
+  ungroup() %>%
+  
+  mutate(test_out = map(test_in, ~fisher.test(., conf.int = 0.95)),
+         p = map_dbl(test_out, 'p.value'),
+         confidence_interval_min = map_dbl(test_out, ~.$conf.int[1]),
+         confidence_interval_max = map_dbl(test_out, ~.$conf.int[2]),
+         odds_ratio = map_dbl(test_out, 'estimate'),
+         FDR = p.adjust(p, method = 'fdr'),
+         bonferroni = p.adjust(p, method = 'bonferroni'),
+         FDR01 = FDR < 0.01,
+         bonferroni01 = bonferroni < 0.01) %>% 
+  select(odds_ratio, contains('confidence'), FDR, FDR01, 
+         bonferroni, bonferroni01, p, everything()) %>%
+  separate(Group1, into = c('Celltype', 'Direction'), sep = '\\.') 
+  
+colors <- color_code %>% 
+  filter(label %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
+colors <- setNames(colors$Colors_Tissue, unique(tests$Celltype))
+
+# categorize genomic features
+tests <- tests %>% 
+  mutate(
+    genomic_feature_category = case_when(
+      grepl('chr', genomic_feature) ~ 'chr',
+      genomic_feature %in% c('1to5kb', '3UTR', '5UTR', 'exon', 'intron', 
+                             'intergenic', 'intronexonboundary', 'promoter') ~ 'gene',
+      genomic_feature %in% c('island', 'shore', 'shelf', 'sea') ~ 'cpg_island',
+      grepl('imprint', genomic_feature) ~ 'imprinting',
+      genomic_feature == 'pmd' ~ 'pmd',
+      genomic_feature == 'enhancer' ~ 'enhancer'),
+    FDR_cat = case_when(
+      FDR < 0.05 ~ "FDR < 0.05",
+      FDR < 0.01 ~ "FDR < 0.01",
+      FDR < 0.001 ~ "FDR < 0.001",
+      TRUE ~ "n.s")
+    ) 
+```
+
+## Visualize
+
+```{r}
+# plot function
+plot_enrich <- function(x) {
+  g <- ggplot(data = x) +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = genomic_feature, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, 
+                      y = odds_ratio, 
+                      color = Celltype,
+                      alpha = FDR01),
+                  position = position_dodge(width =0.5 )) +
+  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(Celltype~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  scale_y_log10() +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 0), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  scale_alpha_manual(values = c('TRUE' = 1, 'FALSE' = 1),
+                     guide = FALSE) +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
+  print(g)
+}
+```
+
+### Chromosome
+
+```{r}
+#chromosome
+tests %>% 
+  filter(genomic_feature_category == 'chr',
+         !genomic_feature %in% c('chrX', 'chrY')) %>%
+  mutate(genomic_feature = factor(genomic_feature, levels = paste0('chr', 1:22))) %>%
+  plot_enrich() +
+  scale_x_discrete(labels = 1:22) +
+  labs(title = 'Third - First trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') 
+```
+
+### gene/cpgisland/enhancer
+
+```{r}
+tests %>% 
+  filter(genomic_feature_category == 'gene' | 
+           genomic_feature == 'enhancer' |
+           genomic_feature_category == 'cpg_island') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon',
+                                             'intron', 
+                                             'intronexonboundary','3UTR','intergenic',
+                                             
+                                             'island', 'shore', 'shelf', 'sea'))) %>% 
+  plot_enrich() +
+  labs(title = 'Third - First trimester DMCs', shape = '', y = 'Odds ratio', x = '') 
+```
+
+### PMD
+
+```{r}
+# pmd
+tests %>% 
+  filter(genomic_feature_category == 'pmd') %>%
+  ggplot() +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = Celltype, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, y = odds_ratio, color = Celltype),
+                  position = position_dodge(width =0.5 )) +
+#  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(.~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  scale_y_log10() +
+  #scale_x_discrete(labels = 1:22) +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  coord_flip() +
+  labs(title = 'Partially Methylated Domains', shape = '', y = 'Odds ratio', x = '') +
+  theme_bw() +
+  theme(#panel.grid.minor.x = element_blank(),
+        #panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
+```
+
+### Imprinting
+
+```{r}
+# imprint
+tests %>% 
+  filter(genomic_feature_category == 'imprinting') %>%
+  ggplot() +
+  geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
+  geom_pointrange(aes(x = genomic_feature, 
+                      ymin = confidence_interval_min, 
+                      ymax = confidence_interval_max,
+                      shape = FDR01, y = odds_ratio, color = Celltype),
+                  position = position_dodge(width =0.5 )) +
+#  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
+  facet_grid(Celltype~Direction) +
+  scale_color_manual(values= color_code_tissue[unique(tests$Celltype)]) +
+  scale_y_log10(breaks= c(0.01, 0.1, 1, 10)) +
+  #scale_x_discrete(labels = 1:22) +
+  scale_shape_manual(values = c('TRUE' = 16, 'FALSE' = 15), 
+                     labels = c('Not significant', 'FDR < 0.01')) +
+  coord_flip() +
+  labs(title = 'Imprinting', shape = '', y = 'Odds ratio', x = '') +
+  theme_bw() +
+  theme(#panel.grid.minor.x = element_blank(),
+        #panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(size = 8))
+```
+
+# Specific sites
+
+```{r}
+topdmcs <- dmcs %>% 
+  filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>% 
+  
+  mutate(Direction = ifelse(delta_b > 0, 'Hypermethylated', 'Hypomethylated')) %>%
+  group_by(term, Direction)%>% 
+  arrange(bonferroni) %>%
+  
+  # identify the unique genes that each cpg maps to
+  mutate(gene_label = str_split(genes_symbol, ', ') %>%
+           
+           # remove duplicated symbols
+           map(unique)  %>%
+           
+           # discard the character NAs
+           map(., ~purrr::discard(., . == 'NA')) %>%
+           
+           # discard the NAs
+           map(., ~ifelse(is.na(.), '', .)) %>%
+           
+           # paste it back together with comma delimiter
+           map_chr(., ~paste(., collapse = ', '))) %>%
+  dplyr::rename(cpg = gene) %>%
+  
+  # reorder columns
+  select(term, cpg, gene_label, Direction, everything()) %>% 
+  
+  # select top n for hypo hyper per group
+  group_by(term, Direction) %>%
+  arrange(bonferroni) %>%
+  top_n(-4, bonferroni) %>%
+  ungroup() %>%
+  
+  mutate(cpg_gene_label = paste(cpg, gene_label, sep = '; '))
+
+
+# pull out betas
+topdmcs_b <- 
+  
+  # combine betas to pDat
+  bind_cols(pDat_filt %>% select(Sample_Name, Tissue, Trimester),
+            as.data.frame(t(betas_filt[topdmcs$cpg,]))) %>%
+  pivot_longer(cols = c(-Sample_Name, -Tissue, -Trimester),
+              names_to = 'cpg', 
+              values_to = 'beta') %>%
+  
+  # Join to annotation
+  left_join(topdmcs %>% 
+              select(cpg, term, Direction, cpg_gene_label, gene_label, p.value, delta_b), 
+            by =c('cpg')) %>%
+  arrange(term, delta_b) %>%
+  mutate(cpg_gene_label = factor(as.character(cpg_gene_label), 
+                                 levels = unique(as.character(cpg_gene_label)))) 
+
+topdmcs_b %>%
+  filter(Tissue == 'Endothelial cs', grepl('Endo', term)) %>%
+  ggplot(aes(x = Trimester, y = beta, color = Tissue)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_color_manual(values= color_code_tissue[unique(topdmcs_b$Tissue)]) +
+  scale_fill_manual(values= color_code_tissue[unique(topdmcs_b$Tissue)]) +
+  facet_wrap(.~cpg_gene_label, nrow = 1, scales = 'free_x') 
+```
+
