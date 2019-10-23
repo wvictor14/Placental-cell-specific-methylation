@@ -717,10 +717,12 @@ topdmcs_b <-
 topdmcs_b %>%
   filter(Tissue == 'Endothelial cs', grepl('Endo', term)) %>%
   ggplot(aes(x = Trimester, y = beta, color = Tissue)) +
-  geom_boxplot() +
-  geom_jitter() +
+  geom_beeswarm(cex = 5, size = 1.4, priority = 'density', 
+                aes(shape = Trimester)) +
+  #geom_dotplot(aes(shape = Trimester), binaxis = 'y', binwidth = 0.01) +
   scale_color_manual(values= color_code_tissue[unique(topdmcs_b$Tissue)]) +
   scale_fill_manual(values= color_code_tissue[unique(topdmcs_b$Tissue)]) +
+  scale_shape_manual(values = c('First' = 1, 'Third' = 16)) +
   facet_wrap(.~cpg_gene_label, nrow = 1, scales = 'free_x') 
 ```
 
