@@ -19,7 +19,8 @@ editor_options:
 
 ## Libraries
 
-```{r, message = FALSE, warning = FALSE}
+
+```r
 # libraries and data
 library(tidyverse)
 library(minfi)
@@ -37,7 +38,8 @@ theme_set(theme_bw())
 
 ## Data
 
-```{r}
+
+```r
 base_path <- file.path('data', 'main', 'interim')
 
 pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
@@ -71,7 +73,8 @@ color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 
 ## Remove samples
 
-```{r}
+
+```r
 pDat_filt <- pDat %>% 
   filter(maternal_contamination_norm_flip < 0.35,
          !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
@@ -88,7 +91,8 @@ betas_filt <- betas[,pDat_filt$Sample_Name]
 
 ## DMCs
 
-```{r}
+
+```r
 # design matrix with Tissue and trimester
 design <- pDat_filt %>% 
   select(Tissue, Case_ID, Trimester, Sex) %>%
@@ -148,6 +152,10 @@ dmcs <- fit_m %>% left_join(fit_b) %>%
            grepl('Troph', term) ~ 'Trophoblasts cs'))
 ```
 
+```
+## Joining, by = c("gene", "term")
+```
+
 
 ## Distribution of mean change in methylation across gestation
 
@@ -155,7 +163,8 @@ What is the general direction of methylation change between third and first trim
 
 Here I find the change in mean methylation between third and first trimester cells for each cpg, and then plot the distribution
 
-```{r}
+
+```r
 # generate histogram on delta betas across tissue
 histogram_dmc <- function(data, 
                           
@@ -245,9 +254,12 @@ histogram_dmc <- function(data,
 histogram_dmc(dmcs)
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+
 Let's see how this distribution changes as we filter to statistically / biologically significant CpGs / DMCs:
 
-```{r}
+
+```r
 # bonferroni p < 0.01
 dmcs %>%
   filter(bonferroni < 0.01) %>%
@@ -255,7 +267,16 @@ dmcs %>%
                 label_x = 50, label_y = 2) +
   scale_x_continuous(labels = percent_format(accuracy = 1L), 
                      breaks = seq(-0.75, 0.75, 0.25)) 
+```
 
+```
+## Scale for 'x' is already present. Adding another scale for 'x', which
+## will replace the existing scale.
+```
+
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+
+```r
 # bonferroni p < 0.01, delta_b > 0.05
 dmcs %>%
   filter(bonferroni < 0.01, abs(delta_b) > 0.05) %>%
@@ -263,7 +284,16 @@ dmcs %>%
                 label_x = 50, label_y = 2) +
   scale_x_continuous(labels = percent_format(accuracy = 1L), 
                      breaks = seq(-0.75, 0.75, 0.25))
+```
 
+```
+## Scale for 'x' is already present. Adding another scale for 'x', which
+## will replace the existing scale.
+```
+
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
+
+```r
 # define cutoffs
 p_thresh <- 0.01
 b_thresh <- 0.05
@@ -277,11 +307,22 @@ dmcs_sig <- dmcs %>%
 dmcs_sig
 ```
 
+```
+## # A tibble: 4 x 4
+##   term                            b01db05_all b01db05_hypo b01db05_hyper
+##   <fct>                                 <int>        <int>         <int>
+## 1 Third.Endo_cs - First.Endo_cs         63420        48885         14535
+## 2 Third.Hofb_cs - First.Hofb_cs          1549          378          1171
+## 3 Third.Strom_cs - First.Strom_cs       94595        41094         53501
+## 4 Third.Troph_cs - First.Troph_cs      108793         1917        106876
+```
+
 # Functional enrichment
 
 ## GO terms
 
-```{r}
+
+```r
 #GO testing
 gst <- dmcs %>% 
   group_by(term) %>%
@@ -335,9 +376,12 @@ gst %>%
        y = '(# of DMCs in associated genes) / (Total # of CpGs in associated genes)')
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+
 ## KEGG
 
-```{r}
+
+```r
 kegg <- dmcs %>% 
   group_by(term) %>%
   nest(lm_summary = -term) %>%
@@ -395,6 +439,8 @@ kegg %>%
        y = '(# of DMCs in associated genes) / (Total # of CpGs in associated genes)')
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+
 
 # Genomic enrichment
 
@@ -402,7 +448,8 @@ kegg %>%
 
 ## Conduct tests
 
-```{r}
+
+```r
 # dummy variable all categories
 annotation <- anno %>% 
   
@@ -538,7 +585,8 @@ tests <- tests %>%
 
 ## Visualize
 
-```{r}
+
+```r
 # plot function
 plot_enrich <- function(x) {
   g <- ggplot(data = x) +
@@ -570,7 +618,8 @@ plot_enrich <- function(x) {
 
 ### Chromosome
 
-```{r}
+
+```r
 #chromosome
 tests %>% 
   filter(genomic_feature_category == 'chr',
@@ -581,9 +630,12 @@ tests %>%
   labs(title = 'Third - First trimester DMCs', shape = '', y = 'Odds ratio', x = 'Chromosome') 
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-11-1.png)<!-- -->![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-11-2.png)<!-- -->
+
 ### gene/cpgisland/enhancer
 
-```{r}
+
+```r
 tests %>% 
   filter(genomic_feature_category == 'gene' | 
            genomic_feature == 'enhancer' |
@@ -598,9 +650,12 @@ tests %>%
   labs(title = 'Third - First trimester DMCs', shape = '', y = 'Odds ratio', x = '') 
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-12-1.png)<!-- -->![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-12-2.png)<!-- -->
+
 ### PMD
 
-```{r}
+
+```r
 # pmd
 tests %>% 
   filter(genomic_feature_category == 'pmd') %>%
@@ -626,9 +681,12 @@ tests %>%
         axis.text.y = element_text(size = 8))
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-13-1.png)<!-- -->
+
 ### Imprinting
 
-```{r}
+
+```r
 # imprint
 tests %>% 
   filter(genomic_feature_category == 'imprinting') %>%
@@ -654,9 +712,18 @@ tests %>%
         axis.text.y = element_text(size = 8))
 ```
 
+```
+## Warning: Transformation introduced infinite values in continuous y-axis
+
+## Warning: Transformation introduced infinite values in continuous y-axis
+```
+
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-14-1.png)<!-- -->
+
 # Specific sites
 
-```{r}
+
+```r
 topdmcs <- dmcs %>% 
   filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>% 
   
@@ -727,23 +794,38 @@ plot_dmcs <- function(data){
 topdmcs_b %>%
   filter(Tissue == 'Endothelial cs', grepl('Endo', term)) %>%
   plot_dmcs()
-  
+```
+
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
+
+```r
 topdmcs_b %>%
   filter(Tissue == 'Trophoblasts cs', grepl('Troph', term)) %>%
   plot_dmcs()
+```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
+
+```r
 topdmcs_b %>%
   filter(Tissue == 'Stromal cs', grepl('Strom', term)) %>%
   plot_dmcs()
+```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-3.png)<!-- -->
+
+```r
 topdmcs_b %>%
   filter(Tissue == 'Hofbauer cs', grepl('Hofb', term)) %>%
   plot_dmcs()
 ```
 
+![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-4.png)<!-- -->
+
 # Save Data
 
-```{r eval = FALSE}
+
+```r
 saveRDS(dmcs, here('data', 'main', 'interim', '2_8_all_third_vs_first_dmcs.rds'))
 saveRDS(list(GO = gst, KEGG = kegg), 
         here('data', 'main', 'interim', '2_8_functional_enrichment_results.rds'))
@@ -758,11 +840,185 @@ dmcs %>%
   mutate(cpg_chr = factor(cpg_chr, levels = paste0('chr', c(1:22, 'X')))) %>%
   arrange(cpg_chr, start) %>%
   write_csv(here('outs', '2_8_third_vs_first_dmcs.csv'))
-
 ```
 
 # Session info
 
-```{r}
+
+```r
 sessionInfo()
+```
+
+```
+## R version 3.6.0 (2019-04-26)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+## Running under: Windows Server x64 (build 14393)
+## 
+## Matrix products: default
+## 
+## locale:
+## [1] LC_COLLATE=English_Canada.1252  LC_CTYPE=English_Canada.1252   
+## [3] LC_MONETARY=English_Canada.1252 LC_NUMERIC=C                   
+## [5] LC_TIME=English_Canada.1252    
+## 
+## attached base packages:
+## [1] stats4    parallel  stats     graphics  grDevices utils     datasets 
+## [8] methods   base     
+## 
+## other attached packages:
+##  [1] ggbeeswarm_0.6.0                                   
+##  [2] ggridges_0.5.1                                     
+##  [3] IlluminaHumanMethylationEPICanno.ilm10b4.hg19_0.6.0
+##  [4] missMethyl_1.18.0                                  
+##  [5] here_0.1                                           
+##  [6] ggrepel_0.8.1                                      
+##  [7] scales_1.0.0                                       
+##  [8] biobroom_1.16.0                                    
+##  [9] broom_0.5.2                                        
+## [10] limma_3.40.2                                       
+## [11] minfi_1.30.0                                       
+## [12] bumphunter_1.26.0                                  
+## [13] locfit_1.5-9.1                                     
+## [14] iterators_1.0.10                                   
+## [15] foreach_1.4.4                                      
+## [16] Biostrings_2.52.0                                  
+## [17] XVector_0.24.0                                     
+## [18] SummarizedExperiment_1.14.0                        
+## [19] DelayedArray_0.10.0                                
+## [20] BiocParallel_1.17.18                               
+## [21] matrixStats_0.54.0                                 
+## [22] Biobase_2.44.0                                     
+## [23] GenomicRanges_1.36.0                               
+## [24] GenomeInfoDb_1.20.0                                
+## [25] IRanges_2.18.1                                     
+## [26] S4Vectors_0.22.0                                   
+## [27] BiocGenerics_0.30.0                                
+## [28] forcats_0.4.0                                      
+## [29] stringr_1.4.0                                      
+## [30] dplyr_0.8.3                                        
+## [31] purrr_0.3.2                                        
+## [32] readr_1.3.1                                        
+## [33] tidyr_1.0.0                                        
+## [34] tibble_2.1.3                                       
+## [35] ggplot2_3.2.0                                      
+## [36] tidyverse_1.2.1                                    
+## 
+## loaded via a namespace (and not attached):
+##   [1] readxl_1.3.1                                      
+##   [2] backports_1.1.4                                   
+##   [3] plyr_1.8.4                                        
+##   [4] lazyeval_0.2.2                                    
+##   [5] splines_3.6.0                                     
+##   [6] digest_0.6.19                                     
+##   [7] htmltools_0.3.6                                   
+##   [8] GO.db_3.8.2                                       
+##   [9] fansi_0.4.0                                       
+##  [10] magrittr_1.5                                      
+##  [11] memoise_1.1.0                                     
+##  [12] annotate_1.62.0                                   
+##  [13] modelr_0.1.4                                      
+##  [14] askpass_1.1                                       
+##  [15] siggenes_1.58.0                                   
+##  [16] prettyunits_1.0.2                                 
+##  [17] colorspace_1.4-1                                  
+##  [18] blob_1.1.1                                        
+##  [19] rvest_0.3.4                                       
+##  [20] BiasedUrn_1.07                                    
+##  [21] haven_2.1.0                                       
+##  [22] xfun_0.7                                          
+##  [23] crayon_1.3.4                                      
+##  [24] RCurl_1.95-4.12                                   
+##  [25] jsonlite_1.6                                      
+##  [26] genefilter_1.66.0                                 
+##  [27] GEOquery_2.52.0                                   
+##  [28] zeallot_0.1.0                                     
+##  [29] IlluminaHumanMethylationEPICmanifest_0.3.0        
+##  [30] survival_2.44-1.1                                 
+##  [31] glue_1.3.1                                        
+##  [32] ruv_0.9.7                                         
+##  [33] registry_0.5-1                                    
+##  [34] gtable_0.3.0                                      
+##  [35] zlibbioc_1.30.0                                   
+##  [36] Rhdf5lib_1.6.0                                    
+##  [37] HDF5Array_1.12.1                                  
+##  [38] DBI_1.0.0                                         
+##  [39] rngtools_1.3.1.1                                  
+##  [40] bibtex_0.4.2                                      
+##  [41] Rcpp_1.0.1                                        
+##  [42] viridisLite_0.3.0                                 
+##  [43] xtable_1.8-4                                      
+##  [44] progress_1.2.2                                    
+##  [45] bit_1.1-14                                        
+##  [46] mclust_5.4.3                                      
+##  [47] preprocessCore_1.46.0                             
+##  [48] httr_1.4.0                                        
+##  [49] RColorBrewer_1.1-2                                
+##  [50] ellipsis_0.2.0                                    
+##  [51] pkgconfig_2.0.2                                   
+##  [52] reshape_0.8.8                                     
+##  [53] XML_3.98-1.20                                     
+##  [54] utf8_1.1.4                                        
+##  [55] reshape2_1.4.3                                    
+##  [56] labeling_0.3                                      
+##  [57] tidyselect_0.2.5.9000                             
+##  [58] rlang_0.4.0                                       
+##  [59] AnnotationDbi_1.46.0                              
+##  [60] munsell_0.5.0                                     
+##  [61] cellranger_1.1.0                                  
+##  [62] tools_3.6.0                                       
+##  [63] cli_1.1.0                                         
+##  [64] generics_0.0.2                                    
+##  [65] RSQLite_2.1.1                                     
+##  [66] evaluate_0.14                                     
+##  [67] yaml_2.2.0                                        
+##  [68] org.Hs.eg.db_3.8.2                                
+##  [69] knitr_1.23                                        
+##  [70] bit64_0.9-7                                       
+##  [71] beanplot_1.2                                      
+##  [72] scrime_1.3.5                                      
+##  [73] methylumi_2.30.0                                  
+##  [74] nlme_3.1-140                                      
+##  [75] doRNG_1.7.1                                       
+##  [76] nor1mix_1.3-0                                     
+##  [77] xml2_1.2.0                                        
+##  [78] biomaRt_2.40.0                                    
+##  [79] compiler_3.6.0                                    
+##  [80] rstudioapi_0.10                                   
+##  [81] beeswarm_0.2.3                                    
+##  [82] statmod_1.4.32                                    
+##  [83] stringi_1.4.3                                     
+##  [84] IlluminaHumanMethylation450kanno.ilmn12.hg19_0.6.0
+##  [85] GenomicFeatures_1.36.2                            
+##  [86] lattice_0.20-38                                   
+##  [87] Matrix_1.2-17                                     
+##  [88] IlluminaHumanMethylation450kmanifest_0.4.0        
+##  [89] multtest_2.40.0                                   
+##  [90] vctrs_0.2.0                                       
+##  [91] pillar_1.4.2                                      
+##  [92] lifecycle_0.1.0                                   
+##  [93] data.table_1.12.2                                 
+##  [94] bitops_1.0-6                                      
+##  [95] rtracklayer_1.44.2                                
+##  [96] R6_2.4.0                                          
+##  [97] gridExtra_2.3                                     
+##  [98] vipor_0.4.5                                       
+##  [99] codetools_0.2-16                                  
+## [100] MASS_7.3-51.4                                     
+## [101] assertthat_0.2.1                                  
+## [102] rhdf5_2.28.0                                      
+## [103] openssl_1.4                                       
+## [104] pkgmaker_0.27                                     
+## [105] rprojroot_1.3-2                                   
+## [106] withr_2.1.2                                       
+## [107] GenomicAlignments_1.20.1                          
+## [108] Rsamtools_2.0.0                                   
+## [109] GenomeInfoDbData_1.2.1                            
+## [110] hms_0.4.2                                         
+## [111] quadprog_1.5-7                                    
+## [112] grid_3.6.0                                        
+## [113] base64_2.0                                        
+## [114] rmarkdown_1.13                                    
+## [115] DelayedMatrixStats_1.6.0                          
+## [116] illuminaio_0.26.0                                 
+## [117] lubridate_1.7.4
 ```
