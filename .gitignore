@@ -12,5 +12,7 @@ data
 *.html
 *.docx
 *.xlsx
+desmond_IF_images
+shiny_app*
 .DS_Store
 Placent'omics_project_proposal_CELLS.docx
