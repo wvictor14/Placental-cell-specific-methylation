@@ -45,12 +45,15 @@ library(kableExtra)
 library(DMRcate)
 library(biobroom)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+library(here)
 ```
 
 ## Data
 
 ```{r}
-pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+base_path <- file.path('data', 'main', 'interim')
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
 pDat <- pDat %>%
   mutate(Tissue = case_when(
     !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
@@ -59,9 +62,9 @@ pDat <- pDat %>%
   )) 
 
 # raw methylation data
-betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 
-mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+mset_noob <- readRDS(here(base_path, '1_4_mset_noob.rds')) # for mvals
 colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
 mvals <- getM(mset_noob)
 
@@ -70,12 +73,12 @@ anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds
 anno <- anno %>%
   as_tibble() %>%
   filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
-probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
 
 # color key
-pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+pheatmap_color_code <- readRDS(here(base_path, '1_1_color_code.rds'))
 
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 ```
 
@@ -380,6 +383,13 @@ scatter(x = 'PC5', y = 'PC6', fill = 'Tissue', point_size = 2) +
   scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)]) +
   labs(fill = '')
 ```
+
+Save for med gen poster:
+
+plot_object <- scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 4.5) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)]) +
+  scale_shape_manual(values = c('First' = 24, 'Second' = NA, 'Third' = 21)) +
+  theme_bw(base_size = 28) 
 
 ## Pairwise Correlation
 
