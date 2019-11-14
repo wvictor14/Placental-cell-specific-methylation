@@ -753,7 +753,7 @@ topdmcs <- dmcs %>%
   # select top n for hypo hyper per group
   group_by(term, Direction) %>%
   arrange(bonferroni) %>%
-  top_n(-4, bonferroni) %>%
+  top_n(-25, bonferroni) %>%
   ungroup() %>%
   
   mutate(cpg_gene_label = paste(cpg, gene_label, sep = '; '))
@@ -777,8 +777,11 @@ topdmcs_b <-
   mutate(cpg_gene_label = factor(as.character(cpg_gene_label), 
                                  levels = unique(as.character(cpg_gene_label)))) 
 
-plot_dmcs <- function(data){
+plot_dmcs <- function(data, n_cpgs){
   data %>%
+    arrange(p.value) %>%
+    group_by(Direction, Sample_Name) %>%
+    dplyr::slice(n_cpgs) %>%
     ggplot(aes(x = Trimester, y = beta, color = Tissue)) +
     geom_beeswarm(cex = 4.5, size = 1.2, priority = 'density', 
                   aes(shape = Trimester),
@@ -793,7 +796,7 @@ plot_dmcs <- function(data){
 
 topdmcs_b %>%
   filter(Tissue == 'Endothelial cs', grepl('Endo', term)) %>%
-  plot_dmcs()
+  plot_dmcs(n_cpgs = 1:4)
 ```
 
 ![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
@@ -801,7 +804,7 @@ topdmcs_b %>%
 ```r
 topdmcs_b %>%
   filter(Tissue == 'Trophoblasts cs', grepl('Troph', term)) %>%
-  plot_dmcs()
+  plot_dmcs(n_cpgs = 1:4)
 ```
 
 ![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
@@ -809,15 +812,15 @@ topdmcs_b %>%
 ```r
 topdmcs_b %>%
   filter(Tissue == 'Stromal cs', grepl('Strom', term)) %>%
-  plot_dmcs()
+  plot_dmcs(n_cpgs = 1:4)
 ```
 
 ![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-3.png)<!-- -->
 
 ```r
 topdmcs_b %>%
-  filter(Tissue == 'Hofbauer cs', grepl('Hofb', term)) %>%
-  plot_dmcs()
+  filter(Tissue == 'Hofbauer cs', grepl('Hofb', term))%>%
+  plot_dmcs(n_cpgs = 1:4)
 ```
 
 ![](2_8_first_vs_third_DMCs_files/figure-html/unnamed-chunk-15-4.png)<!-- -->
@@ -826,11 +829,15 @@ topdmcs_b %>%
 
 
 ```r
-saveRDS(dmcs, here('data', 'main', 'interim', '2_8_all_third_vs_first_dmcs.rds'))
+dmcs %>%
+  filter(bonferroni < 0.01, abs(delta_b) > 0.05) %>%
+  saveRDS(here('data', 'main', 'interim', '2_8_all_third_vs_first_dmcs.rds'))
 saveRDS(list(GO = gst, KEGG = kegg), 
         here('data', 'main', 'interim', '2_8_functional_enrichment_results.rds'))
 saveRDS(tests, 
         here('data', 'main', 'interim', '2_8_genomic_enrichment_results.rds'))
+saveRDS(topdmcs_b, 
+        here(base_path, '2_8_topdmcs_b.rds')
 
 # write out significant dmcs to share with others
 dmcs %>% 
