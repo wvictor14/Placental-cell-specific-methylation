@@ -1,0 +1,490 @@
+---
+title: "2_6_dmc_gene_plots_figures"
+author: "Victor Yuan"
+date: "29/10/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, message= F, warning = F}
+base_path <- file.path('data', 'main', 'interim')
+
+library(tidyverse)
+library(kableExtra)
+library(formattable)
+library(here)
+library(ggrepel)
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),)
+
+
+dmcs <- readRDS(here(base_path, '2_4_dmcs.rds'))
+
+#color code
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+
+fun_enrich <- readRDS(here(base_path, '2_4_enrich.rds'))
+kegg <- fun_enrich$kegg
+gst <- fun_enrich$GO
+
+
+tests <- readRDS(here(base_path, '2_5_enrich_tests.rds'))
+
+
+densities <- readRDS(here(base_path, '2_5_densities.rds'))
+```
+
+```{r}
+#summarize filtering
+pDat_filt %>% 
+  filter(Trimester != 'Second') %>%
+  group_by(Trimester, Tissue) %>%
+  summarize(n = n())
+```
+
+# PCA
+
+```{r}
+p <- pDat_filt %>%
+  filter(Trimester != 'Second') %>%
+  select(Sample_Name, Case_ID, Trimester, Tissue, contains('PC')) %>%
+  ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 4) +
+  theme_bw(base_size = 24) +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_rect(fill = '#fff4c9'),
+        legend.position = 'top') +
+  facet_wrap(~Trimester, labeller = label_both)+
+  scale_color_manual(values = color_code_tissue[pDat_filt$Tissue],
+                     guide = guide_legend(override.aes = list(size = 5, alpha = 1),
+                                          ncol = 3)) +
+  labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
+  coord_equal()
+  
+```
+
+# 1. Differentially methylated cytosines (DMCs)
+
+Using limma, I determined the number of differentially methylated cytosines defined by the following:
+
+* **bonferroni-corrected p-value of less than 0.01**
+* **difference in mean methylation greater than 0.25 in magnitude**
+
+For comparisons, I chose the '**one-vs-all**' design. So each cell type was compared to all other samples in the dataset. The other valid approach would be to conduct all pairwise comparisons, but this would result in 4\*3\*2 = 24 sets of dmcs, which would be much more difficult to summarize.
+
+Using this definition of DMCs we find many significant associations for each cell type in first and third trimester:
+
+```{r}
+# define cutoffs
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+# count number of significant cpgs per cell
+dmcs_sig <- dmcs %>% 
+  group_by(Group1) %>% 
+  summarize(b001db50_all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
+            b001db50_hypo = sum(bonferroni < p_thresh & delta_b < -b_thresh),
+            b001db50_hyper = sum(bonferroni < p_thresh & delta_b > b_thresh)) %>%
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  gather('group', 'n_cpg', -Trimester, -Celltype) %>%
+  separate(group, into = c('pvalue', 'delta_b')) %>%
+  mutate(Group1_label = paste0(Trimester, ' - ', case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial cs',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer cs',
+    Celltype == 'Strom_cs' ~ 'Stromal cs',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts cs'
+  )))
+
+dmcs_sig %>% 
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  mutate(hyper_p = hyper*100/all,
+         hypo_p = hypo*100/all) %>%
+  select(-Trimester, -Celltype, -pvalue) %>%
+  
+  mutate(Hypermethylated = paste0(hyper, ' (', prettyNum(hyper_p, digits = 2), '%)'),
+         Hypomethylated = paste0(hypo, ' (', prettyNum(hypo_p, digits = 2), '%)')) %>%
+  
+  # specify color of cells
+  mutate(Hypermethylated = cell_spec(Hypermethylated, color = 'white', 
+                                     background = spec_color(hyper_p, end = 0.5, direction = -1)),
+         Hypomethylated = cell_spec(Hypomethylated, color = 'white', 
+                                     background = spec_color(hypo_p, end = 0.5, direction = -1))) %>%
+  separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>%
+  select(-(hyper:hypo_p)) %>%
+  dplyr::rename(Num_sig = all) %>%
+  kable(escape = F) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1)
+
+plot_object <- dmcs_sig %>% 
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  select(-Trimester, -Celltype, -pvalue) %>%
+  pivot_longer(cols = c(hyper, hypo),
+               names_to = 'direction',
+               values_to = 'n') %>%
+  separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>% {
+    ggplot(data = ., aes(x = Celltype)) +
+      geom_bar(stat = 'identity', aes(y = n, fill = direction)) +
+      ggrepel::geom_text_repel(data = select(., Trimester:all) %>%
+                                 distinct(), 
+                               aes(label = scales::number(all), y = all),
+                               direction = 'y',
+                               size = 6,
+                               nudge_y = 15000) +
+      facet_wrap(~Trimester, ncol = 1) +
+      scale_y_continuous(labels = scales::number_format(), 
+                         expand = c(0, 0), 
+                         limits = c(0, 200000)) +
+      scale_fill_manual(values = c('hyper' = '#fcba03', 'hypo' = '#68b8ed'), 
+                        labels = c('Hyper-', 'Hypo-')) +
+      theme_bw(base_size = 24 ) +
+      theme(panel.border = element_blank(),
+            axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            panel.grid = element_blank(),
+            strip.background = element_rect(fill = 'white'),
+            legend.position = 'top') +
+      coord_flip() +
+      labs(x = '', y = '', fill = 'Direction of Methylation')
+    }
+```
+
+# Enrich
+
+```{r}
+plot_enrich <- function(x) {
+  
+  ggplot(data = x) +
+  geom_pointrange(aes(x = genomic_feature, y = Observed_p_minus_expected, ymin = ymin, ymax = ymax, 
+                      color =Celltype, shape = bonferroni01),
+                  fill = 'white',
+           stat = 'identity', position = position_dodge(width = 0.75),
+           fatten = 6) +
+  geom_hline(yintercept = 0, color = 'black', size = 1) +
+  scale_color_manual(values = colors, labels = function(x){gsub(' cs', '', x)})  + 
+  facet_grid(. ~ Trimester , scales = 'free_y', space = 'free', labeller = label_both) +
+  coord_flip() +
+  scale_y_continuous( expand = c(0.05,0), labels = function(x)scales::percent(x, accuracy = 1)) +
+  theme_bw(base_size = 22) + 
+  theme(legend.position = 'right', legend.direction = 'vertical',
+        legend.spacing.y = unit(-0.2, 'cm'),
+        strip.background = element_rect(fill = '#fff4c9'),
+        panel.grid.major.y = element_blank()) +
+  labs(color = '', x = '', y = 'Observed - Expected', shape = '', linetype = '') +
+  scale_shape_manual(values = c('TRUE' = 18, 'FALSE' = 21), na.translate = F, 
+                     labels = c('TRUE' = 'Bonferroni p < 0.01', 'FALSE' = 'n.s.')) 
+}
+
+# color code
+colors <- color_code %>% 
+  filter(label %in% c('Endothelial cs', 'Hofbauer cs', 'Stromal cs', 'Trophoblasts cs'))
+colors <- setNames(colors$Colors_Tissue, unique(tests$Celltype))
+
+p <- tests %>% 
+  filter(genomic_feature_category == 'gene' | genomic_feature == 'enhancer',
+         Direction == 'Hypo') %>%
+  mutate(genomic_feature = factor(genomic_feature, 
+                                  levels = c('enhancer', '1to5kb', 'promoter', '5UTR', 'exon', 'intron', 
+                                             'intronexonboundary','3UTR','intergenic')),
+
+         Observed_p_minus_expected = (Observed_p_in - Expected_p_in),
+    
+    # linerange ymin ymax values
+         ymin = pmin(Observed_p_minus_expected, 0),
+         ymax = pmax(Observed_p_minus_expected, 0)) %>%
+  plot_enrich
+```
+
+# gestation
+
+```{r}
+library(scales)
+dmcs <- readRDS(here(base_path, '2_8_all_third_vs_first_dmcs.rds'))
+
+histogram_dmc <- function(data, 
+                          
+                          xlim = c(-0.5, 0.5), ylim = NULL, 
+                          label_x = 20, label_y = 6) {
+    
+  # set xlim and ylim to NULL if you want the axes to be auto-zoomed
+  # label_y / label_x is the position of the labels
+  
+  # all effect sizes, calculate density:
+  effect_size_dens <- data %>%
+    group_by(Tissue) %>%
+    summarize(hist = list(hist(delta_b, breaks = seq(-1, 1, 0.04), plot = FALSE))) %>%
+    
+    mutate(# get the xmin/xmax of bins,
+           breaks = map(hist, 'breaks'),
+           xmin = map(breaks, ~.[1:length(.)-1]),
+           xmax = map(breaks, ~.[2:length(.)]),
+           
+           # midpoint of bin
+           xmean = map(hist, 'mids'),
+           
+           # density is the height of the bins
+           y = map(hist, 'density')) %>%
+    select(-hist, -breaks) %>%
+    unnest(c(xmin:y)) %>%
+    
+    # categorize bins
+    mutate(alpha = ifelse(xmean >= 0, 'Increases', 'Decreases'))
+  
+    
+  # proportion hypo / hyper
+  effect_size_prop <- data %>%
+    group_by(Tissue) %>%
+    summarize(Decreases = percent(sum(delta_b < 0) / n()),
+              Increases = percent(sum(delta_b > 0) / n())) %>%
+    pivot_longer(cols = -Tissue,
+                 names_to = 'alpha',
+                 values_to = 'proportion') %>%
+    
+    # make coordinates for label position
+    mutate(x = ifelse(alpha == 'Decreases', -label_x/100, label_x/100),
+           y = label_y)
+  
+  # plot
+  p <- ggplot(data = effect_size_dens) +
+    geom_rect(aes(xmin = xmin, 
+                  xmax = xmax, 
+                  ymin = 0, 
+                  ymax = y, 
+                    
+                  fill = Tissue, 
+                  alpha = alpha), color = 'black') +
+    geom_label(data = effect_size_prop,
+               aes(label = proportion, 
+                   x = x, 
+                   y = y),
+               size = 4.5,
+               show.legend = FALSE) + 
+    geom_vline(xintercept = 0, 
+               color = '#454343', 
+               linetype = 'dashed', 
+               size = 1) +
+    facet_wrap(~Tissue) +
+    scale_fill_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+    scale_color_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+    scale_alpha_manual(values = c(0.4, 0.85), 
+                       guide = "none") +
+    scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                       breaks = seq(-1, 1, 0.2)) +
+    scale_y_continuous(expand = c(0,0)) +
+    coord_cartesian(xlim = xlim, ylim = ylim) +
+    theme(panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank()) +
+    labs(x = '(Third trimester) - (First trimester)\n% DNA methylation', 
+         y = 'Density', 
+         fill = '', 
+         color = '')
+  
+  p
+}
+
+# bonferroni p < 0.01, delta_b > 0.05
+p <- dmcs %>%
+  histogram_dmc(xlim = c(-0.75, 0.75), ylim = c(0, 4), 
+                label_x = 50, label_y = 3.5) +
+  scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                     breaks = seq(-0.5, 0.5, 0.5)) +
+  theme_bw(base_size = 22) +
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        strip.background = element_rect(fill = '#fff4c9')
+        )
+```
+
+# PMDs
+
+```{r}
+# raw methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+colnames(betas) <- pDat$Sample_Name
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+
+# filter to first trimester
+betas_filt <- betas[,pDat_filt$Sample_Name]
+
+densities_pmds_plots <- readRDS(here(base_path, '2_7_pmd_density_plots.rds'))
+coverage <- readRDS(here(base_path, '2_7_pmd_coverage.rds'))
+densities_high_res <- readRDS(here(base_path, '2_7_pmd_high_res_density.rds'))
+```
+
+```{r}
+# define plotting function
+plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
+                        filtered = TRUE, array = 'EPIC') {
+  
+  # determine which cpgs to use, based on c, s, e
+  if (is.null(cpg_size)) {
+    cpg_size <- (e-s)*0.0005
+  }
+  
+  # requires anno, betas_filt, anno_450k, pDat_filt
+  if (filtered) {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt),
+             !cpg_id %in% c('island', 'shore'),
+             !grepl('promoter', genes_id)) %>%
+      pull(cpg)
+  } else {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt)) %>%
+      pull(cpg)
+  }
+  
+  if (array == '450K') {
+    region1 <- intersect(anno_450k$Name, region1)
+  } 
+  
+  # subset to betas to cpg in region, then make in plottable format
+  region1_data <- betas_filt[region1, ] %>%
+    
+    t() %>%
+    as.data.frame() %>%
+    bind_cols(Sample_Name = rownames(.), .) %>%
+    
+    # melt
+    gather(cpg, beta, -Sample_Name) %>%
+    
+    # add trimester and sex
+    inner_join(pDat_filt %>% select(Sample_Name, Trimester, Tissue)) %>%
+    
+    # add cpg coordinates
+    inner_join(anno %>% select(cpg, chr, pos = start)) %>%
+    
+    # set a grouping variable to control alpha for placenta/troph
+    mutate(alpha_group = if_else(Tissue %in% c('Trophoblasts cs', 'Villi'),
+                                 1, 0.6)) %>%
+    
+    # remove second trimester data
+    filter(!Trimester %in% c('First', 'Second'))
+  
+  # get pmd start/end for plotting pmd track
+  pmd_data <- anno %>%
+    filter(chr == c, between(start, s, e), 
+           !is.na(pmd_id)) %>%
+    select(pmd_id) %>%
+    separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
+    mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
+           start = as.numeric(start),
+           end = as.numeric(end)) %>%
+    arrange(chr, start) %>%
+    distinct()
+  
+  ggplot(region1_data) +
+    
+    # methylation track
+    geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
+              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
+    
+    # pmd track
+    geom_rect(xmin = s, xmax = e, ymin = 0, ymax = 0.1, fill = '#fff4c9', color = 'grey') +
+    geom_rect(data = pmd_data, 
+              aes(xmin = start, xmax = end), 
+              ymin = 0, ymax = 0.1, fill = 'black') +
+    
+    theme_bw(base_size = 22) +
+    theme(panel.grid.minor = element_blank()) +
+    scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)],
+                       labels = function(x)gsub(' cs', '', x)) +
+    scale_y_continuous(expand = c(0,0), 
+                       limits = c(0, 1.1), 
+                       breaks = c(0.25, 0.5, 0.75, 1), 
+                       labels = function(x)percent(x, accuracy = 1)) +
+    scale_x_continuous(limits = c(s, e), labels = function(x){x/10^6},
+                       expand = c(0, 0)) +
+    scale_alpha_identity() +
+    labs(x = 'Chromosome position (Mbp)', y = 'DNAm',
+         title = c, color = '')
+}
+
+p <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
+            array = 'EPIC') 
+
+p <- plot_region(c = 'chr5', s = 87500000, e = 100000000, 
+            span = 0.05, filtered = FALSE, array = 'EPIC') 
+```
+
+# mqtls
+
+```{r}
+library(readxl)
+dmcs_cell <- readRDS(here(base_path, '2_4_dmcs.rds'))
+dmcs_and_mqtl_betas <- readRDS(here('data', 'main', 'interim', '2_9_dmcs_and_mqtls_betas.rds'))
+fitvar_results <- readRDS(here('data', 'main', 'interim', '2_9_dmvs.rds'))
+mqtls <- read_excel(here('data', 'external', 'journal.pgen.1007785.s018.xlsx'), skip = 1)
+```
+
+```{r}
+# process betas
+dmv_mqtl_dmc <- fitvar_results %>%
+  left_join(dmcs_and_mqtl_betas %>%
+              select(-bonferroni, -delta_b, -dmc_for_class) %>%
+              distinct(), by = c('cpg' = 'cpg_id'))
+
+plot_dmv <- function(data) {
+  data %>%
+    {
+      ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+        ggbeeswarm::geom_beeswarm(cex = 2,
+                                  size = 0.7,
+                                  priority = 'density',
+                                  dodge.width = 0.8,
+                                  fill = 'white',
+                                  stroke = 1) +
+        facet_wrap(~cpg, ncol = 2) +
+        scale_color_manual(values = color_code_tissue[dmv_mqtl_dmc$Tissue],
+                           guide = guide_legend(override.aes = list(size = 4)),
+                           labels = function(x)gsub(' cs', '', x)) +
+        scale_y_continuous(limits = c(0,1), labels = function(x)percent(x, accuracy = 1)) +
+        theme_bw(base_size = 24) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_blank(),
+              strip.background = element_rect(fill = '#fff4c9')) +
+        labs(x = 'DNAm', y= '', color = '') 
+  }
+}
+
+p <- dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(any(significant == '*' & direction == '-')) %>%
+  
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(17:22) %>%
+  plot_dmv()
+```
