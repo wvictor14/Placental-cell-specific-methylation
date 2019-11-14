@@ -1,0 +1,629 @@
+---
+title: "Cell-specific changes across Trimester, and mQTLs"
+author: "Victor Yuan"
+date: "28/10/2019"
+output:
+  html_document:
+    df_print: kable
+    keep_md: false
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=F, warning = F) #hide code
+```
+
+This report covers two analyses:
+
+1. Changes in methylation between term (third) and first trimester placental cell sorted samples.
+2. Term cell-specific DMCs that are also mQTLs.
+
+# 1. Trimester DMCs
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(here)
+library(scales)
+library(kableExtra)
+library(ggbeeswarm)
+library(readxl)
+theme_set(theme_bw())
+
+base_path <- file.path('data', 'main', 'interim')
+
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+dmcs <- readRDS(here(base_path, '2_8_all_third_vs_first_dmcs.rds'))
+topdmcs_b <- readRDS(here(base_path, '2_8_topdmcs_b.rds'))
+tests <- readRDS(here(base_path, '2_8_genomic_enrichment_results.rds'))
+```
+
+Previously I characterized DNA methylation changes at specific CpG sites (DMCs) within first and third trimester samples. In this analysis I took a look at changes that occur within a cell type, between third and first trimester samples.
+
+## Direction of changes across trimester
+
+After conducting linear modelling and filtering to CpGs that:
+
+1. show statistically significant differences *(bonferroni adjust p < 0.01) *
+2. and are also biologically meaningful *(change in methylation > 0.05),* 
+
+we can see if methylation tends to increase or decrease from first to third trimester:
+
+```{r, message = FALSE, fig.height = 7, fig.width = 7}
+histogram_dmc <- function(data, 
+                          
+                          xlim = c(-0.5, 0.5), ylim = NULL, 
+                          label_x = 20, label_y = 6) {
+    
+  # set xlim and ylim to NULL if you want the axes to be auto-zoomed
+  # label_y / label_x is the position of the labels
+  
+  # all effect sizes, calculate density:
+  effect_size_dens <- data %>%
+    group_by(Tissue) %>%
+    summarize(hist = list(hist(delta_b, breaks = seq(-1, 1, 0.04), plot = FALSE))) %>%
+    
+    mutate(# get the xmin/xmax of bins,
+           breaks = map(hist, 'breaks'),
+           xmin = map(breaks, ~.[1:length(.)-1]),
+           xmax = map(breaks, ~.[2:length(.)]),
+           
+           # midpoint of bin
+           xmean = map(hist, 'mids'),
+           
+           # density is the height of the bins
+           y = map(hist, 'density')) %>%
+    select(-hist, -breaks) %>%
+    unnest(c(xmin:y)) %>%
+    
+    # categorize bins
+    mutate(alpha = ifelse(xmean >= 0, 'Increases', 'Decreases'))
+  
+    
+  # proportion hypo / hyper
+  effect_size_prop <- data %>%
+    group_by(Tissue) %>%
+    summarize(Decreases = percent(sum(delta_b < 0) / n()),
+              Increases = percent(sum(delta_b > 0) / n())) %>%
+    pivot_longer(cols = -Tissue,
+                 names_to = 'alpha',
+                 values_to = 'proportion') %>%
+    
+    # make coordinates for label position
+    mutate(x = ifelse(alpha == 'Decreases', -label_x/100, label_x/100),
+           y = label_y)
+  
+  # plot
+  p <- ggplot(data = effect_size_dens) +
+    geom_rect(aes(xmin = xmin, 
+                  xmax = xmax, 
+                  ymin = 0, 
+                  ymax = y, 
+                    
+                  fill = Tissue, 
+                  alpha = alpha), color = 'black') +
+    geom_label(data = effect_size_prop,
+               aes(label = proportion, 
+                   x = x, 
+                   y = y,
+                   fill = Tissue),
+               colour = 'black', 
+               alpha = 0.5, 
+               show.legend = FALSE) + 
+    geom_vline(xintercept = 0, 
+               color = '#454343', 
+               linetype = 'dashed', 
+               size = 1) +
+    facet_wrap(~Tissue) +
+    scale_fill_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+    scale_color_manual(values = color_code_tissue[effect_size_dens$Tissue]) +
+    scale_alpha_manual(values = c(0.4, 0.85), 
+                       guide = "none") +
+    scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                       breaks = seq(-1, 1, 0.2)) +
+    scale_y_continuous(expand = c(0,0)) +
+    coord_cartesian(xlim = xlim, ylim = ylim) +
+    theme(panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank()) +
+    labs(x = '(Third trimester) - (First trimester)\n% DNA methylation', 
+         y = 'Density', 
+         fill = '', 
+         color = '')
+  
+  p
+}
+
+# bonferroni p < 0.01, delta_b > 0.05
+dmcs %>%
+  histogram_dmc(xlim = c(-0.75, 0.75), ylim = c(0, 4), 
+                label_x = 50, label_y = 3.5) +
+  scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                     breaks = seq(-0.75, 0.75, 0.25))
+```
+
+Understanding that we are only using CpGs covered by the EPIC array (which tend to be near genes, and functional elements like enhancers), we can note the following changes in methylation from First to Third trimester:
+
+- **Trophoblast** cells tend to *increase* (98.2% CpGs increase).
+- **Hofbaeur** cells tend to *decrease*  (75.6% CpGs decrease).
+- **Endothelial** cells tend to *descrease* (77.1% CpGs decrease)
+- **Stromal** cells tend to *increase*, but not as dramatically as the others (56.6% CpGs increase).
+
+We can tally how many DMCs we found that increase/decrease for each cell type:
+
+```{r}
+# define cutoffs
+p_thresh <- 0.01
+b_thresh <- 0.05
+
+# count number of significant cpgs per cell
+dmcs %>% 
+  group_by(Tissue) %>% 
+  summarize(`DMCs (n)` = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh), 
+            `Decrease (n)` = sum(bonferroni < p_thresh & delta_b < -b_thresh),
+            `Increase (n)` = sum(bonferroni < p_thresh & delta_b > b_thresh)) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+There's some variation in the sheer number of DMCs detected. Note that the number of DMCs for 
+Hofbaeur cells is small (n=1550), because the number of first trimester Hofbauer cell samples is 
+very small (n=3), since many were filtered out because of detected maternal contamination. 
+
+## Specific CpG sites {.tabset}
+
+Here are the top ten hypo/hyper DMCs for each cell type:
+
+```{r}
+plot_dmcs <- function(data, n_cpgs){
+  data %>%
+    arrange(p.value) %>%
+    group_by(term, Direction, Sample_Name) %>%
+    dplyr::slice(n_cpgs) %>%
+    ggplot(aes(x = Trimester, y = beta, color = Tissue)) +
+    geom_beeswarm(cex = 4.5, size = 1.2, priority = 'density', 
+                  aes(shape = Trimester),
+                  fill = 'white',
+                  stroke = 1.5) +
+    scale_color_manual(values= color_code_tissue[unique(topdmcs_b$Tissue)], guide = FALSE) +
+    scale_shape_manual(values = c('First' = 21, 'Third' = 16), guide = FALSE) +
+    scale_y_continuous(limits = c(0, 1)) +
+    facet_wrap(gene_label~cpg, nrow = 2, scales = 'free_x') +
+    labs(x = '', y = '') 
+}
+```
+
+### Trophoblasts 
+
+```{r}
+topdmcs_b %>%
+  filter(Tissue == 'Trophoblasts cs', grepl('Troph', term)) %>%
+  plot_dmcs(n_cpgs = 1:5)
+```
+
+### Hofbauer Cells
+
+```{r}
+topdmcs_b %>%
+  filter(Tissue == 'Hofbauer cs', grepl('Hofb', term))%>%
+  plot_dmcs(n_cpgs = 1:5)
+```
+
+### Endothelial
+
+```{r}
+topdmcs_b %>%
+  filter(Tissue == 'Endothelial cs', grepl('Endo', term)) %>%
+  plot_dmcs(n_cpgs = 1:5)
+```
+
+### Stromal
+
+```{r}
+topdmcs_b %>%
+  filter(Tissue == 'Stromal cs', grepl('Strom', term)) %>%
+  plot_dmcs(n_cpgs = 1:5)
+```
+
+# 2. mQTLs
+
+*Delahaye et al. 2019* found **4342** placental-specific mQTLs using 450k DNA methylation array data. Of these,  **4036 (92.95%)** of these CpGs are also in EPIC and **3313 (76.30%)** are in my filtered data.
+
+In the below analysis, I investigate the following question: 
+
+**How many mQTLs are cell-specific (if any)?**
+
+```{r, message = FALSE, warning = FALSE}
+dmcs_cell <- readRDS(here(base_path, '2_4_dmcs.rds'))
+dmcs_and_mqtl_betas <- readRDS(here('data', 'main', 'interim', '2_9_dmcs_and_mqtls_betas.rds'))
+fitvar_results <- readRDS(here('data', 'main', 'interim', '2_9_dmvs.rds'))
+mqtls <- read_excel(here('data', 'external', 'journal.pgen.1007785.s018.xlsx'), skip = 1)
+```
+
+## How many CpGs in mQTLs are also cell-specific DMCs?
+
+Directly testing whether these mQTLs are cell-specific DMCs would require genotypes at the corresponding SNPs. Since we don't have that information, we probe at this question with less direct tests. We can first start by a simple overlap comparison of my list of term cell-specific DMCs and Delahaye's list of mQTLs.
+
+```{r}
+# The number of mQTLs athat are also cell-specific:
+x <- dmcs_cell %>%
+  filter(bonferroni < 0.01 & abs(delta_b) > 0.25) %>%
+  separate(col = Group1, sep = '\\.', into = c('Trimester', 'Celltype')) %>%
+  filter(Trimester == 'Third') %>%
+  select(gene) %>%
+  distinct() %>%
+  filter(gene %in% mqtls$cpgID) %>%
+  nrow() #1483
+```
+
+- `r x` / 3313 (44.48%) cpgs that are placental-specific mQTLs are also DMCs
+- Most of these DMCs that overlap are in Trophoblast and Hofbaeur cell DMCs. However, this is likely due to there being more DMCs overall for these two cell types:
+
+```{r}
+# calculate number of DMCs that are mQTLs
+dmcs_cell %>%
+  mutate(placental_mqtl = gene %in% mqtls$cpgID,
+         sig = (bonferroni < 0.01 & abs(delta_b) > 0.25)) %>%
+  separate(col = Group1, sep = '\\.', into = c('Trimester', 'Celltype')) %>%
+  filter(Trimester == 'Third') %>%
+  
+  group_by(Celltype) %>%
+  summarize(
+    # total DMCs / mQTLs
+    `DMCs (n)` = sum(sig == TRUE),
+    n_mqtl = sum(placental_mqtl == TRUE),
+    
+    # DMC that is also mqtl
+    `DMC overlapping with mQTL (n)` = sum(
+      (placental_mqtl == TRUE) & 
+      (sig == TRUE)),
+    
+    # DMC that is mQTL / total DMCs
+    `% DMCs that overlap with mQTLs` = percent(`DMC overlapping with mQTL (n)`/`DMCs (n)`),
+    
+    # DMC that is mQTL / total mQTLs
+    `% mQTL that overlap with DMCs` = percent(`DMC overlapping with mQTL (n)`/n_mqtl)) %>%
+  select(-n_mqtl)   %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+Let's take a look at some of these **DMCs that overlap mQTLs:**
+
+## {.tabset}
+
+```{r, fig.height = 8.5}
+plot_dmcs <- function(data) {
+  data %>%
+    {
+      ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+        ggbeeswarm::geom_beeswarm(cex = 2,
+                                  size = 0.7,
+                                  priority = 'density',
+                                  dodge.width = 0.8,
+                                  aes(shape = Predicted_ethnicity_nothresh),
+                                  fill = 'white',
+                                  stroke = 1) +
+        facet_wrap(~cpg_id, ncol = 2) +
+        scale_color_manual(values = color_code_tissue[dmcs_and_mqtl_betas$Tissue],
+                           guide = guide_legend(override.aes = list(size = 2))) +
+        scale_y_continuous(limits = c(0,1)) +
+        scale_shape_manual(values = c('Asian' = 21, 'Caucasian' = 16),
+                           guide = guide_legend(override.aes = list(size = 2))) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_blank()) +
+        labs(x = '', y= '', shape = 'Shape', color = 'Color') 
+  }
+}
+```
+
+### Trophoblasts
+
+```{r, fig.height = 8.5}
+dmcs_and_mqtl_betas %>%
+  filter(dmc_for_class == 'Troph_cs') %>%
+  group_by(Sample_Name) %>%
+  arrange(cpg_id) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmcs() +
+  labs(title = 'Trophoblast DMCs')
+```
+
+### Hofbauer Cells
+
+```{r, fig.height = 8.5}
+dmcs_and_mqtl_betas %>%
+  filter(dmc_for_class == 'Hofb_cs') %>%
+  group_by(Sample_Name) %>%
+  arrange(cpg_id) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmcs() +
+  labs(title = 'Hofbauer cells DMCs')
+```
+
+### Stromal Cells
+
+```{r, fig.height = 8.5}
+dmcs_and_mqtl_betas %>%
+  filter(dmc_for_class == 'Strom_cs') %>%
+  group_by(Sample_Name) %>%
+  arrange(cpg_id) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmcs() +
+  labs(title = 'Stromal cells DMCs')
+```
+
+### Endothelial Cells
+
+```{r, fig.height = 8.5}
+dmcs_and_mqtl_betas %>%
+  filter(dmc_for_class == 'Endo_cs') %>%
+  group_by(Sample_Name) %>%
+  arrange(cpg_id) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmcs() +
+  labs(title = 'Endothelial cells DMCs')
+```
+
+#
+
+We can note some overall observations from these plots:
+
+- These mQTLs are show high variability in Villi CpG methylation, likely reflecting the different methylation distributions of each genotype.
+- Not all cell types show high variation in CpG methylation like in Villi:
+  - e.g. `cg00029973` in the "Trophoblasts" tab show high variability in Trophoblasts only. Other celltypes show almost no variability.
+  - e.g. `cg00043564` in the "Trophoblasts" tab show high variability across all cell types and in villi.
+
+Because high variability in Villi indicates that we have more than one genotype being represented, these observations indicate that **some placental/villi mQTLs are not mQTLs in all component cell types.** This leads to the following question, which is just an alteration of our original one:
+
+**How many placental mQTLs are mQTLs in all component cell types?**
+
+## Placental mQTLs 
+
+To answer this question, without actually having genotypes at hand, we can base an approach on some straightforward reasoning:
+
+1. If an mQTL is represented in a component cell type, then it will have similar, or higher variability than in the Villi.
+
+2. If an mQTL is not also an mQTL in a component cell type, it will have smaller / no variability in it's cpg methylation.
+
+This is an example of CpG that shows high variability in villi, trophoblast, and endothelial cells, but almost no variability in Hofbaeur and Stromal cells. This suggests that the mQTL is cell-specific: it is an mQTL for trophoblast and Endothelial cells, but not Stromal and Hofbaeur cells:
+
+
+```{r}
+dmcs_and_mqtl_betas %>%
+  filter(cpg_id %in% c('cg08177731', 'cg21139150', 'cg17519949', 'cg26371521')) %>%
+  
+  {
+    ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+      ggbeeswarm::geom_beeswarm(cex = 0.6,
+                                size = 1, 
+                                priority = 'density',
+                                dodge.width = 0.5,
+                                aes(shape = Predicted_ethnicity_nothresh),
+                                fill = 'white',
+                                stroke = 1.5) +
+      facet_wrap(~cpg_id) +
+      scale_color_manual(values = color_code_tissue[dmcs_and_mqtl_betas$Tissue]) +
+      scale_y_continuous(limits = c(0,1)) +
+      scale_shape_manual(values = c('Asian' = 21, 'Caucasian' = 16)) +
+      theme(axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.y = element_blank()) +
+      labs(x = '', y= '', shape = 'Shape', color = 'Color')
+  }
+```
+
+We can contrast this with mQTLs that are mQTLs in all or most component cell types:
+
+```{r}
+dmcs_and_mqtl_betas %>%
+  filter(cpg_id %in% c('cg00043564')) %>%
+  
+  {
+    ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+      ggbeeswarm::geom_beeswarm(cex = 0.6,
+                                size = 1, 
+                                priority = 'density',
+                                dodge.width = 0.5,
+                                aes(shape = Predicted_ethnicity_nothresh),
+                                fill = 'white',
+                                stroke = 1.5) +
+      facet_wrap(~cpg_id) +
+      scale_color_manual(values = color_code_tissue[dmcs_and_mqtl_betas$Tissue]) +
+      scale_y_continuous(limits = c(0,1)) +
+      scale_shape_manual(values = c('Asian' = 21, 'Caucasian' = 16)) +
+      theme(axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.y = element_blank()) +
+      labs(x = '', y= '', shape = 'Shape', color = 'Color')
+  }
+```
+
+## Differential variability testing
+
+To find the above two types of mQTLs, I propose to use *differentialy variability testing*.
+
+Specifically, we can compare the variability of each CpG between Villi and each component cell type. 
+
+If the cell type variability is much less than in Villi, then it is likely this CpG is only an mQTL in some component cell types, but not all.
+
+Using the R package `missMethyl`, which implements differential variability testing from [Phipson B. et al. 2014](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-014-0465-4), I tested for differential variable sites, between villi and each component cell type, for all CpGs that overlapped an mQTL (n = 3313):
+ 
+```{r}
+# volcano plot
+fitvar_results %>%
+  mutate(negp = -p) %>%
+  {
+    ggplot(data = filter(., fdr < 0.01, abs(delta_b) > 0.5),
+           aes(x = delta_b, y = p)) +
+      geom_point(aes(color = DMV), alpha = 0.8) +
+      geom_point(data = filter(., fdr >= 0.01 | abs(delta_b) <= 0.5),
+                 aes(fill = 'n.s. (fdr p > 0.01)'), 
+                 alpha = 0.25, shape = 19) +
+      
+      # add fdr p = 0.01 line
+      geom_hline(data = group_by(., DMV) %>%
+                   filter(fdr <= 0.01) %>%
+                   arrange(desc(fdr)) %>%
+                   summarize(threshold = max(p)),
+                 linetype = 'dashed',
+                 aes(yintercept = threshold)) +
+      geom_vline(linetype = 'dashed', xintercept = 0.5) +
+      geom_vline(linetype = 'dashed', xintercept = -0.5) + 
+      
+      facet_wrap(~DMV) +
+      scale_x_continuous(labels = percent) +
+      scale_y_continuous(trans = trans_new('neglog', 
+                                           transform = function(x)(-log(x)), 
+                                           inverse = function(x)(exp(-x)),
+                                           breaks = log_breaks()),
+                         label = function(x) {
+                           parse(text = gsub("1e", "10^", scales::scientific_format()(x)))
+                           }) +
+      scale_color_manual(values = color_code_tissue[fitvar_results$DMV],
+                         guide = FALSE) +
+      scale_fill_manual(values = c('n.s. (FDR > 0.01)' = 'grey'), 
+                        guide = guide_legend(override.aes = list(size = 2, alpha = 0.5))) +
+      labs(x = 'Difference in variability (% methylation)', y = 'p-value',
+           color = '', fill = '')
+  }
+```
+
+*In the above volcano plot, the __vertical line__ refers to the bonferroni adjust p.value < 0.01, and the __horizontal lines__ are at the "difference in absolute deviation from the group mean" = 0.25. Signifcant differential variable sites are highlighted in color.*
+
+**Some observations:**
+
+* In the trophoblast panel, we can see that all significant tests lie in the "*variability is greater than villi*" direction. 
+* This indicates that Villi mQTLs are likely always mQTLs in trophoblasts. 
+
+Note that we are more interested in the sites that are significantly less variable than Villi, since these are the ones that are likely mQTLs confined to a subset of component cell types.
+
+A tally of significant differentially methylated variable sites (DMVs):
+
+```{r}
+fitvar_results %>%
+  group_by(DMV) %>%
+  summarize(`More variable than Villi (n)` = sum(significant == '*' & delta_m > 0, na.rm = TRUE),
+            `Not different than Villi (n)` = sum(significant == 'n.s. (p>0.05)', na.rm = TRUE),
+            `Less variable than Villi (n)` = sum(significant == '*' & delta_m < 0, na.rm = TRUE))  %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+## mQTLs in only a subset of component cells {.tabset}
+
+Here I show some CpGs that appear to be an mQTL in only a subset of component cell populations.
+
+### 1-8
+
+```{r, fig.height = 8}
+# process betas
+dmv_mqtl_dmc <- fitvar_results %>%
+  left_join(dmcs_and_mqtl_betas %>%
+              select(-bonferroni, -delta_b, -dmc_for_class) %>%
+              distinct(), by = c('cpg' = 'cpg_id'))
+
+plot_dmv <- function(data) {
+  data %>%
+    {
+      ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+        ggbeeswarm::geom_beeswarm(cex = 2,
+                                  size = 0.7,
+                                  priority = 'density',
+                                  dodge.width = 0.8,
+                                  fill = 'white',
+                                  stroke = 1) +
+        facet_wrap(~cpg, ncol = 2) +
+        scale_color_manual(values = color_code_tissue[dmv_mqtl_dmc$Tissue],
+                           guide = guide_legend(override.aes = list(size = 2))) +
+        scale_y_continuous(limits = c(0,1)) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_blank()) +
+        labs(x = '', y= '', color = '') 
+  }
+}
+
+# cpgs that are less variable in 1 or more
+dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(any(significant == '*' & direction == '-')) %>%
+  
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmv()
+```
+
+### 9-16
+
+```{r, fig.height = 8}
+dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(any(significant == '*' & direction == '-')) %>%
+  
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(9:16) %>%
+  plot_dmv()
+```
+
+### 17-24
+
+```{r, fig.height = 8}
+dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(any(significant == '*' & direction == '-')) %>%
+  
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(17:24) %>%
+  plot_dmv()
+```
+
+## mQTLs in all component cells
+
+Note that although this approach worked really well for finding CpGs with the above structure/pattern, I could not find a good way to find CpGs that are mQTLs in all component cell types. My closest attempt was to find those tests/cpgs that were really not significantly different than Villi (nominal p > 0.05), or more than villi (bonferroni p < 0.01, delta beta > 0.25). But still many sites look as if they are mQTLs in at least one cell type:
+
+```{r, fig.height = 8}
+# cpgs that are same variability
+dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(all(significant == 'n.s. (p>0.05)')) %>%
+  
+  # 1 row per sample/cpg
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmv()
+```
+
