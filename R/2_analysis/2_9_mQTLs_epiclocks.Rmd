@@ -114,7 +114,6 @@ dmcs_cell %>%
   distinct() %>%
   filter(gene %in% mqtls$cpgID) %>%
   nrow() #1022
-
 ```
 
 1022 / 3313 (30.85%) cpgs that are placental-specific mQTLs are also DMCs
@@ -166,6 +165,7 @@ dmc_and_mqtl <- dmcs_cell %>%
   dplyr::rename(dmc_for_class = Celltype) %>%
   select(gene, dmc_for_class, bonferroni, delta_b)
 
+# join dmc information onto betas
 dmcs_and_mqtl_betas <- betas_filt[intersect(rownames(betas_filt), dmc_and_mqtl$gene),] %>%
   
   # transpose, remove rownames
@@ -283,6 +283,63 @@ dmcs_and_mqtl_betas %>%
 
 To determine if placental mQTLs identified by Delahaye et al. are cell-specific, I will use differential variability testing between placenta and each cell type. Those cpgs with significantly less variability compared to the placenta are likely to be cell-specific.
 
+## Wendy's exmaple
+
+>Also (this is really for Victor)  I had a great question after my talk which I unfortunately didnt understand at the time... but I think what was being asked was in the figure with the mQTL that shows Asian  samples with lower DNAme for all genotypes than European ancestry, could this be due to cell composition changes, since apparently some structrual/cell composition differences have been reported between Asian and Caucasian placentas. Now that you have cell data you could ask if that particular CpG (and any others showing a similar pattern) differs by cell type and if so, do other CpG sites correlated with that same cell-specific DNAme pattern also show lower DNAme in Asian placentas??
+
+
+```{r fig.height = 4, fig.width = 7}
+bmiq <- readRDS(here(base_path, '1_6_bmiq.rds'))
+dim(bmiq)
+
+pDat_filt %>%
+  filter(Trimester == 'Third') %>%
+  mutate(cg15486123 = bmiq['cg15486123' , .$Sentrix]) %>%
+  {
+    ggplot(data = ., aes(x = Tissue, y= cg15486123)) +
+      geom_ribbon(data = . %>%
+                    mutate(ymin = 0, ymax = 1) %>%
+                    filter(Tissue %in% c('Trophoblasts cs', 'Villi')),
+                  aes(ymin = ymin, ymax = ymax), 
+                  color = '#fffad4',
+                  size = 25, alpha = 0.00005) +
+      ggbeeswarm::geom_beeswarm(cex = 2,
+                                size = 1.25, 
+                                priority = 'density',
+                                dodge.width = 0.75,
+                                aes(shape = Predicted_ethnicity_nothresh,
+                                    color = Tissue),
+                                fill = 'white',
+                                stroke = 1.5) +
+      geom_text(data = . %>%
+                   nest(data = c(-Tissue)) %>%
+                   mutate(lmfit = map(data,
+                                      function(x) 
+                                        glance(lm(cg15486123 ~ Predicted_ethnicity_nothresh,
+                                                  data = x)))) %>%
+                   unnest(lmfit) %>%
+                   mutate(label = paste0(scales::pvalue(p.value, 
+                                                        add_p = TRUE, 
+                                                        accuracy = 0.01), 
+                                         '\nR2=', 
+                                         scales::number(r.squared, accuracy = 0.01))),
+                 aes(label = label, x = Tissue), 
+                y = 0, color = 'black', vjust = 0, hjust = 0.5) +
+      
+      scale_color_manual(values = color_code_tissue[.$Tissue]) +
+      scale_y_continuous(limits = c(0,1), labels = percent) +
+      scale_shape_manual(values = c('Asian' = 21, 'Caucasian' = 16)) +
+      theme(axis.text.x = element_blank(),
+            axis.ticks = element_blank(),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.y = element_blank(),
+            panel.border = element_blank()) +
+      labs(x = '', y= '', title = 'DNAm at cg15486123', shape = 'Shape', color = 'Color')
+  }
+
+
+```
+
 # Differential variability testing
 
 Design matrix + contrasts
@@ -304,12 +361,18 @@ colnames(design) <- gsub('Tissue', '', colnames(design)) # rename columns
 
 # specify contrasts
 contMatrix <- makeContrasts(
-  Villi - Endo_cs,
-  Villi - Hofb_cs,
-  Villi - Strom_cs,
-  Villi - Troph_cs,
+  Endo_cs - Villi,
+  Hofb_cs - Villi,
+  Strom_cs - Villi,
+  Troph_cs - Villi,
   levels = design)
+```
 
+## Fit models
+
+We only apply the differential variability testing to the dmc/mqtls. 
+
+```{r}
 # fit models to mvalues
 fitvar_m <- varFit( 
   
@@ -340,7 +403,16 @@ fitvar_b <- varFit(
 # apply contrasts
 fitvar_b <- contrasts.varFit(fitvar_b, contrasts = contMatrix)
 
-# process results
+```
+
+Process
+
+1. tidy both mvalue and betas results df and join together (keeping only the `estimate` column in betas)
+2. multiple test correct
+3. determine if significant (bonf <0.01, |delta_b| > 0.25).
+4. determine non significant (p > 0.05)
+
+```{r}
 fitvar_results <- fitvar_m %>%
   tidy() %>%
   
@@ -353,38 +425,49 @@ fitvar_results <- fitvar_m %>%
   group_by(term) %>%
   mutate(fdr = p.adjust(p.value, method = "fdr"),
          bonferroni = p.adjust(p.value, method = 'bonferroni'),
-         Tissue = case_when(
+         DMV = case_when(
            grepl('Endo', term) ~ 'Endothelial cs',
            grepl('Strom', term) ~ 'Stromal cs',
            grepl('Hofb', term) ~ 'Hofbauer cs',
-           grepl('Troph', term) ~ 'Trophoblasts cs'))
+           grepl('Troph', term) ~ 'Trophoblasts cs'),
+         
+         direction = ifelse(estimate > 0, '+', '-'),
+         significant = case_when(
+           fdr < 0.01 & abs(delta_b) > 0.5 ~ '*',
+           p.value > 0.05 ~ 'n.s. (p>0.05)')) %>%
+  ungroup() %>%
+  select(cpg = gene, DMV, p = p.value, fdr, significant, delta_m = estimate, delta_b, 
+         direction) 
 
 # summarize results
 fitvar_results %>%
-  summarize(n_up = sum(bonferroni < 0.01, estimate > 0),
-            n_same = sum(bonferroni > 0.01),
-            n_down = sum(bonferroni < 0.01, estimate < 0))
+  group_by(DMV) %>%
+  summarize(n_up = sum(significant == '*' & delta_m > 0, na.rm = TRUE),
+            n_same = sum(significant == 'n.s. (p>0.05)', na.rm = TRUE),
+            n_down = sum(significant == '*' & delta_m < 0, na.rm = TRUE))
 
 # volcano plot
 fitvar_results %>%
-  mutate(negp = -p.value) %>%
+  mutate(negp = -p) %>%
   {
-    ggplot(data = filter(., bonferroni < 0.01),
-           aes(x = delta_b, y = p.value)) +
-      geom_point(aes(color = Tissue), alpha = 0.8) +
-      geom_point(data = filter(., bonferroni >= 0.01),
-                 aes(fill = 'n.s. (bonferroni p > 0.01)'), 
+    ggplot(data = filter(., fdr < 0.01, abs(delta_b) > 0.5),
+           aes(x = delta_b, y = p)) +
+      geom_point(aes(color = DMV), alpha = 0.8) +
+      geom_point(data = filter(., fdr >= 0.01 | abs(delta_b) <= 0.5),
+                 aes(fill = 'n.s. (fdr p > 0.01)'), 
                  alpha = 0.25, shape = 19) +
       
-      # add bonfferroni p = 0.01 line
-      geom_hline(data = group_by(., term) %>%
-                   filter(bonferroni <= 0.01) %>%
-                   arrange(desc(bonferroni)) %>%
-                   summarize(threshold = max(p.value)),
+      # add fdr p = 0.01 line
+      geom_hline(data = group_by(., DMV) %>%
+                   filter(fdr <= 0.01) %>%
+                   arrange(desc(fdr)) %>%
+                   summarize(threshold = max(p)),
                  linetype = 'dashed',
                  aes(yintercept = threshold)) +
+      geom_vline(linetype = 'dashed', xintercept = 0.5) +
+      geom_vline(linetype = 'dashed', xintercept = -0.5) + 
       
-      facet_wrap(~term) +
+      facet_wrap(~DMV) +
       scale_x_continuous(labels = percent) +
       scale_y_continuous(trans = trans_new('neglog', 
                                            transform = function(x)(-log(x)), 
@@ -393,15 +476,91 @@ fitvar_results %>%
                          label = function(x) {
                            parse(text = gsub("1e", "10^", scales::scientific_format()(x)))
                            }) +
-      scale_color_manual(values = color_code_tissue[fitvar_results$Tissue],
+      scale_color_manual(values = color_code_tissue[fitvar_results$DMV],
                          guide = FALSE) +
-      scale_fill_manual(values = c('n.s. (bonferroni p > 0.01)' = 'grey'), 
+      scale_fill_manual(values = c('n.s. (FDR > 0.01)' = 'grey'), 
                         guide = guide_legend(override.aes = list(size = 2, alpha = 0.5))) +
       labs(x = 'Difference in variability (% methylation)', y = 'p-value',
            color = '', fill = '')
   }
+```
+
+## Plot a couple of differential variable cpgs:
+
+1. add betas to dmv list
+2. plot
+
+```{r}
+# process betas
+dmv_mqtl_dmc <- fitvar_results %>%
+  left_join(dmcs_and_mqtl_betas %>%
+              select(-bonferroni, -delta_b, -dmc_for_class) %>%
+              distinct(), by = c('cpg' = 'cpg_id'))
+# plot_dmv
+# plot function:
+plot_dmv <- function(data) {
+  data %>%
+    {
+      ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+        ggbeeswarm::geom_beeswarm(cex = 2,
+                                  size = 0.7,
+                                  priority = 'density',
+                                  dodge.width = 0.8,
+                                  fill = 'white',
+                                  stroke = 1) +
+        facet_wrap(~cpg, ncol = 2) +
+        scale_color_manual(values = color_code_tissue[pDat_filt$Tissue],
+                           guide = guide_legend(override.aes = list(size = 2))) +
+        scale_y_continuous(limits = c(0,1)) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_blank()) +
+        labs(x = '', y= '', color = '') 
+  }
+}
+
+
+# cpgs that are same variability
+dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(all(significant == 'n.s. (p>0.05)')) %>%
   
+  # 1 row per sample/cpg
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmv()
+
+# cpgs that are less variable in 1 or more
+dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(any(significant == '*' & direction == '-')) %>%
+  
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(1:8) %>%
+  plot_dmv()
 
 ```
 
+# Save data
 
+```{r, eval = FALSE}
+dmcs_and_mqtl_betas %>% saveRDS(here('data', 'main', 'interim', '2_9_dmcs_and_mqtls_betas.rds'))
+fitvar_results %>% saveRDS(here('data', 'main', 'interim', '2_9_dmvs.rds'))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
