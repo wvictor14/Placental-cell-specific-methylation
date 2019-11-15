@@ -1,0 +1,399 @@
+---
+title: "4_1_figure1"
+author: "Victor Yuan"
+date: "14/11/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+## Libraries
+
+```{r}
+#install.packages('ggforce')
+library(RColorBrewer)
+library(tidyverse)
+library(egg)
+library(scales)
+```
+
+## Data
+
+```{r}
+# parent directory
+base_path <- file.path("Z:", "Victor", "Projects", "NIH - cells", "data", "main", "interim")
+
+# sample data
+pDat <- readRDS(file.path(base_path, '3_1_pDat_filt.rds'))
+
+# methylation data
+betas <- readRDS(file.path(base_path, '3_1_betas_filt.rds'))
+
+# annotation
+anno <- readRDS(file.path('Z:', 'Victor', 'Repositories', 'EPIC_annotation',
+                          'hg19_epic_annotation.rds'))
+
+#color code
+color_code <- readRDS(file.path(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+colors <- color_code_tissue[unique(pDat$Tissue)]
+
+#list of genes for search list
+gene <- tibble(gene = str_split(anno$genes_symbol, ', ') %>%
+                 unlist() %>%
+                 unique() %>%
+                 na.omit() %>%
+                 sort())
+
+#pull out cpg name for search list use
+cpg <- unique(anno$cpg) 
+cpg <- cpg[cpg %in% rownames(betas)] %>% as_tibble()
+```
+# Figure 1 gene plot
+
+```{r}
+stat_plot <- function(cpg_name = NULL, gene_name = NULL, trimester = 'Third'){
+  
+  ######## FILTER ANNOTATION TO RELEVANT CPGS, DEPENDING ON INPUT #################
+  if (is.null(cpg_name)){
+     
+    # If a gene symbol is supplied,
+    # filter to gene in annotation
+    anno_gene <- anno %>%
+      filter(grepl(paste0('\\<', gene_name, '\\>'), genes_symbol),
+             cpg %in% rownames(betas)) %>%
+      arrange(desc(start))
+    
+    # stop if gene symbol is invalid
+    if (nrow(anno_gene) == 0) {
+      stop('No cpgs found, maybe they were filtered out.')
+    }
+  } else if (gene_name == ''){
+      
+      # If a cpg is provided,
+      # filter annotation to cpgs
+      anno_gene <- anno %>%
+        filter(cpg %in% cpg_name,
+               cpg %in% rownames(betas)) %>% 
+        arrange(chr, desc(start))
+      
+      # stop if no cpgs were found
+      if (nrow(anno_gene) == 0) {
+        stop('None of the selected CpGs exist in our processed data.')
+      }
+      
+      if (length(cpg_name) < length(intersect(cpg_name, rownames(betas)))) {
+        print(paste0('The following selected CpGs do not exist in our processed data:\n', 
+                     setdiff(cpg_name, rownames(betas))))
+      }
+      
+  } else {
+      stop('Enter valid cpg(s) OR one specific gene.')
+  }
+  
+  ######## SETUP INPUT TO PLOTS ###############
+  #
+  # now we wrangle the betas/annotations/pdata information into a format usable for plotting
+  #
+  betas_gene <- t(betas[anno_gene$cpg,,drop = FALSE]*100) %>% as_tibble %>% 
+    mutate(Sample_Name = colnames(betas)) %>%
+    
+    # reshape into longer format
+    pivot_longer(cols = -Sample_Name,
+                 names_to = 'cpg', 
+                 values_to = 'beta')  %>%
+    
+    # add tissue and trimester info
+    left_join(pDat %>% select(Sample_Name, Trimester, Tissue), by = 'Sample_Name') %>%
+    
+    # calculate mean and sd for each cpg for each group
+    group_by(Tissue, Trimester, cpg) %>%
+    summarize(mean = mean(beta),
+              sd = sd(beta)) %>%
+    mutate(lower = mean-sd, upper = mean+sd) %>%
+    
+    # add cpg info
+    left_join(anno_gene, by = 'cpg') %>%
+    
+    # order on cpg position
+    ungroup() %>%
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           Trimester_Tissue = paste0(Trimester, ' - ', Tissue)) %>%
+    filter(Trimester == trimester)
+  
+  ##### GENERATE INDIVIDUAL PLOT TRACKS #####
+  font_size <- 6
+  point_size <- 0.5
+  
+  # Generate  methylation track
+  p1 <- betas_gene %>%
+    ggplot() +
+    
+    # geom_ribbon is to generate the alternating shaded background
+    geom_ribbon(aes(x = as.numeric(cpg), ymin = 0, ymax = 25),
+                fill = 'grey', alpha = 0.25)+
+    geom_ribbon(aes(x = as.numeric(cpg), ymin = 50, ymax = 75),
+                fill = 'grey', alpha = 0.25)+
+    
+    # geom_linerange and geom_point is for the actual methylation data
+    geom_linerange(alpha = 0.5, size = point_size, 
+                   aes(x = cpg, ymin =lower, ymax = upper, color = Tissue),
+                   show.legend = FALSE) +
+    geom_point(alpha = 0.75, aes(x = cpg, y = mean, color = Tissue), size = point_size*2) +
+    
+    # we want to facet by trimester
+    facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+    
+    # cosmetics
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_blank(), 
+          axis.text.y = element_text(size = font_size*-2),
+          axis.ticks.x = element_blank(),
+          axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0, size = font_size),
+          
+          legend.text = element_text(size = font_size),
+          legend.key.size = unit(0, 'lines'),
+          
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.spacing.y = unit(0.5, 'cm'),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0),
+          
+          plot.margin=margin(l=-0.1, unit="cm")) +
+    scale_y_continuous(limits = c(0, 100), expand = c(0, 0), labels = function(x)paste0(x, '%')) +
+    scale_x_discrete(expand = c(0.01,0.01))+
+    scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)],
+                       guide = guide_legend(override.aes = list(size = point_size*4))) +
+    labs(y = 'DNA\nmethylation', 
+         x = '', 
+         color = '', 
+         title = if_else(!is.null(gene_name), gene_name, '')) 
+    
+  # plot cpg annotations
+  p2 <- betas_gene %>% 
+    
+    # First we need to process the annotation data
+    mutate(# absent/presence for different genomic elements
+           enhancer = !is.na(enhancers_id),
+           pmd = !is.na(pmd_id),
+           imprinted_gene_placenta = !is.na(imprinted_gene_placenta),
+           imprinted_gene_general = !is.na(imprinted_gene_general),
+           imprinted_dmr_general = !is.na(imprinted_dmr_general),
+           imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta)) %>%
+    mutate_if(is.logical, as.character) %>%
+    select(cpg, enhancer, pmd, imprinted_gene_general:imprinted_dmr_placenta, cpg_id, start) %>%
+    
+    # reshape
+    pivot_longer(cols = c(-cpg, -start),
+               names_to = 'cpg_element', 
+               values_to = 'presence') %>%
+    distinct() %>%
+    
+    # arrange plot orde for each track
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           cpg_element = factor(cpg_element, 
+                                levels = c('enhancer', 'pmd', 'imprinted_gene_placenta',
+                                           'imprinted_gene_general', 'imprinted_dmr_general',
+                                           'imprinted_dmr_placenta', 'cpg_id')),
+           presence = factor(ifelse(presence == "TRUE", 'Present',
+                                    ifelse(presence == "FALSE", 'Absent', presence)),
+                             levels = c('Present', 'Absent', ' ', '  ', 
+                                        'sea', 'shelf', 'shore', 'island')),
+           # for facet label
+           group = 'Annotations') %>%
+    
+    # plot code
+    ggplot(aes(x = cpg, y = cpg_element, fill = presence)) +
+    geom_tile(color = '#969696') +
+    guides(fill=guide_legend(ncol=3, override.aes = list(colour = 'black'))) +
+    facet_wrap(vars(group), ncol = 1) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text.y = element_text(vjust = 0.5),
+          
+          legend.text = element_text(size = font_size),
+          legend.key.height = unit(0.25, 'cm'),
+          legend.key.width = unit(0.25, 'cm'),
+          
+          plot.margin = margin(l=-0.1,unit="cm"),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0)) +
+    scale_fill_manual(values = c('Present' = '#cccccc', 'Absent' = '#f7f7f7', 
+                                 ' ' = 'white', '  ' = 'white',
+                                 'sea' = '#ffffcc', 'shelf' = '#a1dab4', 'shore' = '#41b6c4',
+                                 'island' = '#225ea8'), drop = T) +
+    scale_y_discrete(expand = c(0,0)) +
+    scale_x_discrete(expand = c(0,0)) +
+    labs(x = '', y = '', fill = '')
+  
+  # transcript annotations
+  
+  # cpgs can have more than one mapping to a gene element per transcript
+  # cpgs mapped to intronexonboundaries can also be part of exons and introns
+  # 5 UTR and 3 UTR can also overlap with exons and introns
+  
+  # If there are multiple mappings then only the following will be displayed in order of priority:
+  # 5UTR / 3UTR, exon / intron, intronexonboundary
+  
+  p3 <- betas_gene %>% 
+    select(cpg, end, genes_id, genes_tx_id) %>%
+    distinct() %>%
+    
+    # split comma separate list and put each entry into a new row
+    mutate(genes_tx_id = str_split(genes_tx_id, ', '),
+           genes_id = str_split(genes_id, ', ')) %>%
+    unnest(c(genes_tx_id, genes_id)) %>%
+    
+    # order transcripts by position of start
+    arrange(end) %>%
+    mutate(genes_tx_id = 
+             factor(genes_tx_id, levels = unique(genes_tx_id)) %>%
+             fct_explicit_na()) %>%
+    
+    # fill all combinations of cpg and gene_tx_id with NA if missing, so that they show in plot
+    complete(cpg, genes_tx_id) %>%
+    
+    # filter out to unique mappings using the priority described above
+    # strategy is to order by factor level and take the first occurence
+    mutate(genes_id = factor(genes_id, 
+                             levels = c('1to5kb', 'promoter', '5UTR', '3UTR', 'exon',
+                                        'intron', 'intronexonboundary', 'intergenic'))) %>%
+    
+    group_by(cpg, genes_tx_id) %>%
+    arrange(genes_id)  %>%
+    dplyr::slice(1) %>%
+    
+    # reorder factor levels for appearance in plot legend
+    mutate(genes_id = factor(genes_id, 
+                             levels = c('1to5kb', 'promoter', '5UTR', 'exon', 'intron',
+                                        'intronexonboundary', '3UTR', 'intergenic')),
+           group = 'Transcripts') %>%
+    
+    #plot
+    ggplot(aes(x = cpg, y = genes_tx_id, fill = genes_id)) +
+    geom_tile(color = '#969696', alpha = 0.6) +
+    facet_wrap(vars(group), ncol = 1) +
+    guides(fill=guide_legend(ncol=2, override.aes = list(alpha=0.7, 
+                                                         color = 'black'))) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), 
+          axis.text.y = element_text(vjust = 0.5),
+          axis.ticks = element_blank(),
+          
+          plot.margin = margin(l=-0.1,unit="cm"),
+          
+          legend.text = element_text(size = font_size,
+                                     margin = margin(t = -1, b = -1)),
+          legend.key.height = unit(0.25, 'cm'),
+          legend.key.width = unit(0.25, 'cm'),
+          
+          panel.grid = element_blank(),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0)) +
+    scale_fill_brewer(na.value = '#f7f7f7', breaks = c('1to5kb', 'promoter', '5UTR', 'exon', 
+                                                        'intron', 'intronexonboundary', '3UTR',
+                                                        'intergenic'),
+                      palette = 'Paired', direction = -1) +
+    scale_y_discrete(expand = c(0,0), 
+                     labels = function(x)(if_else(x == '(Missing)', '', x))) +
+    scale_x_discrete(expand = c(0,0)) +
+    coord_cartesian(clip = "off") +
+    labs(x = '', y = '', fill = '')
+  
+  # the size of each plot depends on the number of unique transcripts
+  # More transcripts means a longer transcript track
+  # so the plot height depends on the number of transcripts
+  
+  # number of transcripts
+  n_trans <- betas_gene$genes_tx_id %>% str_split(', ') %>% unlist() %>% unique %>% length()
+  
+  # size of p1
+  p1_h <- 20
+  
+  # combine tracks plot
+  ggarrange(p1, p2, p3, ncol = 1, heights = c(p1_h-(n_trans-7), 7, n_trans))
+}
+
+p <- stat_plot(gene_name = 'DNMT1', trimester = 'Third');p
+
+```
+
+# Figure 1 enrichment
+
+```{r}
+base_path <- file.path('data', 'main','interim')
+
+tests <- readRDS(here(base_path, '2_5_enrich_tests.rds'))
+
+
+plot_bar <- function(x){
+  x %>%
+    # ordering in plot
+    mutate(# linerange ymin ymax values
+           ymin = pmin(Observed_p_in, Expected_p_in),
+           ymax = pmax(Observed_p_in, Expected_p_in)) %>%
+    
+    ggplot() +
+    geom_errorbar(aes(x = genomic_feature, 
+                      ymin = Expected_p_in, ymax = Expected_p_in, 
+                      linetype = 'Expected frequency'), 
+                  size = 1) +
+    geom_pointrange(aes(x = genomic_feature, 
+                        y = Observed_p_in, ymin = ymin, ymax = ymax, 
+                        color = Celltype,
+                        alpha = bonferroni001),
+             stat = 'identity', 
+             position = position_dodge(width = 0.75),
+             fatten = 0.15, 
+             size = 0.15) +
+    facet_grid(genomic_feature_category~ Direction , 
+               scales = 'free', space = 'free', drop = TRUE) +
+    coord_flip() +
+    theme_bw(base_size = 6) + 
+    theme(legend.position = 'right', legend.direction = 'vertical',
+          legend.spacing.y = unit(-0.2, 'cm'),
+          strip.background = element_blank(),
+          strip.text.x = element_text(face = 'bold'),
+          strip.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.spacing.y = unit(0.15, 'cm')) +
+    
+    # add significance
+    geom_point(aes(x = genomic_feature, y = ymax + 0.025, group = Celltype, shape = bonferroni001),
+               position = position_dodge(0.75), size = 2) +
+    labs(color = '', x = '', y = '', shape = '', linetype = '', 
+         title = 'Percentage of cell-specific DMCs', subtitle = 'located in various genomic features') +
+    scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
+                       labels = c('', 'Enriched\n(bonferroni p < 0.001)')) +
+    scale_color_manual(values = colors,
+                       guide = guide_legend(override.aes = list(size = 0.5))) +
+    scale_y_continuous(limits = c(0,1), expand = c(0.075,0),
+                       breaks = c(0, 0.5, 1),
+                       labels = function(x)scales::percent(x, accuracy = 1)) +
+    scale_alpha_discrete(range = c(0.4,1), breaks = c('TRUE', 'FALSE'), guide = FALSE)
+}
+
+p1 <- tests %>% 
+  filter(Trimester == 'Third',
+         genomic_feature_category %in% c('pmd', 'imprinting', 'gene', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar();p1
+
+p2 <- tests %>% 
+  filter(Trimester == 'First',
+         genomic_feature_category %in% c('pmd', 'imprinting', 'gene', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar()
+```
