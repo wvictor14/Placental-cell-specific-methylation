@@ -27,12 +27,15 @@ library(annotatr)
 library(fuzzyjoin)
 library(formattable)
 library(kableExtra)
+library(here)
+library(readr)
 ```
 
 ## Data
 
 ```{r}
-pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+base_path <- file.path('data', 'main', 'interim')
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
 pDat <- pDat %>%
   mutate(Tissue = case_when(
     !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
@@ -41,28 +44,28 @@ pDat <- pDat %>%
   )) 
 
 # raw methylation data
-betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 
-mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+mset_noob <- readRDS(here(base_path, '1_4_mset_noob.rds')) # for mvals
 colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
 mvals <- getM(mset_noob)
 
-probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
 
 # color key
-pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+pheatmap_color_code <- readRDS(here(base_path, '1_1_color_code.rds'))
 
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 
 # DMCs
-dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+dmcs <- readRDS(here(base_path, '2_4_dmcs.rds'))
 
 # annotation
 anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
 
 #color code
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 ```
 
@@ -81,7 +84,7 @@ mvals_filt <- mvals[rownames(betas),pDat_filt$Sample_Name]
 betas_filt <- betas[,pDat_filt$Sample_Name]
 ```
 
-## Test for genomic enrichment
+# Test for genomic enrichment
 
 The strategy is to first dummy variable every genomic element that we want to test enrichment for. And then join that to the linear modelling results data frame.
 
@@ -94,6 +97,7 @@ Note that the input list of dmcs is a 'long' table, where there is 4 celltypes/c
 This took a long time to figure how to do, so eventually I would like to see this code put somewhere public that others can contribute towards.
 
 **August 27** Separated DMCs by hypo/hyper
+**October 30** Combined hypo/hyper -> not much was different
 
 ```{r}
 p_thresh <- 0.01
@@ -128,7 +132,8 @@ annotation <- anno %>%
          imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta))
 
 # add gene annotation to dmcs
-dmcs <- dmcs %>% left_join(annotation, by = c('gene' = 'cpg'))
+dmcs <- dmcs %>% 
+  left_join(annotation, by = c('gene' = 'cpg'))
 
 # filter to all tested cpgs
 annotation <- annotation %>%
@@ -198,14 +203,14 @@ tests <- observed %>%
   
   mutate(test_out = map(test_in, ~fisher.test(., conf.int = 0.95)),
          p = map_dbl(test_out, 'p.value'),
-         confidence_interval_min = map_dbl(test_out, ~.$conf.int[1]),
-         confidence_interval_max = map_dbl(test_out, ~.$conf.int[2]),
+         c95_min = map_dbl(test_out, ~.$conf.int[1]),
+         c95_max = map_dbl(test_out, ~.$conf.int[2]),
          odds_ratio = map_dbl(test_out, 'estimate'),
          FDR = p.adjust(p, method = 'fdr'),
          bonferroni = p.adjust(p, method = 'bonferroni'),
          FDR01 = FDR < 0.01,
-         bonferroni01 = bonferroni < 0.01) %>% 
-  select(odds_ratio, contains('confidence'), FDR, FDR01, bonferroni, bonferroni01, p, everything())
+         bonferroni001 = bonferroni < 0.001) %>% 
+  select(odds_ratio, contains('confidence'), FDR, FDR01, bonferroni, bonferroni001, p, everything())
 
 
 tests
@@ -242,7 +247,9 @@ tests <- tests %>%
     ) 
 ```
 
-## Visualize enrichment
+# Visualize enrichment
+
+## lolipops
 
 ```{r}
 # plot function
@@ -250,8 +257,8 @@ plot_enrich <- function(x) {
   g <- ggplot(data = x) +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
-                      ymin = confidence_interval_min, 
-                      ymax = confidence_interval_max,
+                      ymin = c95_min, 
+                      ymax = c95_max,
                       shape = FDR01, y = odds_ratio, color = Celltype),
                   position = position_dodge(width =0.5 )) +
   geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
@@ -325,8 +332,8 @@ tests %>%
   ggplot() +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
-                      ymin = confidence_interval_min, 
-                      ymax = confidence_interval_max,
+                      ymin = c95_min, 
+                      ymax = c95_max,
                       shape = FDR01, y = odds_ratio, color = Celltype),
                   position = position_dodge(width =0.5 )) +
   geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
@@ -351,8 +358,8 @@ tests %>%
   ggplot() +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
-                      ymin = confidence_interval_min, 
-                      ymax = confidence_interval_max,
+                      ymin = c95_min, 
+                      ymax = c95_max,
                       shape = FDR01, y = odds_ratio, color = Celltype),
                   position = position_dodge(width =0.5 )) +
   geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
@@ -376,8 +383,8 @@ tests %>%
   ggplot() +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = Trimester, 
-                      ymin = confidence_interval_min, 
-                      ymax = confidence_interval_max,
+                      ymin = c95_min, 
+                      ymax = c95_max,
                       shape = FDR01, y = odds_ratio, color = Celltype),
                   position = position_dodge(width =0.5 )) +
 #  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
@@ -401,8 +408,8 @@ tests %>%
   ggplot() +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
-                      ymin = confidence_interval_min, 
-                      ymax = confidence_interval_max,
+                      ymin = c95_min, 
+                      ymax = c95_max,
                       shape = FDR01, y = odds_ratio, color = Celltype),
                   position = position_dodge(width =0.5 )) +
 #  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
@@ -429,8 +436,8 @@ tests %>%
   ggplot() +
   geom_hline(yintercept = 1, color = 'black', linetype = 'solid', size = 1) +
   geom_pointrange(aes(x = genomic_feature, 
-                      ymin = confidence_interval_min, 
-                      ymax = confidence_interval_max,
+                      ymin = c95_min, 
+                      ymax = c95_max,
                       shape = FDR01, y = odds_ratio, color = Celltype),
                   position = position_dodge(width =0.5 )) +
 #  geom_vline(xintercept = seq(1, 22, 2), alpha = 0.25) +
@@ -447,6 +454,87 @@ tests %>%
   theme(#panel.grid.minor.x = element_blank(),
         #panel.grid.major.y = element_blank(),
         axis.text.y = element_text(size = 8))
+```
+
+## bars
+
+```{r}
+plot_bar <- function(x){
+  x %>%
+    # ordering in plot
+    mutate(# linerange ymin ymax values
+           ymin = pmin(Observed_p_in, Expected_p_in),
+           ymax = pmax(Observed_p_in, Expected_p_in)) %>%
+    
+    ggplot() +
+    geom_errorbar(aes(x = genomic_feature, 
+                      ymin = Expected_p_in, ymax = Expected_p_in, 
+                      linetype = 'Expected frequency'), 
+                  size = 1) +
+    geom_pointrange(aes(x = genomic_feature, 
+                        y = Observed_p_in, ymin = ymin, ymax = ymax, 
+                        color = Celltype,
+                        alpha = bonferroni001),
+             stat = 'identity', 
+             position = position_dodge(width = 0.75),
+             fatten = 1.5, 
+             size = 1.7) +
+    facet_grid(genomic_feature_category~ Direction , 
+               scales = 'free', space = 'free', drop = TRUE) +
+    coord_flip() +
+    theme_bw(base_size = 26) + 
+    theme(legend.position = 'right', legend.direction = 'vertical',
+          legend.spacing.y = unit(-0.2, 'cm'),
+          strip.background = element_blank(),
+          strip.text.x = element_text(face = 'bold'),
+          strip.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.spacing.y = unit(0.15, 'cm')) +
+    
+    # add significance
+    geom_point(aes(x = genomic_feature, y = ymax + 0.025, group = Celltype, shape = bonferroni001),
+               position = position_dodge(0.75), size = 4) +
+    labs(color = '', x = '', y = '', shape = '', linetype = '', 
+         title = 'Percentage of cell-specific DMCs', subtitle = 'located in various genomic features') +
+    scale_shape_manual(values = c('TRUE' = '*', 'FALSE' = ''), na.translate = F, 
+                       labels = c('', 'Enriched\n(bonferroni p < 0.001)')) +
+    scale_color_manual(values = colors,
+                       guide = guide_legend(override.aes = list(size = 0.5))) +
+    scale_y_continuous(limits = c(0,1), expand = c(0.075,0),
+                       breaks = c(0, 0.5, 1),
+                       labels = function(x)scales::percent(x, accuracy = 1)) +
+    scale_alpha_discrete(range = c(0.4,1), breaks = c('TRUE', 'FALSE'), guide = FALSE)
+}
+
+p1 <- tests %>% 
+  filter(Trimester == 'Third',
+         genomic_feature_category %in% c('pmd', 'imprinting', 'gene', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar();p1
+
+p2 <- tests %>% 
+  filter(Trimester == 'First',
+         genomic_feature_category %in% c('pmd', 'imprinting', 'gene', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar()
+```
+
+# Save enrichment results
+
+```{r}
+tests %>%
+  mutate(bonferroni_cat = scales::pvalue(bonferroni)) %>%
+  select(Trimester, Celltype, Direction, genomic_feature, genomic_feature_category,
+         p, FDR, bonferroni, FDR_cat, bonferroni_cat, odds_ratio, c95_min, c95_max,
+        contains('Observed_p_'), contains('Expected_p_'),
+        contains('Observed_n_'), contains('Expected_n_')) %>%
+  arrange(desc(Trimester), desc(genomic_feature_category), genomic_feature, Direction, Celltype) %>%
+  mutate_at(vars(contains('p_'), odds_ratio:c95_max), round, digits = 2) %>%
+
+  writexl::write_xlsx(here('outs', '2_5_enrichment_results.xlsx'))
 ```
 
 ```{r}
@@ -752,7 +840,7 @@ ggplot(densities, aes(x = x_imprint_dmr_pl, y = y_imprint_dmr_pl, color = Cellty
 
 # Save data
 
-```{r eval = F}
-saveRDS(tests, '../../data/main/interim/2_5_enrich_tests.rds')
-saveRDS(densities, '../../data/main/interim/2_5_densities.rds')
+```{r eval = FALSE}
+saveRDS(tests, here(base_path, '2_5_enrich_tests.rds'))
+saveRDS(densities, here(base_path, '2_5_densities.rds'))
 ```
