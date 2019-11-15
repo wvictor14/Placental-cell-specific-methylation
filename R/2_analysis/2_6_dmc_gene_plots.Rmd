@@ -19,8 +19,11 @@ library(formattable)
 library(kableExtra)
 library(ggridges)
 library(egg)
+library(here)
 
-pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+base_path <- file.path('data', 'main', 'interim')
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
 pDat <- pDat %>%
   mutate(Tissue = case_when(
     !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
@@ -30,29 +33,29 @@ pDat <- pDat %>%
 
 # methylation data
 
-betas_XY <- readRDS('../../data/main/interim/1_4_betas_noob_filt_XYkeep.rds')
-betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+betas_XY <- readRDS(here(base_path, '1_4_betas_noob_filt_XYkeep.rds'))
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 
-mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+mset_noob <- readRDS(here(base_path, '1_4_mset_noob.rds')) # for mvals
 colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
 mvals <- getM(mset_noob)
 
-probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
 
 # color key
-pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+pheatmap_color_code <- readRDS(here(base_path, '1_1_color_code.rds'))
 
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 
 # DMCs
-dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+dmcs <- readRDS(here(base_path, '2_4_dmcs.rds'))
 
 # annotation
 anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
 
 #color code
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 ```
 
@@ -187,7 +190,7 @@ plot_data %>% plot_cpgs_ridges(n = 76:100, Trimester = 'First')
 ## Savedata
 
 ```{r}
-dmcs %>% saveRDS('../../data/main/interim/2_6_dmcs_gene_label.rds')
+dmcs %>% saveRDS(here(base_path, '2_6_dmcs_gene_label.rds'))
 ```
 
 # Plot top few genes
@@ -202,7 +205,7 @@ dmcs %>% saveRDS('../../data/main/interim/2_6_dmcs_gene_label.rds')
 # prepare 
 
 # DMCs
-dmcs <- readRDS('../../data/main/interim/2_4_dmcs.rds')
+dmcs <- readRDS(here(base_path, '2_4_dmcs.rds'))
 
 
 plot_cpgs_in_gene <- function(gene, betas, pDat, annotation, dmcs) {
