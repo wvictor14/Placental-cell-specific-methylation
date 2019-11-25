@@ -854,6 +854,24 @@ saveRDS(dmcs, '../../data/main/interim/2_4_dmcs.rds')
 saveRDS(dmcs_sig, '../../main/interim/2_4_dmcs_summary.rds')
 saveRDS(list(kegg = kegg, GO = gst), '../../data/main/interim/2_4_enrich.rds')
 saveRDS(list(cell_mean_cor, cell_mean), '../../data/main/interim/2_4_cell_means.rds')
+
+dmcs %>% 
+  filter(bonferroni < 0.001, delta_b > 0.25) %>%
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer',
+    Celltype == 'Strom_cs' ~ 'Stromal',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts')) %>%
+  dplyr::rename(cpg = gene,
+         mean_difference_mval = estimate,
+         p_value = p.value,
+        mean_difference_bval = delta_b) %>%
+  left_join(anno %>% select(cpg, chr, start, contains('genes'), -genes_width, -genes_gene_id)) %>%
+  select(Trimester, Celltype, cpg, chr, start, contains('genes'), 
+         contains('mean'), p_value, fdr, bonferroni, statistic, lod,
+         everything()) %>%
+  writexl::write_xlsx(here('outs', '2_4_cell_dmcs.xlsx'))
 ```
 
 # SessionInfo
