@@ -223,9 +223,9 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
          title = c, color = '')
 }
 
-p <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
+p2 <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
             array = 'EPIC') 
 
-p <- plot_region(c = 'chr5', s = 87500000, e = 100000000, 
-            span = 0.05, filtered = FALSE, array = 'EPIC') 
+p3 <- plot_region(c = 'chr5', s = 87500000, e = 87500000 + 1000000, 
+            span = 0.05, filtered = FALSE, array = 'EPIC');p3
 ```
