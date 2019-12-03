@@ -24,6 +24,8 @@ library(tidyverse)
 library(scales)
 library(here)
 library(readxl)
+library(janitor)
+library(HardyWeinberg)
 theme_set(theme_bw())
 ```
 
@@ -127,63 +129,289 @@ mqtls$SNPID %>%
 # how many mQTL snps are in our data
 unique(mqtls$SNPID) %in% geno$`SNP Name` %>%
   sum #2867
+
+# position of mqtls
+mqtls_pos <- paste0(mqtls$chr %>% gsub('chr', '', .), '_', mqtls$snp_position)
+
+sum(unique(mqtls_pos) %in% paste0(geno$Chr, '_', geno$Position)) #2868
 ```
 
-Match snps to mQTLs
+Only 2867/3022 of the mQTL SNPs are present in our data. Let's see if this discrepancy is due to differing array versions:
 
-- SNPs that map to chromosome "0" are likely problematic probes or control probes. See [here](http://seqanswers.com/forums/showthread.php?t=70046)
+We used v1.4, I'm guessing delahaye used v1.3
+
+**Note** I previously tried to match on positional information instead of snp name. This still results in the same number of missing probes.
 
 
 ```{r}
-# get Omnni 2.5 snps with position info
-geno_snps <- geno %>%
-  select(`SNP Name`:Position) %>% 
+v1_3 <- read_csv('Z:/ROBLAB6 InfiniumSequenom/ILLUMINA SNP ARRAYS/ILLUMINA GS files/HumanOmni2-5-8-v1-3-a1/InfiniumOmni2-5-8v1-3_A1.csv', skip = 7)
+
+sum(unique(mqtls$SNPID) %in% v1_3$Name) #2874
+sum(unique(mqtls_pos) %in% paste0(v1_3$Chr, '_', v1_3$MapInfo)) # 2874
+```
+
+Only 2874/3022 are present in v1.3. Maybe they used v1.2?
+
+```{r}
+v1_2 <- read_csv('Z:/ROBLAB6 InfiniumSequenom/ILLUMINA SNP ARRAYS/ILLUMINA GS files/HumanOmni2-5-8-v1-2/HumanOmni25-8v1-2_A1.csv', skip = 7)
+
+sum(unique(mqtls$SNPID) %in% v1_2$Name) #2904
+sum(unique(mqtls_pos) %in% paste0(v1_2$Chr, '_', v1_2$MapInfo)) #2903
+```
+
+It seems that none of the arrays completely account for all mqtl snps. Therefore, this discrepancy must be due to how they annotated their data. They mention in their methods:
+
+```
+The DNA samples (n = 303, 151 males, and 152 females) were genotyped on Illumina HumanOmni2.5 Beadchips, followed by initial data processing using Genome Studio. SNPs were annotated using dbSNP138.
+```
+
+So they used dbSNP138 to annotate their data. This is confusing to me because the positional information should not change, unless they have remapped their probes. 
+
+For this analysis, I just go ahead with the overlapping probes from our data (v1.4) and their mQTLs.
+
+# [SNPs] Subset to mQTLs
+
+Note that the final report is exported allele calls with the TOP/BOTTOM specification. This means that the A corresponds to the first letter in the SNP column, and B is the second letter.
+
+e.g.
+
+if SNP = [T/C], then
+
+A = T
+B = C
+
+This will be helpful to know later on
+
+```{r}
+# read in v1.4 annotation
+v1_4 <- read_csv('Z:/ROBLAB6 InfiniumSequenom/ILLUMINA SNP ARRAYS/ILLUMINA GS files/HumanOmni2-5-8-v1-4-a1/InfiniumOmni2-5-8v1-4_A1.csv', skip = 7)
+
+# subset down to mqtl snps
+geno <- geno %>%
+  filter(`SNP Name` %in% mqtls$SNPID) %>%
+  janitor::clean_names() 
+
+# create genotype calls
+geno <- geno %>%
+  mutate(genotype = paste0(allele1_ab, allele2_ab),
+         genotype = ifelse(genotype == '--', NA, genotype))  
+geno$genotype %>% unique
+
+
+# take out snp info
+annotation <- geno %>%
+  select(snp_name, chr, position) %>%
   distinct()
 
-# format genotype chr column to match mqtls
-geno_snps$Chr %>% unique %>% as.factor %>% levels
-mqtls$chr_snp %>% unique %>% as.factor %>% levels
-
-geno_snps <- geno_snps %>% 
-  mutate(Chr = paste0('chr', Chr)) %>%
-  filter(!Chr %in% c('chrMT', 'chrX', 'chrXY', 'chrY', 'chr0'))
-
-all(geno_snps$Chr %in% mqtls$chr_snp) # T
-all(mqtls$chr_snp %in% geno_snps$Chr) # T
-
-# merge
-length(unique(mqtls$SNPID)) # 3022 before merging
-mqtls_merged <- mqtls %>% 
-  select(SNPID, cpgID, chr_snp, snp_position) %>%
-  inner_join(geno_snps, by = c('chr_snp' = 'Chr', 'snp_position' = 'Position')) 
-
-mqtls_merged %>%
-  arrange(chr_snp, snp_position) %>%
-  group_by(chr_snp, snp_position) %>%
-  filter(length(unique(`SNP Name`)) > 1)
+# add in some annotation info
+nrow(annotation) #2867
+annotation <- annotation %>%
+  inner_join(v1_4 %>% select(Name, SNP, Chr, MapInfo, GenomeBuild), by = c('snp_name' = 'Name'))
+nrow(annotation) #2867
 ```
 
-- There  are multiple positions that have two snp IDs, one for kgp and one rsID. Not sure what is going on here:
 
-```
-geno_snps %>% 
-  group_by(Chr, Position) %>% summarize(n = n(), snp_name = paste0(`SNP Name`, collapse = ',')) %>%
-  filter(n > 1)
-```
+## Subset to samples
 
-Read in list of missing legacy snps on v1.5 manifest
+Subset to samples of my cells project
 
 ```{r}
-missing_snps <- read_tsv(here('data', 'external', 'InfiniumOmni2-5-8v1-5_A1_vs_InfiniumOmni2-5-8v1-4_A1_MissingLegacySNPs.txt'),
-                         col_names = 'snps')
-
-sum(missing_snps$snps %in% mqtls$SNPID) #27
-
+geno <- geno %>%
+  mutate(case_id = gsub('_.*', '', sample_id)) %>%
+  filter(case_id %in% pDat_filt$Case_ID)
 ```
 
-# Subset to mQTLs
+## MAF
 
-## Genotypes
+We need to ensure all genotypes are represented for each SNP, otherwise we cannot validate robustly.
+
+```{r}
+# calculate counts per genotype, and BAF
+geno_stats <- geno %>%
+  mutate(a1 = ifelse(allele1_ab == 'A', 0, 
+                     ifelse(allele1_ab == 'B', 1, allele1_ab)) %>% as.numeric,
+         a2 = ifelse(allele2_ab == 'A', 0, 
+                     ifelse(allele2_ab == 'B', 1, allele2_ab)) %>% as.numeric) %>%
+  group_by(snp_name, genotype) %>%
+  summarize(BA = sum(a1 + a2, na.rm = T),
+            n = n()) %>%
+  
+  # calculate BAF
+  group_by(snp_name) %>%
+  mutate(BAF = sum(BA, na.rm = T) / sum(n*2, na.rm = T)) %>%
+  
+  ungroup() %>%
+  mutate(snp_name = fct_reorder(snp_name, BAF)) %>%
+  arrange(BAF, snp_name)
+  
+geno_stats
+```
+
+There are many SNPs with low BAF, and no AB or BB genotypes represented. We need to remove these as these cannot be validated.
+
+```{r}
+#plots
+geno_stats %>%  
+  ggplot(aes(x = snp_name, y = n, fill = genotype)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x = 'snps', y = 'count')
+
+geno_stats %>%
+  select(snp_name,BAF) %>%
+  distinct() %>%
+  ggplot(aes(x = BAF)) +
+  geom_histogram(binwidth = 0.05) +
+  scale_x_continuous(limits = c(0,1))
+```
+
+above we visualize the distribution of B allele frequency (BAF) and the number of observations of each genotype per snp. 
+
+We need to decide on how to filter for those snps that have enough boservations in each genotype per snp.
+
+I think filtering to a minimum of 3 observations per genotype is the bare minimum. 
+
+```{r}
+geno_stats_wide <- geno_stats %>% 
+  
+  # 1 row per snp
+  pivot_wider(id_cols = c(snp_name, BAF),
+              names_from = genotype,
+              values_from = n) %>%
+  
+  # process columns
+  mutate_at(vars(AA:BB), function(x)ifelse(is.na(x), 0, x)) %>%
+  mutate(n = AA + AB + BB) %>%
+  select(snp_name:AA, AB, BB, `NA`, n) %>%
+  dplyr::rename(missing = `NA`) %>%
+  
+  #filter to minimum 3 observations
+  filter(AA > 3,
+         AB > 3,
+         BB > 3) 
+
+  
+geno_stats_wide %>%
+  pivot_longer(cols = AA:missing,
+               names_to = 'genotype',
+               values_to = 'count') %>%
+  mutate(genotype = ifelse(genotype == 'missing', NA, genotype)) %>%
+  ggplot(aes(x = snp_name, y = count, fill = genotype)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x = paste0('snps', ' (n=', nrow(geno_stats_wide), ')'), y = 'count')
+
+geno_stats_wide %>%
+  ggplot(aes(x = BAF)) +
+  geom_histogram(binwidth = 0.025) +
+  scale_x_continuous(limits = c(0,1))
+  
+nrow(geno_stats_wide) #609 SNPs remain
+
+2869-nrow(geno_stats_wide) #2260 SNPs removed
+```
+
+There are 609 SNPs with a minimum of 3 observations for each genotype.
+
+## call rate
+
+Let's examine call rate
+
+```{r}
+geno_stats_wide %>%
+  
+  # no point in looking at SNPs with high call rates (low # of missing values)
+  filter(missing > 1) %>%
+  ggplot(aes(x = missing)) +
+  geom_histogram(binwidth = 1) +
+  labs(x = '# of failed calls')
+
+geno_stats_wide %>%
+  mutate(callrate = 1-missing/n) %>%
+  ggplot(aes(x = callrate)) +
+  geom_histogram(binwidth = 0.01)
+
+#zoom
+geno_stats_wide %>%
+  mutate(callrate = 1-missing/n) %>%
+  ggplot(aes(x = callrate)) +
+  geom_histogram() +
+  theme(panel.grid.minor = element_blank()) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = 0:10)
+
+# Now we remove those with call rate < 95%
+geno_stats_wide <- geno_stats_wide %>%
+  mutate(callrate = 1-missing/n) %>%
+  filter(callrate > 0.95)
+
+nrow(geno_stats_wide) # 597
+609-nrow(geno_stats_wide)  #12
+```
+
+We removed 12 SNPs with a call rate < 0.95
+
+## Hardy Weinberg
+
+```{r, message = FALSE, warning = FALSE}
+# test HWE with chi squared
+X <- geno_stats_wide %>% 
+  select(AA, AB, BB) %>%
+  dplyr::rename(MM = AA, MN = AB, NN = BB) %>%
+  as.matrix() %>%
+  HWChisqMat
+
+# add to data
+geno_stats_wide <- geno_stats_wide %>%
+  mutate(chisq_stat = X$chisqvec, p = X$pvalvec)
+
+geno_stats_wide %>%
+  ggplot(aes(x = p)) +
+  geom_histogram(binwidth = 0.05)
+
+# what threshold to choose
+geno_stats_wide %>%
+  summarize(sum(p < 0.001),
+            sum(p < 0.01),
+            sum(p < 0.05))
+
+# filter to those that do not significantly deviate from HWE
+geno_stats_wide <- geno_stats_wide %>%
+  filter(p > 0.01)
+
+nrow(geno_stats_wide) # 597
+597-nrow(geno_stats_wide)
+```
+
+No SNPs deviate significantly from HWE at p<0.01
+
+Lastly, I want to filter the genotype data to these filtered SNPs, and reshape into a format that I can test associations with easily.
+
+```{r}
+# filter and reshape
+geno_df <- geno %>% 
+  filter(snp_name %in% geno_stats_wide$snp_name) %>%
+  pivot_wider(id_cols = snp_name,
+              names_from = sample_id,
+              values_from = genotype)
+
+# change encoding to 0/1/2
+geno_df[geno_df == 'AA'] <- 0
+geno_df[geno_df == 'AB'] <- 1
+geno_df[geno_df == 'BB'] <- 2
+
+# coerce to df format for matrixEQTL
+geno_df <- geno_df %>%
+  mutate_at(vars(-snp_name), as.numeric) %>%
+  as.data.frame() %>%
+  magrittr::set_rownames(.$snp_name) 
+```
 
 ## CpGs
 
