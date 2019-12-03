@@ -1,0 +1,195 @@
+---
+title: "2_11_mQTLs"
+author: "Victor Yuan"
+date: "02/12/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Recently I found out that we do have genotype (Omni 2.5, 2.5 million snps) data for all NIH cells 
+samples. This means we can directly compare the mQTL associations found in Delahaye et al. 2019. 
+
+To do this, I need to load in the SNPs and process them.
+
+
+# Setup
+
+## Libraries
+
+```{r, message = FALSE, warning = FALSE}
+# libraries and data
+library(minfi)
+library(tidyverse)
+library(scales)
+library(here)
+library(readxl)
+theme_set(theme_bw())
+```
+
+## Data
+
+```{r eval = TRUE}
+base_path <- file.path('data', 'main', 'interim')
+
+# pData
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+anno <- anno %>%
+  as_tibble() %>%
+  filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
+
+# color key
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+## Remove samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),)
+
+betas_filt <- betas[,pDat_filt$Sentrix]
+colnames(betas_filt) <- pDat_filt$Sample_Name
+```
+
+## Load genotype data
+
+```{r}
+master_ss <- read_xlsx('Z:/ROBLAB6 InfiniumSequenom/ILLUMINA SNP ARRAYS/MASTER_SAMPLE_SHEET.xlsx',
+                       skip = 8)
+
+# Only third trimester samples have omni
+pDat_filt %>%
+  mutate(omni = Case_ID %in% master_ss$Sample_Name) %>%
+  group_by(Trimester, Tissue, omni) %>%
+  count() 
+
+# subset to just those with omni
+pDat_filt <- pDat_filt %>%
+  filter(Case_ID %in% master_ss$Sample_Name)
+
+betas_filt <- betas[,pDat_filt$Sentrix]
+colnames(betas_filt) <- pDat_filt$Sample_Name
+
+# filter master ss
+ss <- master_ss %>% 
+  filter(Sample_Name %in% pDat_filt$Case_ID)
+ss %>% 
+  group_by(Project) %>% 
+  summarize(n = n(), samples = paste(Sample_ID, collapse = ', '))
+
+ss %>% group_by(SentrixBarcode_A) %>% count
+```
+
+read genomestudio exported data  from Giulia's project folder
+
+GDG did some QC already, looked at call rates and all looks good. Will verify this in this script.
+
+```{r}
+geno <- read_tsv('Z:/Giulia/Projects/Placental_CNVs/BATCH4_Omni25/GS_Batch4_Omni25/GS_Batch4Omni25_FinalReport.txt', skip = 9)
+
+# samples for omni
+geno %>%
+  mutate(Case_ID = gsub('_.*', '', `Sample ID`)) %>%
+  pull(Case_ID) %>%
+  unique
+```
+
+I need to verify that all SNPs in the mQTL list are here in our data. This might not be true because the omni 2.5 has several versions with different probes on each.
+
+```{r}
+# load delahaye mqtls
+mqtls <- read_excel(here('data', 'external', 'journal.pgen.1007785.s018.xlsx'), skip = 1)
+
+
+# how many snps that are mQTLs
+mqtls$SNPID %>% 
+  unique %>%
+  length #3022
+
+# how many mQTL snps are in our data
+unique(mqtls$SNPID) %in% geno$`SNP Name` %>%
+  sum #2867
+```
+
+Match snps to mQTLs
+
+- SNPs that map to chromosome "0" are likely problematic probes or control probes. See [here](http://seqanswers.com/forums/showthread.php?t=70046)
+
+
+```{r}
+# get Omnni 2.5 snps with position info
+geno_snps <- geno %>%
+  select(`SNP Name`:Position) %>% 
+  distinct()
+
+# format genotype chr column to match mqtls
+geno_snps$Chr %>% unique %>% as.factor %>% levels
+mqtls$chr_snp %>% unique %>% as.factor %>% levels
+
+geno_snps <- geno_snps %>% 
+  mutate(Chr = paste0('chr', Chr)) %>%
+  filter(!Chr %in% c('chrMT', 'chrX', 'chrXY', 'chrY', 'chr0'))
+
+all(geno_snps$Chr %in% mqtls$chr_snp) # T
+all(mqtls$chr_snp %in% geno_snps$Chr) # T
+
+# merge
+length(unique(mqtls$SNPID)) # 3022 before merging
+mqtls_merged <- mqtls %>% 
+  select(SNPID, cpgID, chr_snp, snp_position) %>%
+  inner_join(geno_snps, by = c('chr_snp' = 'Chr', 'snp_position' = 'Position')) 
+
+mqtls_merged %>%
+  arrange(chr_snp, snp_position) %>%
+  group_by(chr_snp, snp_position) %>%
+  filter(length(unique(`SNP Name`)) > 1)
+```
+
+- There  are multiple positions that have two snp IDs, one for kgp and one rsID. Not sure what is going on here:
+
+```
+geno_snps %>% 
+  group_by(Chr, Position) %>% summarize(n = n(), snp_name = paste0(`SNP Name`, collapse = ',')) %>%
+  filter(n > 1)
+```
+
+Read in list of missing legacy snps on v1.5 manifest
+
+```{r}
+missing_snps <- read_tsv(here('data', 'external', 'InfiniumOmni2-5-8v1-5_A1_vs_InfiniumOmni2-5-8v1-4_A1_MissingLegacySNPs.txt'),
+                         col_names = 'snps')
+
+sum(missing_snps$snps %in% mqtls$SNPID) #27
+
+```
+
+# Subset to mQTLs
+
+## Genotypes
+
+## CpGs
+
+# Analysis
+
+Subset to those SNPs with at least 3 samples in each genotype group
+
+Test associations between each genotype and each cpg
+
