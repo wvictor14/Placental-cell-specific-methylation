@@ -601,11 +601,70 @@ results %>%
   
   ggplot(aes(x = tissue, y = n)) +
   geom_bar(stat = 'identity') +
-  geom_text(aes(label = n), nudge_y = 50) +
-  facet_wrap(~Significance, ncol = 1) +
-  theme() +
-  scale_y_continuous(limits = c(0, 800)) +
-  labs(x = '', title = 'How many of 722 mQTLs', subtitle = 'were also mQTLs in our data')
+  geom_text(aes(label = n), nudge_y = 200) +
+  facet_wrap(~Significance, ncol = 1, scales = 'free') +
+  theme(panel.border = element_blank(),
+        axis.line.x = element_line(),
+        axis.ticks = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0, face = 'bold')) +
+  scale_y_continuous(limits = c(0, 3000)) +
+  labs(x = '', y= '', 
+       title = 'How many of 2956 mQTLs', subtitle = 'were also mQTLs in our data')
+```
+
+## Overlap between sets
+
+Let's look at overlapping mqtls between cell types / placenta.
+
+Because we are interested in all n-wise comparisons, we will use an "upset" plot.
+
+To do this, we need to dummy variable-ize the results matrix, such that there is one column for each set, and 1s where a snp is significant or not
+
+```{r}
+results_dummy <- results %>%
+  mutate(significant = as.numeric(fdr < 0.05),
+         tissue = gsub(' cs', '', tissue)) %>%
+  select(cpg, tissue, snpid, significant) %>%
+  pivot_wider(id_cols = c(cpg, snpid),
+              names_from = 'tissue',
+              values_from = 'significant') %>% as.data.frame
+
+upset(results_dummy)
+upset(results_dummy, 
+      mainbar.y.label = 'number of intersecting mQTLs', 
+      sets.x.label = 'mQTLs per cell type',
+      mb.ratio = c(0.55, 0.45),
+      intersections = list(
+        
+        list('Villi'),
+        list('Trophoblasts'),
+        list('Hofbauer'),
+        list('Endothelial'),
+        list('Stromal'),
+        
+        list('Villi', 'Trophoblasts'),
+        list('Villi', 'Hofbauer'),
+        list('Villi', 'Endothelial'),
+        list('Villi', 'Stromal'),
+        
+        list('Villi', 'Stromal', 'Endothelial', 'Hofbauer', 'Trophoblasts')
+      ),
+      queries = list(
+        list(query = intersects,
+             params = list('Villi'),
+             active = TRUE),
+        list(query = intersects,
+             params = list('Villi', 'Trophoblasts'),
+             active = TRUE),
+        list(query = intersects,
+             params = list('Villi', 'Stromal', 'Endothelial', 'Hofbauer', 'Trophoblasts'),
+             active = TRUE)
+      ))
+
+```
   
 
 ```
