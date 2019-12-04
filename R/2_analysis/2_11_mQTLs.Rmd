@@ -26,6 +26,8 @@ library(here)
 library(readxl)
 library(janitor)
 library(HardyWeinberg)
+library(MatrixEQTL)
+library(broom)
 theme_set(theme_bw())
 ```
 
@@ -51,6 +53,9 @@ anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds
 anno <- anno %>%
   as_tibble() %>%
   filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
+
+# probe filtered
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
 
 # color key
 color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
@@ -408,9 +413,105 @@ geno_df[geno_df == 'BB'] <- 2
 
 # coerce to df format for matrixEQTL
 geno_df <- geno_df %>%
-  mutate_at(vars(-snp_name), as.numeric) %>%
+  mutate_at(vars(-snp_name), as.numeric) 
+```
+
+# CpGs
+
+## filter
+
+Subset down to CpGs that are associated with SNPs
+
+```{r}
+# filter mqtls to those in our processed SNPs
+mqtls_filt <- mqtls %>%
+  filter(SNPID %in% rownames(geno_df))
+
+nrow(mqtls_filt) #928
+length(unique(mqtls_filt$SNPID)) # 597
+length(unique(mqtls_filt$cpgID)) # 928
+
+# how many CpGs do we have?
+sum(mqtls_filt$cpgID %in% rownames(betas_filt)) #722 out of 928
+```
+
+We have 722 cpgs out of 928 cpgs in our data. Why the discrepancy? Likely because 450k data was used for mqtls and some were removed in processing. 
+
+Let's see if any were removed during processing
+
+```{r}
+# How many mQTL CpGs are in 850k data?
+sum(mqtls_filt$cpgID %in% probe_anno$probe_ID) # 871 / 928
+
+928-871 # 57 are exclusive to 450k
+# Out of those that are in 850k data, how many were removed during processing?
+
+## failed det p or bc
+sum(mqtls_filt$cpgID %in% 
+      (probe_anno %>%
+         filter(remove_failed) %>%
+         pull(probe_ID))) # 23
+
+sum(mqtls_filt$cpgID %in% 
+      (probe_anno %>%
+         filter(remove_CH_SNP) %>%
+         pull(probe_ID))) # 133
+
+sum(mqtls_filt$cpgID %in% 
+      (probe_anno %>%
+         filter(remove_XY) %>%
+         pull(probe_ID))) # 0
+```
+
+Actually a high number of these probes were filtered because they are cross hybridizing or have SNPs nearby (n=133). A small number were removed due to quality (n=23).
+
+Filter to cpgs in our data
+```{r}
+mqtls_filt <- mqtls_filt %>%
+  filter(cpgID %in% rownames(betas_filt))
+
+geno_df <- geno_df %>% filter(snp_name %in% mqtls_filt$SNPID)
+nrow(geno_df) # 447 snps remain
+597 - 447 # 150 snps removed
+
+nrow(mqtls_filt) # 722 associations to test
+```
+
+# Merge
+
+Now I will merge the betas and genotype data frames
+
+```{r}
+#make genotype df long for merging
+geno_df_long <- geno_df %>%
+  pivot_longer(cols = -snp_name,
+               names_to = 'sample_id',
+               values_to = 'genotype') %>%
+  mutate(case_id = gsub('_.*', '', sample_id))
+
+# filter to cpgs in mqtls
+data <- betas_filt[intersect(mqtls$cpgID, rownames(betas_filt)), ] %>%
   as.data.frame() %>%
-  magrittr::set_rownames(.$snp_name) 
+  rownames_to_column(var = 'cpg') %>%
+  as_tibble %>%
+  
+  pivot_longer(cols = -cpg,
+               names_to = 'sample_id',
+               values_to = 'betas') %>%
+  
+  # add case id column which matches to genotype df
+  left_join(pDat_filt %>% select(Sample_Name, Case_ID, Tissue, Sex),
+            by = c('sample_id' = 'Sample_Name'))  %>%
+  
+  # pair cpg with the snp id for each specific mqtl
+  inner_join(mqtls_filt %>% select(SNPID, cpgID), by = c('cpg' = 'cpgID'))  %>%
+  
+  # merge to genotype df
+  inner_join(geno_df_long %>% select(-sample_id), 
+             by = c('Case_ID' = 'case_id', 'SNPID' = 'snp_name'))
+
+data
+```
 ```
 
 ## CpGs
