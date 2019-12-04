@@ -665,7 +665,185 @@ upset(results_dummy,
       ))
 
 ```
+
+We can see trophoblast and villi have the most overlapping mqtls out of all pairwise comparisons to villi.
+
+## Visualize some mqtls
+
+Let's look at the mQTLs that are 
+```{r}
+# join results to data
+data_results <- data %>%
+  left_join(results_dummy,
+            by = c('cpg', 'SNPID' = 'snpid')) %>%
+  # let's add gene names
+  left_join(mqtls %>% select(SNPID, cpgID, gene_name),
+            by = c('cpg' = 'cpgID', 'SNPID')) %>%
+  mutate(cpg_snp = paste0(cpg, ':', SNPID),
+         genotype = as.factor(genotype))
+
+# plotting function
+plot_mqtl <- function(x) {
+  ggplot(data = x, aes(x = Tissue, y = betas, color = genotype)) +
+    geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA) +
+    geom_jitter(size = 1, 
+                position = position_jitterdodge(dodge.width = 0.8)) +
+    facet_wrap(vars(cpg_snp, gene_name), ncol = 3) +
+    scale_color_manual(values = c('#78c679','#31a354','#006837')) +
+    scale_y_continuous(limits = c(0,1), labels = function(x)percent(x, accuracy = 1)) +
+    scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
+    theme(axis.ticks = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          strip.background = element_blank()) +
+    labs(color = '# of B alleles', y = 'CpG DNA methylation', x = '') 
+}
+
+#  Villi + Trophoblast
+data_results %>%
+  filter(Villi == 1,
+         Endothelial == 0,
+         Hofbauer == 0,
+         Trophoblasts == 1,
+         Stromal == 0)%>%
   
+  # take 6 mqtls
+  group_by(sample_id) %>%
+  arrange(cpg, SNPID) %>%
+  dplyr::slice(1:12) %>%
+  ungroup() %>%
+  plot_mqtl()
+
+# Villi + Endo
+data_results %>%
+  filter(Villi == 1,
+         Endothelial == 1,
+         Hofbauer == 0,
+         Trophoblasts == 0,
+         Stromal == 0)%>%
+  
+  group_by(sample_id) %>%
+  arrange(cpg, SNPID) %>%
+  dplyr::slice(1:12) %>%
+  ungroup() %>%
+  plot_mqtl()
+
+# Villi + Stromal
+data_results %>%
+  filter(Villi == 1,
+         Endothelial == 0,
+         Hofbauer == 0,
+         Trophoblasts == 0,
+         Stromal == 1)%>%
+  
+  group_by(sample_id) %>%
+  arrange(cpg, SNPID) %>%
+  dplyr::slice(1:6) %>%
+  ungroup() %>%
+  plot_mqtl()
+
+# Villi + Hofb
+data_results %>%
+  filter(Villi == 1,
+         Endothelial == 0,
+         Hofbauer == 1,
+         Trophoblasts == 0,
+         Stromal == 0)%>%
+  
+  group_by(sample_id) %>%
+  arrange(cpg, SNPID) %>%
+  dplyr::slice(1:6) %>%
+  ungroup() %>%
+  plot_mqtl()
+
+# all
+data_results %>%
+  filter(Villi == 1,
+         Endothelial == 1,
+         Hofbauer == 1,
+         Trophoblasts == 1,
+         Stromal == 1) %>%
+  
+  group_by(sample_id) %>%
+  arrange(cpg, SNPID) %>%
+  dplyr::slice(1:6) %>%
+  ungroup() %>%
+  plot_mqtl()
+```
+
+Some of these are actually mqtls confined to specific cell types. However, many are not -- some are clearly associated but just did not quite make the FDR < 0.05 cutoff. 
+
+Here, I manually selected examples where an mqtl was very obviously confined to 1 or more celltype.
+
+The intersections that I wanted to visualize:
+
+Villi - Troph
+Villi - Endo
+Villi - Strom
+Villi - Hofb
+All
+
+```{r}
+# Villi, endo, stromal, hofb, all
+data_results %>%
+  filter(cpg %in% c('cg00167916', 'cg01643090', 'cg11966998', 'cg11861562', 'cg11030744'),
+         SNPID %in% c('rs6938690', 'kgp11830586', 'rs11023685', 'rs8521', 'rs35682'))%>%
+   ggplot(aes(x = Tissue, y = betas, color = genotype)) +
+    geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA) +
+    geom_jitter(size = 1, 
+                position = position_jitterdodge(dodge.width = 0.8)) +
+    facet_wrap(vars(cpg_snp, gene_name), ncol = 5) +
+    scale_color_manual(values = c('#78c679','#31a354','#006837')) +
+    scale_y_continuous(limits = c(0,1), labels = function(x)percent(x, accuracy = 1)) +
+    scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
+    theme(axis.ticks = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          strip.background = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    labs(color = '# of B alleles', y = 'CpG DNA methylation', x = '') 
+
+
+
+```
+
+
+
+```{r}
+#alternative visualization
+data_results %>%
+  filter(Villi == 1,
+         Endothelial == 0,
+         Hofbauer == 0,
+         Trophoblasts == 0,
+         Stromal == 0)%>%
+  
+  # take 4 mqtls
+  group_by(sample_id) %>%
+  arrange(cpg, SNPID) %>%
+  dplyr::slice(1:6) %>%
+  ungroup() %>% 
+  
+  ggplot(aes(x = betas, y = Tissue, 
+             color = genotype,
+             fill = genotype)) +
+  ggridges::geom_density_ridges(point_alpha = 1,
+                                point_size = 2,
+                                point_shape = '|',
+                                alpha = 0.25,
+                                scale = 1,
+                                aes(point_colour = genotype),
+                                jittered_points = TRUE, 
+                                rel_min_height = 0.01,
+                                position = position_points_jitter(height = 0)) +
+  facet_wrap(vars(cpg_snp)) +
+  scale_discrete_manual('points_color', guide = 'none') +
+  scale_color_discrete(guide = 'none') +
+  scale_x_continuous(limits = c(0, 1), breaks = c(0,0.5,1), labels = scales::percent) +
+  guides(fill = guide_legend(override.aes = list(point_color = NA, color = NA, alpha = 1))) +
+  theme(axis.ticks = element_blank(),
+        strip.background = element_blank()) +
+  labs(fill = '# of B alleles')
 
 ```
 
