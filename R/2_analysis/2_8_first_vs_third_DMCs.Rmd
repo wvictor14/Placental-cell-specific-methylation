@@ -539,6 +539,18 @@ tests <- tests %>%
 ## Visualize
 
 ```{r}
+dmcs %>% 
+    
+    # add hypo hyper as group
+    mutate(Group1 = paste0(Tissue, ifelse(delta_b > 0, '.Hyper', '.Hypo'))) %>%
+    
+    # calculate total dmcs per cell type
+    group_by(Group1) %>% 
+    summarize(n = sum(bonferroni < p_thresh & 
+                      abs(delta_b) > b_thresh & island == 1, na.rm = T),
+      all = sum(bonferroni < p_thresh & abs(delta_b) > b_thresh, na.rm = T),
+      p =n/all)
+
 # plot function
 plot_enrich <- function(x) {
   g <- ggplot(data = x) +
@@ -566,6 +578,100 @@ plot_enrich <- function(x) {
         axis.text.y = element_text(size = 8))
   print(g)
 }
+
+plot_bar <- function(x){
+  x %>%
+    # ordering in plot
+    mutate(# linerange ymin ymax values
+           ymin = pmin(Observed_p_in, Expected_p_in),
+           ymax = pmax(Observed_p_in, Expected_p_in)) %>%
+    
+    ggplot() +
+    
+    # for cell type dmc enrichment lines and points
+    geom_linerange(aes(x = genomic_feature, 
+                        ymin = ymin, ymax = ymax, 
+                        color = Celltype),
+             stat = 'identity', 
+             position = position_dodge(width = 0.75),
+             #fatten = 0.01, 
+             size = 0.75) +
+    #geom_point(aes(x = genomic_feature,  y = Observed_p_in,
+    #               color = Celltype, alpha = bonferroni001),
+    #         stat = 'identity',
+    #         position = position_dodge(width = 0.75),
+             #fatten = 0.01, 
+    #         size = 0.03) +
+    
+    # for expected frequency in legend
+    geom_linerange(aes(x = genomic_feature, 
+                      ymin = Expected_p_in, 
+                      ymax = Expected_p_in, 
+                      linetype = 'Expected frequency')) +
+    
+    # for generating the expected frequency bars
+    geom_errorbar(aes(x = genomic_feature, 
+                      ymin = Expected_p_in, 
+                      ymax = Expected_p_in, 
+                      linetype = 'Expected frequency'),
+                  show.legend = FALSE) +
+
+    # add significance asterisks
+    geom_text(data = . %>%
+                filter(bonferroni001),
+              aes(x = genomic_feature,
+                  y = ymax + 0.035, 
+                  group = Celltype, 
+                  size = bonferroni001),
+              position = position_dodge(0.85), 
+              label = '*') +
+    
+    facet_grid(genomic_feature_category~ Direction , 
+               scales = 'free', space = 'free', drop = TRUE) +
+    coord_flip() +
+    theme_bw(base_size = 10) + 
+    theme(legend.position = 'right', legend.direction = 'vertical',
+          legend.spacing.y = unit(-0.2, 'cm'),
+          strip.background = element_blank(),
+          strip.text.x = element_text(face = 'bold'),
+          strip.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.border = element_rect(color = 'grey'),
+          panel.spacing.y = unit(0.15, 'cm')) +
+    
+
+    labs(color = '', x = '', y = '', shape = '', linetype = '', size = '',
+         title = 'Percentage of trimester-specific DMCs', subtitle = 'located in various genomic features') +
+    scale_color_manual(values = colors,
+                       guide = guide_legend(override.aes = list(size = 0.75),
+                                            order = 3)) +
+    scale_linetype(guide =guide_legend(order = 2,
+                                       override.aes = list(size = 1))) +
+    scale_size_manual(values = c('TRUE' = 1), 
+                      na.translate = F, 
+                      labels = c('Enriched\n(bonferroni p < 0.001)'), 
+                      guide = guide_legend(override.aes = list(size = 4),
+                                            order = 1)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0.075,0),
+                       breaks = c(0, 0.5, 1),
+                       labels = function(x)scales::percent(x, accuracy = 1)) 
+    #scale_alpha_discrete(range = c(0.6,1), breaks = c('TRUE', 'FALSE'), guide = FALSE)
+}
+
+p1 <- tests %>% 
+  filter(genomic_feature_category %in% c('pmd', 'gene', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature),
+         bonferroni001 = bonferroni < 0.001) %>%
+  plot_bar();p1
+
+p2 <- tests %>% 
+  filter(Trimester == 'First',
+         genomic_feature_category %in% c('pmd', 'gene', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar()
 ```
 
 ### Chromosome
