@@ -242,3 +242,93 @@ dmcs_and_mqtl_betas <- readRDS(here('data', 'main', 'interim', '2_9_dmcs_and_mqt
 fitvar_results <- readRDS(here('data', 'main', 'interim', '2_9_dmvs.rds'))
 mqtls <- read_excel(here('data', 'external', 'journal.pgen.1007785.s018.xlsx'), skip = 1)
 ```
+
+```{r}
+# process betas
+dmv_mqtl_dmc <- fitvar_results %>%
+  left_join(dmcs_and_mqtl_betas %>%
+              select(-bonferroni, -delta_b, -dmc_for_class) %>%
+              distinct(), by = c('cpg' = 'cpg_id'))
+
+plot_dmv <- function(data) {
+  data %>%
+    {
+      ggplot(data = ., aes(x = Tissue, y= beta, color = Tissue)) +
+        ggbeeswarm::geom_beeswarm(cex = 1.5,
+                                  size = 0.05,
+                                  priority = 'density',
+                                  dodge.width = 0.3,
+                                  fill = 'white',
+                                  stroke = 1) +
+        facet_wrap(~cpg, nrow = 2) +
+        scale_color_manual(values = color_code_tissue[dmv_mqtl_dmc$Tissue],
+                           guide = FALSE,
+                           labels = function(x)gsub(' cs', '', x)) +
+        scale_y_continuous(limits = c(0,1), labels = function(x)percent(x, accuracy = 1)) +
+        theme_bw(base_size = 12) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_blank(),
+              strip.background = element_blank()) +
+        labs(x = '', y= 'DNA methylation', color = '') 
+  }
+}
+
+# w: 4.5, h: 7, then resize manually down
+p4 <- dmv_mqtl_dmc %>%
+  arrange(cpg, Sample_Name) %>% 
+  group_by(cpg) %>%
+  filter(any(significant == '*' & direction == '-')) %>%
+  
+  select(-(DMV:direction)) %>%
+  distinct() %>%
+  
+  group_by(Sample_Name) %>%
+  arrange(cpg) %>%
+  dplyr::slice(17:22) %>%
+  plot_dmv();p4 
+
+# w: 5, h: 5, resize down 1/2
+p5 <- fitvar_results %>%
+  mutate(negp = -p,
+         significant = gsub('n.s. (fdr p > 0.01)', 'n.s. (FDR > 0.01)', significant)) %>%
+  {
+    ggplot(data = filter(., fdr < 0.01, abs(delta_b) > 0.5),
+           aes(x = delta_b, y = p)) +
+      geom_point(aes(color = DMV), alpha = 1, 
+                 size = 1) +
+      geom_point(data = filter(., fdr >= 0.01 | abs(delta_b) <= 0.5),
+                 size = 1,
+                 alpha = 0.2) +
+      
+      # add fdr p = 0.01 line
+      geom_hline(data = group_by(., DMV) %>%
+                   filter(fdr <= 0.01) %>%
+                   arrange(desc(fdr)) %>%
+                   summarize(threshold = max(p)),
+                 linetype = 'dashed',
+                 aes(yintercept = threshold)) +
+      geom_vline(linetype = 'dashed', xintercept = 0.5) +
+      geom_vline(linetype = 'dashed', xintercept = -0.5) + 
+      
+      facet_wrap(~DMV,
+                 labeller = labeller(DMV = function(x)gsub(' cs', '', x))) +
+      scale_x_continuous(labels = percent) +
+      scale_y_continuous(trans = trans_new('neglog', 
+                                           transform = function(x)(-log(x)), 
+                                           inverse = function(x)(exp(-x)),
+                                           breaks = log_breaks()),
+                         label = function(x) scales::scientific_format()(x)) +
+      scale_color_manual(values = color_code_tissue[fitvar_results$DMV],
+                         guide = FALSE) +
+      labs(x = 'Difference in variability (% methylation)', y = 'p-value',
+           color = '', shape = '') +
+      theme_bw(base_size = 14) +
+      theme(strip.background = element_blank(),
+            panel.grid = element_blank(),
+            axis.text = element_text(size = 8),
+            legend.position = 'top')
+      
+  };p5
+```
