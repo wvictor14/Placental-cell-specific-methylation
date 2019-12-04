@@ -1,0 +1,215 @@
+---
+title: "4_3_figure3"
+author: "Victor Yuan"
+date: "26/11/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+fic DMCs that are also mQTLs.
+
+# 1. Trimester DMCs
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(here)
+library(scales)
+library(kableExtra)
+library(ggbeeswarm)
+library(readxl)
+theme_set(theme_bw())
+
+base_path <- file.path('data', 'main', 'interim')
+
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+dmcs <- readRDS(here(base_path, '2_8_all_third_vs_first_dmcs.rds'))
+topdmcs_b <- readRDS(here(base_path, '2_8_topdmcs_b.rds'))
+tests <- readRDS(here(base_path, '2_8_genomic_enrichment_results.rds'))
+```
+
+Previously I characterized DNA methylation changes at specific CpG sites (DMCs) within first and third trimester samples. In this analysis I took a look at changes that occur within a cell type, between third and first trimester samples.
+
+## Direction of changes across trimester
+
+After conducting linear modelling and filtering to CpGs that:
+
+1. show statistically significant differences *(bonferroni adjust p < 0.01) *
+2. and are also biologically meaningful *(change in methylation > 0.05),* 
+
+we can see if methylation tends to increase or decrease from first to third trimester:
+
+
+```{r}
+library(scales)
+dmcs <- readRDS(here(base_path, '2_8_all_third_vs_first_dmcs.rds'))
+
+histogram_dmc <- function(data, 
+                          
+                          xlim = c(-0.5, 0.5), ylim = NULL, 
+                          label_x = 20, label_y = 6) {
+    
+  # set xlim and ylim to NULL if you want the axes to be auto-zoomed
+  # label_y / label_x is the position of the labels
+  
+  # all effect sizes, calculate density:
+  effect_size_dens <- data %>%
+    group_by(Tissue) %>%
+    summarize(hist = list(hist(delta_b, breaks = seq(-1, 1, 0.06), plot = FALSE))) %>%
+    
+    mutate(# get the xmin/xmax of bins,
+           breaks = map(hist, 'breaks'),
+           xmin = map(breaks, ~.[1:length(.)-1]),
+           xmax = map(breaks, ~.[2:length(.)]),
+           
+           # midpoint of bin
+           xmean = map(hist, 'mids'),
+           
+           # density is the height of the bins
+           y = map(hist, 'density')) %>%
+    select(-hist, -breaks) %>%
+    unnest(c(xmin:y)) %>%
+    
+    # categorize bins
+    mutate(alpha = ifelse(xmean >= 0, 'Increases', 'Decreases'))
+  
+    
+  # proportion hypo / hyper
+  effect_size_prop <- data %>%
+    group_by(Tissue) %>%
+    summarize(Decreases = percent(sum(delta_b < 0) / n()),
+              Increases = percent(sum(delta_b > 0) / n())) %>%
+    pivot_longer(cols = -Tissue,
+                 names_to = 'alpha',
+                 values_to = 'proportion') %>%
+    
+    # make coordinates for label position
+    mutate(x = ifelse(alpha == 'Decreases', -label_x/100, label_x/100),
+           y = label_y)
+  
+  # plot
+  p <- ggplot(data = effect_size_dens) +
+    geom_rect(aes(xmin = xmin, 
+                  xmax = xmax, 
+                  ymin = 0, 
+                  ymax = y, 
+                    
+                  fill = Tissue, 
+                  alpha = alpha),
+              color = 'white') +
+    geom_text(data = effect_size_prop,
+               aes(label = proportion, 
+                   x = x, 
+                   y = y),
+               size = 2,
+               show.legend = FALSE) + 
+    geom_vline(xintercept = 0, 
+               color = '#454343', 
+               linetype = 'dashed', 
+               size = 0.5) +
+    facet_wrap(~Tissue,
+               nrow = 1,
+               scales = 'free',
+               labeller = labeller(Tissue = function(x)gsub(' cs', '', x))) +
+    
+    scale_fill_manual(values = color_code_tissue[effect_size_dens$Tissue], 
+                      labels = function(x)gsub(' cs', '', x),
+                      guide = FALSE) +
+    scale_alpha_manual(values = c(0.4, 0.85), 
+                       guide = "none") +
+    scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                       breaks = seq(-1, 1, 0.2)) +
+    scale_y_continuous(expand = c(0,0), breaks = c(0,2,4)) +
+    coord_cartesian(xlim = xlim, ylim = ylim) +
+    theme_bw(base_size = 6) +
+    theme(panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.line = element_line(),
+          axis.ticks = element_blank(),
+          strip.background = element_blank()) +
+    labs(x = '(Third trimester) - (First trimester)\n% DNA methylation', 
+         y = 'Density', 
+         fill = '', 
+         color = '')
+  
+  p
+}
+
+# bonferroni p < 0.01, delta_b > 0.05
+p1 <- dmcs %>%
+  histogram_dmc(xlim = c(-0.75, 0.75), ylim = c(0, 4), 
+                label_x = 50, label_y = 3.5) +
+  scale_x_continuous(labels = percent_format(accuracy = 1L), 
+                     breaks = seq(-0.5, 0.5, 0.5)) 
+p1
+```
+
+# Pathway
+
+```{r}
+func <- readRDS(here('data', 'main', 'interim', '2_8_functional_enrichment_results.rds'))
+
+gst <- func$GO
+kegg <- func$KEGG
+
+#h = 4, w = 5, resize down
+p2 <- gst %>%
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 1.5) +
+  theme_bw(base_size = 10) +
+  theme(panel.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.ticks = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line()) +
+  ggforce::facet_col(vars(Celltype), scales = "free", space = "free",
+                     labeller = labeller(Celltype = function(x)gsub(' cs', '', x))) +
+  scale_x_continuous(expand = c(0.1, 0.1),
+                     breaks = gst$Order,
+                     labels = gst$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1), labels = scales::percent) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(p-value)', x = '',
+       y = '% of CpGs that are DMCs\nin GO pathway-associated genes')
+
+#h = 4, w = 5, resize down
+p3 <- kegg %>%
+  
+  # take top 10 significant
+  group_by(term) %>%
+  dplyr::slice(1:6) %>%
+  
+    ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 1.5) +
+  theme_bw(base_size = 10) +
+  theme(panel.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.ticks = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line()) +
+  ggforce::facet_col(vars(Celltype), scales = "free", space = "free",
+                     labeller = labeller(Celltype = function(x)gsub(' cs', '', x))) +
+  scale_x_continuous(expand = c(0.1, 0.1),
+                     breaks = kegg$Order,
+                     labels = kegg$Description) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1), labels = scales::percent) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(p-value)', x = '', 
+       y = '% of CpGs that are DMCs\nin KEGG pathway-associated genes')
+```
+
+
