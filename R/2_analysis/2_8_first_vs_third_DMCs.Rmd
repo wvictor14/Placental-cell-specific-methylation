@@ -325,14 +325,26 @@ gst %>%
   geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
   geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
   theme_bw() +
-  facet_wrap(vars(Celltype), scales = 'free_y') +
-  scale_x_continuous(breaks = gst$Order,
+  theme(panel.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.ticks = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line()) +
+  ggforce::facet_col(vars(Celltype), scales = "free", space = "free",
+                     labeller = labeller(Celltype = function(x)gsub(' cs', '', x))) +
+  scale_x_continuous(expand = c(0.1, 0.1),
+                     breaks = gst$Order,
                      labels = gst$TERM) +
   coord_flip() +
-  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1), labels = scales::percent) +
   scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
   labs(fill = '-log10(p-value)', x = '', 
-       y = '(# of DMCs in associated genes) / (Total # of CpGs in associated genes)')
+       title = '% of CpGs',
+       y = '',
+       subtitle = 'in GO pathway-associated genes that are DMCs')
 ```
 
 ## KEGG
@@ -381,18 +393,30 @@ kegg %>%
   group_by(term) %>%
   dplyr::slice(1:10) %>%
   
-  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+    ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
   geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
   geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
   theme_bw() +
-  facet_wrap(vars(Celltype), scales = 'free_y') +
-  scale_x_continuous(breaks = kegg$Order,
+  theme(panel.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.ticks = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line()) +
+  ggforce::facet_col(vars(Celltype), scales = "free", space = "free",
+                     labeller = labeller(Celltype = function(x)gsub(' cs', '', x))) +
+  scale_x_continuous(expand = c(0.1, 0.1),
+                     breaks = kegg$Order,
                      labels = kegg$Description) +
   coord_flip() +
-  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1), labels = scales::percent) +
   scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
   labs(fill = '-log10(p-value)', x = '', 
-       y = '(# of DMCs in associated genes) / (Total # of CpGs in associated genes)')
+       title = '% of CpGs',
+       y = '',
+       subtitle = 'in KEGG pathway-associated genes that are DMCs')
 ```
 
 
