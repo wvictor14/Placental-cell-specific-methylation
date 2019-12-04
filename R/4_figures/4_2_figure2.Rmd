@@ -198,34 +198,47 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
   
   ggplot(region1_data) +
     
-    # methylation track
-    geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
-              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group), size = 1.25) +
-    
     # pmd track
-    geom_rect(xmin = s, xmax = e, ymin = 0, ymax = 0.1, fill = '#fff4c9', color = 'grey') +
     geom_rect(data = pmd_data, 
               aes(xmin = start, xmax = end), 
-              ymin = 0, ymax = 0.1, fill = 'black') +
+              ymin = 0, ymax = 1, fill = '#e8e8e8', alpha = 1) +
     
-    theme_bw(base_size = 22) +
-    theme(panel.grid.minor = element_blank()) +
+    # methylation track
+    geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
+              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group)) +
+    
+    theme_bw(base_size = 6) +
+    theme(panel.grid = element_blank(),
+          panel.border = element_blank(),
+          axis.line = element_line(color = 'black')) +
     scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)],
-                       labels = function(x)gsub(' cs', '', x)) +
+                       labels = function(x)gsub(' cs', '', x),
+                       guide = FALSE) +
     scale_y_continuous(expand = c(0,0), 
-                       limits = c(0, 1.1), 
-                       breaks = c(0.25, 0.5, 0.75, 1), 
+                       limits = c(0, 1), 
+                       breaks = c(0, 0.25, 0.5, 0.75, 1), 
                        labels = function(x)percent(x, accuracy = 1)) +
     scale_x_continuous(limits = c(s, e), labels = function(x){x/10^6},
                        expand = c(0, 0)) +
     scale_alpha_identity() +
-    labs(x = 'Chromosome position (Mbp)', y = 'DNAm',
+    labs(x = 'Position (Mbp)', y = 'DNA methylation',
          title = c, color = '')
 }
 
-p2 <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
-            array = 'EPIC') 
+p3 <- plot_region(c = 'chr4', s = 1500000, e = 8500000, 
+            span = 0.07, filtered = FALSE, array = 'EPIC')
 
-p3 <- plot_region(c = 'chr5', s = 87500000, e = 87500000 + 1000000, 
-            span = 0.05, filtered = FALSE, array = 'EPIC');p3
+p2 <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
+            array = 'EPIC')
+```
+
+# mQTLs
+
+
+```{r}
+library(readxl)
+dmcs_cell <- readRDS(here(base_path, '2_4_dmcs.rds'))
+dmcs_and_mqtl_betas <- readRDS(here('data', 'main', 'interim', '2_9_dmcs_and_mqtls_betas.rds'))
+fitvar_results <- readRDS(here('data', 'main', 'interim', '2_9_dmvs.rds'))
+mqtls <- read_excel(here('data', 'external', 'journal.pgen.1007785.s018.xlsx'), skip = 1)
 ```
