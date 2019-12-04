@@ -512,13 +512,63 @@ data <- betas_filt[intersect(mqtls$cpgID, rownames(betas_filt)), ] %>%
 
 data
 ```
-```
-
-## CpGs
 
 # Analysis
 
-Subset to those SNPs with at least 3 samples in each genotype group
-
 Test associations between each genotype and each cpg
+
+* add ancestry data
+
+```{r}
+# apply linear models to each cpg and snp, grouped by tissue
+results <- data %>%
+  group_by(Tissue, cpg, SNPID) %>%
+  nest() %>%
+  
+  # apply model
+  mutate(model = map(data, ~lm(betas~genotype+Sex, data = .)),
+         
+         # extract p values and stats
+         results = map(model, broom::glance)) %>%
+  
+  unnest(results) %>%
+  select(-model, -data, -(df:df.residual)) %>%
+  clean_names() %>%
+  
+  # mult test correct
+  ungroup() %>%
+  mutate(fdr = p.adjust(p_value, method = 'fdr')) 
+
+results
+```
+
+We now have the results of the associations between snp and cpg.
+
+Let's explore these results.
+
+How many were significant across each celltype / tissue?
+
+```{r}
+results %>%
+  group_by(tissue) %>%
+  
+  # how many are significant
+  summarize(`FDR < 0.05` = sum(fdr < 0.05),
+            `p < 0.05` = sum(p_value < 0.05)) %>%
+  
+  # reshape for plot
+  pivot_longer(cols = -tissue,
+               names_to = 'Significance',
+               values_to = 'n') %>%
+  
+  ggplot(aes(x = tissue, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = n), nudge_y = 50) +
+  facet_wrap(~Significance, ncol = 1) +
+  theme() +
+  scale_y_continuous(limits = c(0, 800)) +
+  labs(x = '', title = 'How many of 722 mQTLs', subtitle = 'were also mQTLs in our data')
+  
+
+```
 
