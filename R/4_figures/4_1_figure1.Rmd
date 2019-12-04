@@ -17,6 +17,9 @@ library(RColorBrewer)
 library(tidyverse)
 library(egg)
 library(scales)
+library(here)
+library(ggrepel)
+library(forcats)
 ```
 
 ## Data
@@ -336,6 +339,20 @@ p <- stat_plot(gene_name = 'DNMT1', trimester = 'Third');p
 
 ```
 
+# Figure S* gene plots
+
+```{r}
+
+ps1 <- stat_plot(gene_name = 'DNMT3A', trimester = 'Third');ps1 #h:3.5, w:10
+
+ps2 <- stat_plot(gene_name = 'DNMT3B', trimester = 'Third');ps2 #h:3.5, w: 4.25
+ps3 <-  stat_plot(gene_name = 'DNMT3L', trimester = 'Third');ps3 #h:3.5, w: 3.5
+
+
+ps4 <-  stat_plot(gene_name = 'TET1', trimester = 'Third');ps4 #h:3.5, w: 5
+```
+
+
 # Figure 1 enrichment
 
 ```{r}
@@ -549,3 +566,191 @@ p <- pDat_filt %>%
   coord_equal();p
   
 ```
+
+# Number of DMCs in genes
+
+
+just DNMTs and TET1 for supp figure
+
+```{r}
+dnmt <- anno %>%
+  filter(grepl('DNMT|TET1', genes_symbol)) %>%
+  inner_join(dmcs, by = c('cpg' = 'gene'))
+
+         
+dnmt %>%
+  
+
+  # boolean vector indicating if cpg is a differentially methylated for 1 or more cell type
+  mutate(sig = (bonferroni < 0.01 & abs(delta_b > 0.1))) %>%
+        # bonferroni = scales::pvalue(bonferroni, accuracy = 0.01), 
+         #delta_b = scales::number(delta_b, accuracy = 0.01)) %>%
+  #select(Group1, cpg, contains('gene'), sig, bonferroni, delta_b) %>% View()
+  
+  group_by(cpg) %>%
+  summarize(genes_symbol = dplyr::first(genes_symbol), sig = any(sig)) %>%
+  select(cpg, genes_symbol, sig) %>%
+  
+  # put gene symbol on rows
+  separate_rows(genes_symbol, sep = ', ') %>%
+  distinct() %>%
+  
+  # calculate % dmcs per gene
+  group_by(genes_symbol) %>%
+  summarize(p = sum(sig)/n())
+```
+
+all genes
+
+```{r}
+# what prop many cpgs are dm
+dmcs %>% 
+  group_by(gene) %>% 
+  summarize(n = any(bonferroni < 0.01 & abs(delta_b) > 0.1)) %>% 
+  summarize(sum(n)/n()) # 0.627
+
+# what prop of cpgs are dm, outside of genes
+dmcs %>% 
+  filter(gene %in% (anno %>% filter(is.na(genes_symbol)) %>% pull(cpg))) %>%
+  group_by(gene) %>% 
+  summarize(n = any(bonferroni < 0.01 & abs(delta_b) > 0.1)) %>% 
+  summarize(sum(n)/n()) # 0.800
+
+# what prop of cpgs are dm, inside of genes
+dmcs %>% 
+  filter(gene %in% (anno %>% filter(!is.na(genes_symbol)) %>% pull(cpg))) %>%
+  group_by(gene) %>% 
+  summarize(n = any(bonferroni < 0.01 & abs(delta_b) > 0.1)) %>% 
+  summarize(sum(n)/n()) # 0.574
+
+
+all_genes <- anno %>%
+  mutate(genes_symbol = gsub('NA, ', '', genes_symbol), # if cpg is otherwise associated with a gene,
+         genes_symbol = ifelse(is.na(genes_symbol), 'NA', genes_symbol)) %>%
+  inner_join(dmcs, by = c('cpg' = 'gene')) %>%
+  
+  # boolean vector indicating if cpg is a differentially methylated for 1 or more cell type
+  mutate(sig = (bonferroni < 0.01 & abs(delta_b > 0.1))) %>%
+        # bonferroni = scales::pvalue(bonferroni, accuracy = 0.01), 
+         #delta_b = scales::number(delta_b, accuracy = 0.01)) %>%
+  #select(Group1, cpg, contains('gene'), sig, bonferroni, delta_b) %>% View()
+  
+  group_by(cpg) %>%
+  summarize(genes_symbol = dplyr::first(genes_symbol), sig = any(sig)) %>%
+  select(cpg, genes_symbol, sig) %>%
+  
+  # put gene symbol on rows
+  separate_rows(genes_symbol, sep = ', ') %>%
+  distinct() %>%
+  
+  # calculate % dmcs per gene
+  group_by(genes_symbol) %>%
+  summarize(n_dm =  sum(sig),
+            p_dm = n_dm/n(),
+            n = n())
+
+all_genes %>% 
+  mutate(n_interval = cut(n, c(0, 10, 25, 50, 100, 250, Inf))) %>%
+  ggplot(aes(x = n_interval, y = p_dm)) +
+  geom_violin()
+
+p3 <- all_genes %>% 
+  mutate(n_interval = cut(n, c(0, 10, 25, 50, 100, 250, Inf))) %>%
+  filter(n > 10, n < 250) %>%
+  {
+    ggplot(data = ., aes(x = n, y = n_dm)) +
+      geom_point(alpha = 0.1, size = 0.1) +
+      stat_smooth(se = FALSE, color = '#1b9e77', 
+                  alpha = 0.25, size = 0.25, method = 'loess') +
+      geom_abline(intercept = 0, slope = 1, color = '#7570b3', alpha = 1, size = 0.25) +
+      
+      # highlight genes
+      geom_text_repel(data = . %>% 
+                        filter(genes_symbol %in% c('DNMT1', 'DNMT3A', 'DNMT3B', 'DNMT3L', 'TET1')),
+                      aes(label = genes_symbol),
+                      segment.color = '#d95f02',
+                      size = 1.5,
+                      segment.size = 0.1,
+                      nudge_y = 150) +
+      geom_point(data = . %>% 
+                        filter(genes_symbol %in% c('DNMT1', 'DNMT3A', 'DNMT3B', 'DNMT3L', 'TET1')),
+                 color = '#c95353', size = 0.5) +
+      
+      theme_bw(base_size = 6) +
+      theme(panel.grid = element_blank(),
+            panel.border = element_blank(),
+            axis.line = element_line(),
+            axis.ticks = element_blank(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0),
+            plot.margin = margin(0.1, 0.5, 0.1, 0.1, "cm")) +
+      scale_x_continuous(expand = c(0,0)) +
+      scale_y_continuous(expand = c(0,0)) +
+      coord_cartesian(xlim = c(10, 250),
+                      ylim = c(0, 250)) +
+      labs(x = 'CpGs per gene\n(n)', y = 'Differentially\nmethylated\n(n)')
+    }; p3 # h: 1.25, w: 2.5
+
+p4 <- all_genes %>%
+  filter(n > 10) %>%
+  ggplot(aes(x = p_dm)) +
+  geom_histogram(binwidth = 0.05, color = 'white', size = 1,
+                 fill = '#c2c2c2') +
+  geom_vline(xintercept = all_genes %>%
+               filter(n > 10) %>% summarize(m = mean(p_dm)) %>% pull(m), 
+             color = 'black', 
+             linetype = 'dashed',
+             size = 0.75) + # average
+  theme_bw(base_size = 6) +
+  theme(axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.grid = element_blank(),
+        panel.grid.major.y = element_line(color = 'grey'),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line()) +
+  scale_x_continuous(expand = c(0,0), labels = scales::percent) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x = 'Gene-wise percentage of CpGs\nthat are differentially methylated', y = 'Count');p4 #h: 1.25, w:2.5
+
+
+
+p5 <- tibble(
+  set = c('All', 'Outside genes', 'In genes'),
+  `Differentially methylated` = c(0.627, 0.800, 0.574),
+  `Not differentially methylated` = 1-`Differentially methylated`
+) %>%
+  pivot_longer(
+    cols = c(`Differentially methylated`, `Not differentially methylated`),
+    names_to = 'DM',
+    values_to = 'p'
+  ) %>%
+  mutate(DM = fct_rev(DM)) %>%
+  filter(DM == 'Differentially methylated') %>%
+  {
+    ggplot(data = ., aes(x = set, y = p, fill = DM)) +
+      geom_bar(stat = 'identity') +
+      geom_text(aes(label = scales::percent(p, accuracy = 1)),
+                nudge_y = +0.1,
+                size = 1.75) +
+      theme_bw(base_size = 6) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            axis.ticks = element_blank(),
+            axis.text.y = element_blank(),
+            axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 4),
+            axis.line.x = element_line()) +
+      scale_y_continuous(expand = c(0,0), breaks = c(0,0.5,1), limits = c(0,1),
+                         labels = scales::percent) +
+      scale_fill_manual(values = c('grey'), guide = FALSE) +
+      labs(x = '', fill = '', y = '', x = '') 
+  };p5 #h: 1.25, w: 0.75
+
+  geom_vline(xintercept = 0.627, color = 'black', linetype = 'dashed') + # out of all cpgs
+  geom_vline(xintercept = 0.800, color = 'red', linetype = 'dashed') + # outside of genes
+  geom_vline(xintercept = 0.574, color = 'green', linetype = 'dashed') + # inside genes
+    
+all_genes %>% 
+  mutate(n_interval = cut(n, c(0, 10, 25, 50, 100, 250, Inf))) %>%
+  arrange(desc(n_interval), desc(p_dm)) %>% DT::datatable()
+```
+
+
