@@ -2,7 +2,16 @@
 title: "2_11_mQTLs"
 author: "Victor Yuan"
 date: "02/12/2019"
-output: html_document
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    highlight: tango 
+#tango, pygments, kate, monochrome, espresso, zenburn, haddock, textmate
 editor_options: 
   chunk_output_type: console
 ---
