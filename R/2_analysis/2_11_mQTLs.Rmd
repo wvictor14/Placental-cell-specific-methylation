@@ -187,13 +187,15 @@ locus_summary <- locus_summary %>%
   janitor::clean_names() %>%
   select(locus_name, number_no_calls:cluster_sep)
 
-locus_summary %>%
+locus_summary_plot_data <- locus_summary %>%
   summarize(`MAF < 0.05` = sum(minor_freq < 0.05),
             `Call rate < 0.95` = sum(call_freq < 0.95),
             `HWE p < 0.001` = sum(chi_test_p100 < 0.001)) %>%
   pivot_longer(cols = everything(),
                names_to = 'step',
-               values_to = 'n') %>%
+               values_to = 'n')
+
+locus_summary_plot_data %>%
   ggplot(aes(x = step, y = n)) +
   geom_bar(stat = 'identity') +
   geom_text(aes(label = scales::number(n)), nudge_y = 150000) +
@@ -273,9 +275,11 @@ prop_var %>%
 # get methylation-based ethnicity calls
 meth_eth <- readRDS(here(base_path, '1_6_pDat.rds'))
 
-pcs %>%
+pcs_eth <- pcs %>%
   left_join(meth_eth %>% select(Case_ID, Predicted_ethnicity) %>% distinct(),
-            by = c('case_id' = 'Case_ID')) %>%
+            by = c('case_id' = 'Case_ID')) 
+
+pcs_eth %>%
   ggplot(aes(x = PC1, y = PC2, color = Predicted_ethnicity)) +
   geom_point() +
   theme_classic() +
@@ -283,9 +287,7 @@ pcs %>%
        y = paste0('PC2 (', prop_var$p_variance[2] %>% scales::percent(accuracy = 0.1),')'),
        color = 'PLANET-predicted\nethnicity')
 
-pcs %>%
-  left_join(meth_eth %>% select(Case_ID, Predicted_ethnicity) %>% distinct(),
-            by = c('case_id' = 'Case_ID')) %>%
+pcs_eth %>%
   ggplot(aes(x = PC3, y = PC4, color = Predicted_ethnicity)) +
   geom_point() +
   theme_classic() +
@@ -788,20 +790,57 @@ All
 data_results %>%
   filter(cpg %in% c('cg00167916', 'cg01643090', 'cg11966998', 'cg11861562', 'cg11030744'),
          SNPID %in% c('rs6938690', 'kgp11830586', 'rs11023685', 'rs8521', 'rs35682'))%>%
-   ggplot(aes(x = Tissue, y = betas, color = genotype)) +
-    geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA) +
-    geom_jitter(size = 1, 
-                position = position_jitterdodge(dodge.width = 0.8)) +
-    facet_wrap(vars(cpg_snp, gene_name), ncol = 5) +
-    scale_color_manual(values = c('#78c679','#31a354','#006837')) +
-    scale_y_continuous(limits = c(0,1), labels = function(x)percent(x, accuracy = 1)) +
-    scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
-    theme(axis.ticks = element_blank(),
-          panel.grid.major.x = element_blank(),
-          panel.grid.minor.y = element_blank(),
-          strip.background = element_blank(),
-          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
-    labs(color = '# of B alleles', y = 'CpG DNA methylation', x = '') 
+  
+  mutate(Tissue = fct_rev(Tissue),
+         gene_name = fct_relevel(gene_name, 
+                                 c('TAP2', 'CAMTA1', 'TAGLN', 'SOX6', 'GHRL')),
+         cpg_snp = fct_reorder(cpg_snp, gene_name, function(x)mean(as.numeric(x))),
+         
+         Tissue_color = case_when(
+           Villi == 1 & Tissue == 'Villi' ~ 'Villi',
+           Trophoblasts == 1 & Tissue == 'Trophoblasts cs' ~ 'Trophoblasts cs',
+           Endothelial == 1 & Tissue == 'Endothelial cs' ~ 'Endothelial cs',
+           Stromal == 1 & Tissue == 'Stromal cs' ~ 'Stromal cs',
+           Hofbauer == 1 & Tissue == 'Hofbauer cs' ~ 'Hofbauer cs',
+           TRUE ~ NA_character_
+         )) %>%
+  
+ ggplot(aes(x = Tissue, y = betas, 
+            color = Tissue_color, 
+            fill = Tissue_color)) +
+  geom_boxplot(position = position_dodge(width = 0.75), 
+               aes(alpha = genotype),
+               outlier.shape = NA) +
+  geom_jitter(size = 1, 
+              alpha = 0.5,
+              aes(group = genotype),
+              position = position_jitterdodge(dodge.width = 0.75,
+                                              jitter.width = 0.1)) +
+    
+  theme(axis.ticks = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        strip.background = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(alpha = '', y = 'CpG DNA methylation', x = '') +
+  facet_wrap(vars(cpg_snp, gene_name), ncol = 5) +
+  
+  scale_color_manual(values = color_code_tissue[unique(data_results$Tissue)], 
+                     na.value = '#636363') +
+  scale_fill_manual(values = color_code_tissue[unique(data_results$Tissue)],
+                    na.value = '#636363') +
+  scale_alpha_manual(values = c(0, 0.33, 0.66), guide = 'legend',
+                     labels = c('AA', 'AB', 'BB')) +
+  scale_y_continuous(limits = c(0,1), labels = function(x)percent(x, accuracy = 1)) +
+  scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
+  
+  # manually create legend for alpha
+  guides(alpha = guide_legend(override.aes = list(fill = '#636363',
+                                                  alpha = c(0, 0.33, 0.66),
+                                                  color = 'black')),
+         color = 'none',
+         fill = 'none')
+
 
 
 
@@ -847,3 +886,11 @@ data_results %>%
 
 ```
 
+# Save Data
+
+```{r eval = F}
+saveRDS(data_results, here(base_path, '2_11_mqtl_results_data.rds'))
+saveRDS(results, here(base_path, '2_11_mqtl_results.rds'))
+saveRDS(list(variance = prop_var, pcs = pcs_eth), here(base_path, '2_11_pcs_geno.rds'))
+saveRDS(locus_summary_plot_data, here(base_path, '2_11_locus_summary_plot_data.rds'))
+```
