@@ -1,0 +1,716 @@
+---
+title: "4_2_figure_3_4"
+author: "Victor Yuan"
+date: "25/11/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# PMDs
+
+```{r, message = FALSE, warning = FALSE}
+# libraries and data
+library(tidyverse); theme_set(theme_bw(base_size = 6))
+library(glue)
+library(scales)
+library(DT)
+library(viridisLite)
+library(here)
+
+
+base_path <- file.path("data", "main", "interim")
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+
+# raw methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+colnames(betas) <- pDat$Sample_Name
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+
+#color code
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs',
+                             'PM324_V1', 'PM324_V4'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'))
+
+# filter to first trimester
+betas_filt <- betas[,pDat_filt$Sample_Name]
+
+densities_pmds_plots <- readRDS(here(base_path, '2_7_pmd_density_plots.rds'))
+coverage <- readRDS(here(base_path, '2_7_pmd_coverage.rds')) 
+densities_high_res <- readRDS(here(base_path, '2_7_pmd_high_res_density.rds'))
+
+#color code
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+w1 <- 5.5
+f1 <- 8
+e1 <- TRUE
+```
+
+# PMD intervals
+
+```{r, fig.height = 7}
+p1 <- densities_high_res %>%
+  
+  # extract data
+  filter(filt == 'filtered', 
+         array == 'EPIC',
+         Trimester != 'Second') %>%
+  
+  # remove density coords
+  select(Trimester, Celltype, range, prop) %>%
+  distinct() %>%
+  
+  # widen
+  pivot_wider(id_cols = c(Trimester, Celltype),
+              names_from = range,
+              values_from = prop) %>%
+  # sum intervals
+  mutate(`(0, 0.2]` = `(-Inf,0.1]` + `(0.1,0.2]`,
+         `(0.2, 0.4]` = `(0.2,0.3]` + `(0.3,0.4]`,
+         `(0.4, 0.6]` =  `(0.4,0.5]` + `(0.5,0.6]`,
+         `(0.6, 0.8]` = `(0.6,0.7]` + `(0.7,0.8]`,
+         `(0.8, 1]` =  `(0.8,0.9]` + `(0.9, Inf]`) %>%
+  select(Trimester, Celltype, `(0, 0.2]`:`(0.8, 1]`) %>%
+  pivot_longer(cols = c(`(0, 0.2]`:`(0.8, 1]`),
+               names_to = 'range',
+               values_to = 'prop') %>%
+  
+  {
+    ggplot(data = ., aes(x = Trimester, y = prop, col = Celltype)) +
+      geom_point(size = 0.9) +
+      geom_line(aes(group = Celltype), show.legend = FALSE) +
+      facet_wrap(~range, ncol = 5,
+                 labeller = labeller(
+                   range = c('(0, 0.2]' = '0-20',
+                             '(0.2, 0.4]' = '20-40',
+                             '(0.4, 0.6]' = '40-60',
+                             '(0.6, 0.8]' = '60-80',
+                             '(0.8, 1]' = '80-100')
+                 )) +
+      scale_color_manual(values= color_code_tissue[unique(.$Celltype)],
+                         labels = function(x)gsub(' cs', '', x),
+                         guide = guide_legend(override.aes = list(size = 2))) +
+      scale_x_discrete(labels = c('1', '3')) +
+      scale_y_continuous(expand = c(0, 0), 
+                         limits = c(0, 0.56), 
+                         breaks = seq(0,1, by = 0.1), 
+                         labels = function(x)percent(x, accuracy = 1)) +
+      labs(color = '', 
+           #title = 'Percent of total CpGs',
+           #subtitle = 'in different methylation intervals',
+           y = '') +
+      theme(legend.position = 'right',
+            legend.text = element_text(size = 6),
+            legend.spacing.y = unit(0.1, 'mm'),
+            legend.key.size = unit(0.5, 'lines'),
+            axis.ticks.x = element_blank(),
+            strip.background = element_blank(),
+            strip.text = element_text(face = 'bold', size = 5),
+            panel.grid = element_blank(),
+            
+            panel.border = element_blank(),
+            axis.line = element_line(color = 'black'))
+  };p1 # h: 2.5, w: 2.75
+```
+
+# imprinting
+
+```{r}
+imprint_density <- readRDS(here::here(base_path, '2_12_imprint_density.rds'))
+imprint_density_allele <- readRDS(here::here(base_path, '2_12_imprint_density_allele.rds'))
+
+
+p_i1 <- imprint_density %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue, imprint_tissue_specificity, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE,
+                size = 2.5) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(imprint_tissue_specificity),
+                 labeller = labeller(
+                   .cols = function(x)gsub(' cs', '', x),        
+                   .rows = c('other' = 'Ubiquitous\n(# CpGs = 1085)',
+                             'placental-specific' = 'Placental-specific\n(# CpGs = 981)')),
+                 switch = 'y') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 7) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p_i1# h: 2.15, w: 5.5
+
+p_i2 <- imprint_density_allele %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue, imprint_methylated_allele, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE,
+                size = 2.5) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(imprint_methylated_allele),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                                     .rows = c('M' = 'Maternal\n(# CpGs = 895)', 
+                                               'P' = 'Paternal\n(# CpGs = 190)')),
+                 switch = 'y') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0), limits = c(0,4.9)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 7) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = 'Methylated\nallele', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p_i2 # h: 2.15, w: 6
+```
+
+# PMD regions
+
+```{r}
+densities_pmds_plots <- readRDS(here(base_path, '2_7_pmd_density_plots.rds'))
+coverage <- readRDS(here(base_path, '2_7_pmd_coverage.rds'))
+densities_high_res <- readRDS(here(base_path, '2_7_pmd_high_res_density.rds'))
+```
+
+```{r}
+# define plotting function
+plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
+                        filtered = TRUE, array = 'EPIC') {
+  
+  # determine which cpgs to use, based on c, s, e
+  if (is.null(cpg_size)) {
+    cpg_size <- (e-s)*0.0005
+  }
+  
+  # requires anno, betas_filt, anno_450k, pDat_filt
+  if (filtered) {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt),
+             !cpg_id %in% c('island', 'shore'),
+             !grepl('promoter', genes_id)) %>%
+      pull(cpg)
+  } else {
+    region1 <- anno %>%
+      filter(chr == c, between(start, s, e),
+             cpg %in% rownames(betas_filt)) %>%
+      pull(cpg)
+  }
+  
+  if (array == '450K') {
+    region1 <- intersect(anno_450k$Name, region1)
+  } 
+  
+  # subset to betas to cpg in region, then make in plottable format
+  region1_data <- betas_filt[region1, ] %>%
+    
+    t() %>%
+    as.data.frame() %>%
+    bind_cols(Sample_Name = rownames(.), .) %>%
+    
+    # melt
+    gather(cpg, beta, -Sample_Name) %>%
+    
+    # add trimester and sex
+    inner_join(pDat_filt %>% select(Sample_Name, Trimester, Tissue)) %>%
+    
+    # add cpg coordinates
+    inner_join(anno %>% select(cpg, chr, pos = start)) %>%
+    
+    # set a grouping variable to control alpha for placenta/troph
+    mutate(alpha_group = if_else(Tissue %in% c('Trophoblasts cs', 'Villi'),
+                                 1, 0.6)) %>%
+    
+    # remove second trimester data
+    filter(!Trimester %in% c('First', 'Second'))
+  
+  # get pmd start/end for plotting pmd track
+  pmd_data <- anno %>%
+    filter(chr == c, between(start, s, e), 
+           !is.na(pmd_id)) %>%
+    select(pmd_id) %>%
+    separate(pmd_id, into = c('chr', 'start', 'end'), remove = FALSE) %>%
+    mutate(chr = factor(chr, levels = paste0('chr', c(1:22, 'X'))),
+           start = as.numeric(start),
+           end = as.numeric(end)) %>%
+    arrange(chr, start) %>%
+    distinct()
+  
+  ggplot(region1_data) +
+    
+    # pmd track
+    geom_rect(data = pmd_data, 
+              aes(xmin = start, xmax = end), 
+              ymin = 0, ymax = 1, fill = '#e8e8e8', alpha = 1) +
+    
+    # methylation track
+    geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
+              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group)) +
+    
+    theme_bw(base_size = 6) +
+    theme(panel.grid = element_blank(),
+          panel.border = element_blank(),
+          axis.line = element_line(color = 'black')) +
+    scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)],
+                       labels = function(x)gsub(' cs', '', x),
+                       guide = FALSE) +
+    scale_y_continuous(expand = c(0,0), 
+                       limits = c(0, 1), 
+                       breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                       labels = function(x)percent(x, accuracy = 1)) +
+    scale_x_continuous(limits = c(s, e), labels = function(x){x/10^6},
+                       expand = c(0, 0)) +
+    scale_alpha_identity() +
+    labs(x = 'Position (Mbp)', y = 'DNA methylation',
+         title = c, color = '')
+}
+
+p3 <- plot_region(c = 'chr4', s = 1500000, e = 8500000, 
+            span = 0.07, filtered = FALSE, array = 'EPIC')
+
+p2 <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
+            array = 'EPIC')
+```
+
+# Repetitive elements & global
+
+```{r}
+repeat_plot_data <- readRDS(here::here(base_path, '2_13_repeat_plot_data.rds'))
+global_data <- readRDS(here::here(base_path, '2_13_global_data.rds'))
+
+p_re_1 <- repeat_plot_data %>%
+  filter(Repeat %in% c('Alu', 'L1')) %>%
+  
+  ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
+  geom_violin(position = position_dodge(width = 0.75),
+              draw_quantiles = 0.5,
+              size = 0.25,
+              scale = 'width') +
+  geom_jitter(alpha = 1, 
+              size = 0.01,
+              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.05))+
+  facet_grid(cols = vars(Trimester), labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(repeat_plot_data$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0.47, 0.9), 
+                     breaks = c(0.5, 0.75, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()); p_re_1 #h:1.75, w:3
+
+p_re_2 <- repeat_plot_data %>%
+  filter(Repeat_class %in% c('LTR')) %>%
+  ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
+  geom_violin(position = position_dodge(width = 0.75),
+              draw_quantiles = 0.5,
+              size = 0.25,
+              scale = 'width') +
+  geom_jitter(alpha = 1, 
+              size = 0.01,
+              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.05))+
+  facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(repeat_plot_data$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0.34, 0.8), 
+                     breaks = c(0.5, 0.75, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+   theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()); p_re_2 #h:3, w:6
+
+p_re_3 <- repeat_plot_data %>%
+  filter(grepl('REMP', Repeat)) %>%
+  ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
+  geom_violin(position = position_dodge(width = 0.75),
+              draw_quantiles = 0.5,
+              size = 0.25,
+              scale = 'width') +
+  geom_jitter(alpha = 1, 
+              size = 0.01,
+              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.05))+
+  facet_grid(cols = vars(Trimester), labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(repeat_plot_data$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0.47, 0.95), 
+                     breaks = c(0.5, 0.75, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()); p_re_3 #h:1.75, w:3
+
+p_re_4 <- global_data %>%
+  ggplot(aes(x = Measure, y = mean, color = Tissue)) +
+  stat_summary(fun.data = mean_se,
+               geom = 'errorbar',
+               position = position_dodge(width = 0.75)) +
+  geom_jitter(alpha = 1, 
+              size = 1,
+              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.08))+
+  facet_grid(cols = vars(Trimester), labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(pDat_filt$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     #limits = c(0.4, 0.6), 
+                     breaks = c(0, 0.4, 0.5, 0.6, 0.7, 0.8, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank());p_re_4  #h:1.75, w:4.5
+```
+
+
+# mQTLs
+
+```{r}
+library(UpSetR)
+data_results <- readRDS(here(base_path, '2_11_mqtl_results_data.rds'))
+results <- readRDS(here(base_path, '2_11_mqtl_results.rds'))
+pcs <- readRDS(here(base_path, '2_11_pcs_geno.rds'))
+prop_var <- pcs$variance
+pcs_eth <- pcs$pcs
+
+locus_summary_plot_data <- readRDS(here(base_path, '2_11_locus_summary_plot_data.rds'))
+```
+
+## number of mqtls
+
+```{r}
+p4 <- results %>%
+  group_by(tissue) %>%
+  
+  # how many are significant
+  summarize(`FDR < 0.05` = sum(fdr < 0.05)) %>%
+  
+  # reshape for plot
+  pivot_longer(cols = -tissue,
+               names_to = 'Significance',
+               values_to = 'n') %>%
+  
+  mutate(tissue = fct_rev(tissue)) %>%
+  ggplot(aes(x = tissue, y = n)) +
+  geom_bar(stat = 'identity', color = 'white') +
+  geom_text(aes(label = n), nudge_y = 200, size = 2) +
+  ggrepel::geom_text_repel(data = data.frame(tissue = "Endothelial cs",
+                                             n = 2956,
+                                             label = 'Out of a total of\n2956 tested mQTLs'), 
+                           nudge_y = -650,
+                           aes(label = label),
+                           size = 1.75) +
+  geom_hline(yintercept = 2956, linetype = 'dashed') +
+  theme_bw(base_size = 6) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.ticks = element_blank(),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.grid = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0, face = 'bold')) +
+  scale_y_continuous(expand = c(0,0), limits = c(0, 3000)) +
+  scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
+  labs(x = '', y= 'Number of significant (FDR < 0.05)\nCpG-SNP associations') + 
+  coord_flip();p4
+```
+
+## Overlap (upset)
+
+```{r}
+results_dummy <- results %>%
+  mutate(significant = as.numeric(fdr < 0.05),
+         tissue = gsub(' cs', '', tissue)) %>%
+  select(cpg, tissue, snpid, significant) %>%
+  pivot_wider(id_cols = c(cpg, snpid),
+              names_from = 'tissue',
+              values_from = 'significant') %>% as.data.frame
+
+p5 <- upset(results_dummy, 
+            point.size = 4,
+            line.size = 1.25,
+            text.scale = c(1.25, 1, 1, 1, 1.25, 1.5),
+            mainbar.y.label = 'number of intersecting mQTLs', 
+            sets.x.label = 'mQTLs per cell type',
+            mb.ratio = c(0.55, 0.45),
+            intersections = list(
+              
+              list('Villi'),
+              list('Trophoblasts'),
+              list('Hofbauer'),
+              list('Endothelial'),
+              list('Stromal'),
+              
+              list('Villi', 'Trophoblasts'),
+              list('Villi', 'Hofbauer'),
+              list('Villi', 'Endothelial'),
+              list('Villi', 'Stromal'),
+              
+              list('Villi', 'Stromal', 'Endothelial', 'Hofbauer', 'Trophoblasts')
+            ),
+            queries = list(
+              list(query = intersects,
+                   params = list('Villi'),
+                   active = TRUE),
+              list(query = intersects,
+                   params = list('Villi', 'Trophoblasts'),
+                   active = TRUE),
+              list(query = intersects,
+                   params = list('Villi', 'Stromal', 'Endothelial', 'Hofbauer', 'Trophoblasts'),
+                   active = TRUE)
+            ));p3 #h: 6, w : 8 save as ppt, edit, and size down as image
+```
+
+## example mQTLs
+
+```{r}
+p6 <- data_results %>%
+  filter(cpg %in% c('cg00167916', 'cg01643090', 'cg11966998', 'cg11861562', 'cg11030744'),
+         SNPID %in% c('rs6938690', 'kgp11830586', 'rs11023685', 'rs8521', 'rs35682'))%>%
+  
+  mutate(Tissue = fct_rev(Tissue),
+         gene_name = fct_relevel(gene_name, 
+                                 c('TAP2', 'CAMTA1', 'TAGLN', 'SOX6', 'GHRL')),
+         cpg_snp = fct_reorder(cpg_snp, gene_name, function(x)mean(as.numeric(x))),
+         
+         Tissue_color = case_when(
+           Villi == 1 & Tissue == 'Villi' ~ 'Villi',
+           Trophoblasts == 1 & Tissue == 'Trophoblasts cs' ~ 'Trophoblasts cs',
+           Endothelial == 1 & Tissue == 'Endothelial cs' ~ 'Endothelial cs',
+           Stromal == 1 & Tissue == 'Stromal cs' ~ 'Stromal cs',
+           Hofbauer == 1 & Tissue == 'Hofbauer cs' ~ 'Hofbauer cs',
+           TRUE ~ NA_character_
+         )) %>%
+  
+ ggplot(aes(x = Tissue, y = betas, 
+            color = Tissue_color, 
+            fill = Tissue_color)) +
+  geom_boxplot(position = position_dodge(width = 0.75), 
+               aes(alpha = genotype),
+               #color = '#000000',
+               outlier.shape = NA,
+               lwd = 0.1,
+               fatten = 0.75) +
+  #geom_jitter(size = 0.25, 
+  #            alpha = 0.75,
+  #            aes(group = genotype),
+  #            position = position_jitterdodge(dodge.width = 0.75,
+  #                                            jitter.width = 0.1)) +
+  theme_bw(base_size = 6) +
+  theme(axis.ticks = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        strip.background = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(alpha = '', y = 'CpG DNA methylation', x = '') +
+  facet_wrap(vars(cpg_snp, gene_name), ncol = 5) +
+  
+  scale_color_manual(values = color_code_tissue[unique(data_results$Tissue)], 
+                     na.value = '#424242') +
+  scale_fill_manual(values = color_code_tissue[unique(data_results$Tissue)],
+                    na.value = '#424242') +
+  scale_alpha_manual(values = c(0.2, 0.5, 0.8), guide = 'legend',
+                     labels = c('AA', 'AB', 'BB')) +
+  scale_y_continuous(expand = c(0,0), 
+                     limits = c(0,1), 
+                     labels = function(x)percent(x, accuracy = 1)) +
+  scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
+  
+  # manually create legend for alpha
+  guides(alpha = guide_legend(override.aes = list(fill = '#636363',
+                                                  alpha = c(0.2, 0.5, 1),
+                                                  color = 'black')),
+         color = 'none',
+         fill = 'none');p5
+
+```
+
+# Ancestry
+
+```{r}
+p7 <- prop_var %>%
+  ggplot(aes(x = PC, y = p_variance)) +
+  geom_bar(stat = 'identity') +
+  scale_x_continuous(expand = c(0,0),
+                     breaks = c(1:60)) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line()) +
+  scale_y_continuous(expand = c(0,0), limits = c(0, 0.5), labels = scales::percent) +
+  labs(y = '', title = 'Percent variance explained');p7
+
+p8 <- pcs_eth %>%
+  ggplot(aes(x = PC1, y = PC2, color = Predicted_ethnicity)) +
+  geom_point(size = 0.25) +
+  theme_classic(base_size = 6) +
+  theme(legend.spacing.y = unit(0.01, 'cm'))+
+  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  labs(x = paste0('PC1 (', prop_var$p_variance[1] %>% scales::percent(accuracy = 0.1),')'),
+       y = paste0('PC2 (', prop_var$p_variance[2] %>% scales::percent(accuracy = 0.1),')'),
+       color = 'PLANET-predicted\nethnicity');p8
+
+p9 <- pcs_eth %>%
+  ggplot(aes(x = PC3, y = PC4, color = Predicted_ethnicity)) +
+  geom_point(size = 0.25) +
+  theme_classic(base_size = 6) +
+  theme(legend.spacing.y = unit(0.01, 'cm'))+
+  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  labs(x = paste0('PC3 (', prop_var$p_variance[3] %>% scales::percent(accuracy = 0.1),')'),
+       y = paste0('PC4 (', prop_var$p_variance[4] %>% scales::percent(accuracy = 0.1),')'),
+       color = 'PLANET-predicted\nethnicity') +
+  coord_equal();p9
+
+p9b <- pcs_eth %>%
+  ggplot(aes(x = PC5, y = PC6, color = Predicted_ethnicity)) +
+  geom_point(size = 0.25) +
+  theme_classic(base_size = 6) +
+  theme(legend.spacing.y = unit(0.01, 'cm'))+
+  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  labs(x = paste0('PC5 (', prop_var$p_variance[5] %>% scales::percent(accuracy = 0.1),')'),
+       y = paste0('PC6 (', prop_var$p_variance[6] %>% scales::percent(accuracy = 0.1),')'),
+       color = 'PLANET-predicted\nethnicity') +
+  coord_equal();p9b
+```
+
+# filtering / processing
+
+```{r}
+p10 <- locus_summary_plot_data %>%
+  ggplot(aes(x = step, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = scales::number(n)), nudge_y = 150000,
+            size = 2) +
+  theme(panel.border = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank()) +
+  scale_y_continuous(labels = scales::number, breaks = c(0, 500000, 1000000)) +
+  labs(x = '', title = 'Number of SNPs removed', y = '') +
+  coord_flip();p10
+
+# calculate MAF
+p11 <- data_results %>%
+  select(Case_ID, SNPID, genotype) %>%
+  distinct() %>%
+  mutate(genotype = fct_explicit_na(genotype, 'No call')) %>%
+  
+  # number of b alleles
+  group_by(SNPID, genotype) %>%
+  summarize(n = n()) %>% 
+  mutate(n_b = (as.numeric(genotype)-1)*n) %>%
+  group_by(SNPID) %>%
+  
+  # BAF
+  mutate(BAF = sum(n_b) / (sum(n)*2),
+         MAF = if_else(BAF > 0.5, 1-BAF, BAF)) %>%
+  
+  # reorder SNP names based on BAF
+  ungroup() %>%
+  mutate(SNPID = fct_reorder(SNPID, BAF)) %>%
+  
+  ggplot(aes(x = SNPID, y = n, fill = genotype, color = genotype)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        legend.key.size = unit(0.5, 'cm')) +
+  scale_fill_manual(values = c(viridis(3), 'grey')) +
+  scale_color_manual(values = c(viridis(3), 'grey'), guide = 'none') +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(y = 'Count', x = 'SNP', fill = '# B alleles') ;p11 #h: 1.2, w: 3.5
+```
