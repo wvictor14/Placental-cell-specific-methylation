@@ -847,16 +847,16 @@ cell_calcs %>%
 # Save Data
 
 ```{r, eval = F}
-saveRDS(cell_calcs, '../../data/main/interim/2_4_cell_calcs.rds')
-saveRDS(removed_df, '../../data/main/interim/2_4_removed_samples')
-saveRDS(sample_densities, '../../data/main/interim/2_4_sample_densities.rds')
-saveRDS(dmcs, '../../data/main/interim/2_4_dmcs.rds')
-saveRDS(dmcs_sig, '../../main/interim/2_4_dmcs_summary.rds')
-saveRDS(list(kegg = kegg, GO = gst), '../../data/main/interim/2_4_enrich.rds')
-saveRDS(list(cell_mean_cor, cell_mean), '../../data/main/interim/2_4_cell_means.rds')
+saveRDS(cell_calcs, here(base_path, '2_4_cell_calcs.rds'))
+saveRDS(removed_df, here(base_path, '2_4_removed_samples'))
+saveRDS(sample_densities, here(base_path, '2_4_sample_densities.rds'))
+saveRDS(dmcs, here(base_path, '2_4_dmcs.rds'))
+saveRDS(dmcs_sig, here(base_path, '2_4_dmcs_summary.rds'))
+saveRDS(list(kegg = kegg, GO = gst), here(base_path, '2_4_enrich.rds'))
+saveRDS(list(cell_mean_cor, cell_mean), here(base_path, '2_4_cell_means.rds'))
 
 dmcs %>% 
-  filter(bonferroni < 0.001, delta_b > 0.25) %>%
+  filter(bonferroni < 0.01, delta_b > 0.25) %>%
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
   mutate(Celltype = case_when(
     Celltype == 'Endo_cs' ~ 'Endothelial',
