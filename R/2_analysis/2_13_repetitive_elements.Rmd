@@ -1,0 +1,323 @@
+---
+title: "2_13_repetitive_elements"
+author: "Victor Yuan"
+date: "09/01/2020"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    highlight: tango 
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Setup
+
+## Libraries
+
+```{r, message = FALSE, warning = FALSE}
+# libraries and data
+library(tidyverse)
+library(scales)
+library(here)
+library(readxl)
+library(janitor)
+library(REMP)
+library(fuzzyjoin)
+
+theme_set(theme_bw())
+```
+
+## Data
+
+```{r eval = TRUE}
+base_path <- file.path('data', 'main', 'interim')
+
+# pData
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+anno <- anno %>%
+  as_tibble() %>%
+  filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
+
+
+# color key
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+## Remove samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),
+         Trimester != 'Second')
+
+betas_filt <- betas[,pDat_filt$Sentrix]
+colnames(betas_filt) <- pDat_filt$Sample_Name
+```
+
+# REMP
+
+Run REMP
+
+```{r eval = F}
+# get RE annotations then save result to ensure reproducibility (annotations will change frequently)
+remparcel_alu <- initREMP(arrayType = "EPIC",
+                      REtype = "Alu",
+                      genome = "hg19")
+remparcel_l1 <- initREMP(arrayType = "EPIC",
+                      REtype = "L1",
+                      genome = "hg19")                 
+
+#prep data (remove NAs, remove 0's and 1's for logit)
+betas_filt_groom <- grooMethy(betas_filt)
+betas_filt_groom
+
+#Fit models, takes ~10 hours for both alu + l1
+remp_alu <- remp(betas_filt_groom,
+                 REtype = 'Alu',
+                 parcel = remparcel_alu,
+                 ncore = 12,
+                 seed = 777)
+
+remp_l1 <- remp(betas_filt_groom,
+                REtype = 'L1',
+                parcel = remparcel_l1,
+                ncore = 12,
+                seed = 777)
+
+saveRDS(remp_alu, here::here(base_path, '2_13_remp_alu.rds'))
+saveRDS(remp_l1, here::here(base_path, '2_13_remp_l1.rds'))
+```
+
+```{r}
+remp_alu <- readRDS(here::here(base_path, '2_13_remp_alu.rds'))
+remp_l1 <- readRDS(here::here(base_path, '2_13_remp_l1.rds'))
+
+nrow(remp_alu) # 688,502
+nrow(remp_l1)  # 89,416
+
+# remove unreliable results
+# Any predicted CpG values with quality score less than
+# threshold (default = 1.7) will be replaced with NA.
+# CpGs contain more than missingRate * 100% (default = 20%)
+# missing rate across samples will be discarded.
+
+remp_alu <- rempTrim(remp_alu, threshold = 1.7, missingRate = 0.2)
+remp_l1 <- rempTrim(remp_l1, threshold = 1.7, missingRate = 0.2)
+
+nrow(remp_alu) # 438,664
+nrow(remp_l1)  # 39,136
+
+# plot prediction
+remplot(remp_alu, main = "Alu", col = "blue")
+remplot(remp_l1, main = "L1", col = "red")
+
+# extract betas
+remp_alu_b <- rempB(remp_alu) %>% 
+  as.data.frame() %>% 
+  colMeans(na.rm = TRUE) %>%
+  enframe('Sample_Name', 'RE_REMP_Alu_mean')
+
+remp_l1_b <- rempB(remp_l1) %>% 
+  as.data.frame() %>% 
+  colMeans(na.rm = TRUE) %>%
+  enframe('Sample_Name', 'RE_REMP_L1_mean')
+
+# add means to pData
+pDat_filt <- pDat_filt %>%
+  left_join(remp_alu_b) %>%
+  left_join(remp_l1_b)
+```
+
+# Annotation
+
+Here I use the rmsk track from UCSC to annotate the probes in RE elements
+
+```{r}
+anno_repeats <- anno %>% 
+  filter(!is.na(repeat_name)) 
+
+anno_repeats %>%
+  dplyr::count(repeat_class)
+anno_repeats %>%
+  dplyr::count(repeat_family)
+
+repeats_data <- betas_filt[anno_repeats$cpg,] %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  as_tibble %>%
+  
+  pivot_longer(
+    cols = -cpg,
+    names_to = 'Sample_Name',
+    values_to = 'beta'
+  ) %>%
+  
+  inner_join(anno_repeats %>% select(cpg, contains('repeat'))) 
+
+pDat_filt <- 
+  
+  repeats_data %>%
+  # calculate means
+  group_by(Sample_Name, repeat_family) %>%
+  summarize(mean = mean(beta)) %>%
+  
+  # widen
+  ungroup() %>%
+  mutate(repeat_family = paste0('RE_', repeat_family, '_mean')) %>%
+  pivot_wider(
+    id_cols = Sample_Name,
+    names_from = repeat_family,
+    values_from = mean
+  ) %>%
+  
+  # join
+  left_join(pDat_filt, .)
+```
+
+# compare remp vs annotation
+
+How many cpgs are in annotation
+
+How many are predicted by REMP
+
+```{r}
+anno_repeats %>%
+  dplyr::count(repeat_family)
+
+```
+
+annotation:
+- 22,006 L1 and 15,289 Alu
+
+remp
+- 39,136 L1 and 438,664 alu 
+
+# plots
+
+```{r}
+repeat_plot_data <- pDat_filt %>%
+  select(Tissue, Trimester, contains('RE', ignore.case = FALSE)) %>%
+  pivot_longer(
+    cols = -c(Tissue, Trimester),
+    names_to = 'Repeat',
+    names_prefix = 'RE_',
+    values_to = 'mean'
+  ) %>%
+  mutate(Repeat = gsub('_mean', '', Repeat),
+         Repeat_class = case_when(
+           grepl('Alu', Repeat) ~ 'SINE',
+           grepl('ERV', Repeat) ~ 'LTR',
+           Repeat %in% c('L1', 'L2') ~ 'LINE',
+           Repeat == 'REMP_L1' ~ 'LINE'
+         ))
+
+repeat_plot_data %>%
+  filter(Repeat_class %in% c('SINE', 'LINE')) %>%
+  mutate(Repeat = fct_relevel(Repeat, c('Alu', 'REMP_Alu', 'L1', 'REMP_L1', 'L2'))) %>%
+  ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
+  geom_boxplot() +
+  facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0.47, 1), 
+                     breaks = c(0.5, 0.75, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold', hjust = 0),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.grid.minor = element_blank()) 
+
+repeat_plot_data %>%
+  filter(Repeat_class %in% c('LTR')) %>%
+  ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
+  geom_boxplot() +
+  facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0.34, 0.8), 
+                     breaks = c(0.5, 0.75, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold', hjust = 0),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.grid.minor = element_blank()) 
+```
+
+# Global DNam
+
+```{r}
+pDat_filt <- colMeans(betas_filt) %>%
+  enframe('Sample_Name', 'mean_all_probes') %>%
+  right_join(pDat_filt) 
+
+global_data <- pDat_filt %>%
+  select(Tissue, Trimester, mean_all_probes, RE_L1_mean, RE_Alu_mean) %>%
+  pivot_longer(
+    cols = -c(Tissue, Trimester),
+    names_to = 'Measure',
+    names_prefix = 'RE_',
+    values_to = 'mean'
+  ) %>%
+   mutate(Measure = gsub('_?mean_?', '', Measure),
+          Measure = gsub('all_probes', 'All probes', Measure))
+
+global_data %>%
+  ggplot(aes(x = Measure, y = mean, color = Tissue)) +
+  geom_violin(position = position_dodge(width = 0.75),
+              draw_quantiles = 0.5,
+              size = 0.25,
+              scale = 'width') +
+  geom_jitter(alpha = 1, 
+              size = 0.01,
+              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.05))+
+  facet_grid(cols = vars(Trimester), labeller = label_both) +
+  scale_color_manual(values = color_code_tissue[unique(pDat_filt$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_y_continuous(expand = c(0,0),
+                     #limits = c(0.4, 0.6), 
+                     breaks = c(0, 0.4, 0.5, 0.6, 0.7, 0.8, 1), 
+                     labels = percent) +
+  labs(color = '', x = '', y = 'Mean DNAm') +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = 'bold'),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank());  #h:1.75, w:1.5
+```
+
+```{r}
+saveRDS(repeat_plot_data, here::here(base_path, '2_13_repeat_plot_data.rds'))
+saveRDS(global_data, here::here(base_path, '2_13_global_data.rds'))
+```
