@@ -29,6 +29,7 @@ library(readxl)
 library(janitor)
 library(REMP)
 library(fuzzyjoin)
+library(broom)
 
 theme_set(theme_bw())
 ```
@@ -240,7 +241,7 @@ repeat_plot_data %>%
   ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
   geom_boxplot() +
   facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
-  scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+  scale_color_manual(values = color_code_tissue[unique(repeat_plot_data$Tissue)], 
                          na.value = '#636363',
                          guide = 'none') +
   scale_y_continuous(expand = c(0,0),
@@ -258,7 +259,7 @@ repeat_plot_data %>%
   ggplot(aes(x = Repeat, y = mean, color = Tissue)) +
   geom_boxplot() +
   facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
-  scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+  scale_color_manual(values = color_code_tissue[unique(repeat_plot_data$Tissue)], 
                          na.value = '#636363',
                          guide = 'none') +
   scale_y_continuous(expand = c(0,0),
@@ -317,7 +318,36 @@ global_data %>%
         panel.grid.major.x = element_blank());  #h:1.75, w:1.5
 ```
 
+# Stats
+
+```{r}
+tests <- pDat_filt %>%
+  select(Trimester, Tissue, RE_Alu_mean, RE_L1_mean, mean_all_probes, contains('REMP')) %>%
+  mutate(Tissue = as.factor(Tissue) %>% fct_rev) %>% # make villi intercept
+  pivot_longer(
+    cols = c(contains('RE'), mean_all_probes),
+    names_to = 'type',
+    values_to = 'mean'
+  ) %>%
+  mutate(type = gsub('RE_', '',
+                     gsub('_mean', '',
+                          gsub('mean_', '', type)))) %>%
+  nest(data = -c(Trimester, type)) %>%
+  mutate(lm = map(data, ~tidy(lm(.$mean ~ .$Tissue)))) %>%
+  unnest(lm)  %>%
+  select(-data) %>%
+  filter(term != '(Intercept)') %>%
+  mutate(term = gsub('.$Tissue', '', term, fixed = TRUE),
+         p_value = scales::pvalue(p.value),
+         p_value_adj = p.adjust(p.value, method = 'bonferroni'),
+         p_value_adj_label = scales::pvalue(p_value_adj)) %>%
+  rename(type = 'test',
+         term = 'Tissue');tests
+  
+```
+
 ```{r}
 saveRDS(repeat_plot_data, here::here(base_path, '2_13_repeat_plot_data.rds'))
 saveRDS(global_data, here::here(base_path, '2_13_global_data.rds'))
+write_csv(tests, here::here('outs', '2_13_stats.csv'), na = '' )
 ```
