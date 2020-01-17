@@ -1,0 +1,118 @@
+---
+title: "2_14_deconvolution"
+author: "Victor Yuan"
+date: "16/01/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+## Libraries
+
+```{r, message = FALSE, warning = FALSE}
+# libraries and data
+library(tidyverse)
+library(scales)
+library(here)
+library(readxl)
+library(janitor)
+library(minfi)
+
+theme_set(theme_bw())
+```
+
+## Data
+
+```{r eval = TRUE}
+base_path <- file.path('data', 'main', 'interim')
+
+# pData
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+mset <- readRDS(here(base_path, '1_4_mset_noob.rds' ))
+colnames(mset) <- pData(mset)$Sample_Name
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+anno <- anno %>%
+  as_tibble() %>%
+  filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
+
+
+# color key
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+## Remove samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),
+         Trimester != 'Second')
+
+betas_filt <- betas[,pDat_filt$Sentrix]
+colnames(betas_filt) <- pDat_filt$Sample_Name
+```
+
+#
+
+```{r}
+mset$CellType <- mset$Tissue
+mset_ref <- mset[,pData(mset)$Tissue %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial')]
+mset_test <- mset[,pData(mset)$Tissue %in% c('Mixture', 'Villi')]
+
+# pick probes
+x <- minfi:::pickCompProbes(
+  mset_ref, 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial'),
+  compositeCellType = 'Placenta',
+  probeSelect = "auto")
+
+# extract coefficients
+coefs <- x$coefEsts
+counts <- minfi:::projectCellType(getBeta(mset_test)[rownames(coefs), ], coefs)
+
+res <- counts %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Name = rownames(.), .) %>%
+  inner_join(pData(mset_test) %>% as_tibble());res
+
+# plot
+res %>%
+  select(Tissue, Sample_Name:Endothelial)  %>%
+  pivot_longer(cols = -c(Tissue, Sample_Name),
+               names_to = 'Estimates',
+               values_to = 'p') %>%
+  ggplot(aes(x = Sample_Name, y = p, fill = Estimates)) +
+  geom_bar(stat = 'identity', position = 'stack') +
+  facet_grid(cols = vars(Tissue), scales = 'free', space = 'free') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand = c(0,0))
+
+```
+
+works!
+
+TODO:
+
+- [] Apply reference-based deconvolution to first trimester samples and third separately (each with their own reference).
+- [] Apply to mixtures using 3rd trim ref, and calculate errors (assess accuracy)
+- [] Maybe apply IDOL
+
+
