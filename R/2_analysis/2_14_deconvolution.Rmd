@@ -2,11 +2,18 @@
 title: "2_14_deconvolution"
 author: "Victor Yuan"
 date: "16/01/2020"
-output: html_document
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+    highlight: tango 
 editor_options: 
   chunk_output_type: console
 ---
-
 # Setup
 
 ## Libraries
@@ -19,8 +26,11 @@ library(here)
 library(readxl)
 library(janitor)
 library(minfi)
-
+library(broom)
+library(pheatmap)
 theme_set(theme_bw())
+library(EpiDISH)
+library(yardstick)
 ```
 
 ## Data
@@ -32,7 +42,7 @@ base_path <- file.path('data', 'main', 'interim')
 pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
 pDat <- pDat %>%
   mutate(Tissue = case_when(
-    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast', 'Mixture')) ~ paste(Tissue, 'cs'),
     Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
     TRUE ~ Tissue
   )) 
@@ -48,10 +58,12 @@ anno <- anno %>%
   as_tibble() %>%
   filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
 
+# cell proportions for mixtures
+mixtures <- read_excel(here::here('data', 'main', 'raw', 'Mixtures.xlsx'))
 
 # color key
 color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
-color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+color_code_tissue <- setNames(color_code$Colors_Tissue, gsub(' cs', '',color_code$label))
 ```
 
 ## Remove samples
@@ -61,7 +73,8 @@ pDat_filt <- pDat %>%
   filter(maternal_contamination_norm_flip < 0.35,
          !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
                              'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
-         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+         !Tissue %in% c('Villi maternal', 
+                        'Trophoblasts enz',
                         'Dead Cells and Lymphocytes cs'),
          Trimester != 'Second')
 
@@ -69,25 +82,51 @@ betas_filt <- betas[,pDat_filt$Sentrix]
 colnames(betas_filt) <- pDat_filt$Sample_Name
 ```
 
-#
+# Houseman Deconvolution
+
+I apply to first and third trimester samples separately, each with their own trimester-specific reference.
 
 ```{r}
+# filter to project samples
+mset_filt <- mset[,pDat_filt$Sample_Name]
+pData(mset_filt) <- DataFrame(pDat_filt)
+
+# necessary column for pickcompprobes
 mset$CellType <- mset$Tissue
+
 mset_ref <- mset[,pData(mset)$Tissue %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial')]
 mset_test <- mset[,pData(mset)$Tissue %in% c('Mixture', 'Villi')]
 
 # pick probes
-x <- minfi:::pickCompProbes(
-  mset_ref, 
+probes_third <- minfi:::pickCompProbes(
+  mset_ref[, pData(mset_ref)$Trimester == 'Third'], 
   cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial'),
   compositeCellType = 'Placenta',
-  probeSelect = "auto")
+  probeSelect = "both")
+
+probes_first <- minfi:::pickCompProbes(
+  mset_ref[, pData(mset_ref)$Trimester == 'First'], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
 
 # extract coefficients
-coefs <- x$coefEsts
-counts <- minfi:::projectCellType(getBeta(mset_test)[rownames(coefs), ], coefs)
+coefs_third <- probes_third$coefEsts
+coefs_first <- probes_first$coefEsts
 
-res <- counts %>%
+# project 
+counts_third <- minfi:::projectCellType(
+  getBeta(mset_test)[rownames(coefs_third),pData(mset_test)$Trimester == 'Third'], 
+  coefs_third,
+  lessThanOne = FALSE)
+
+counts_first<- minfi:::projectCellType(
+  getBeta(mset_test)[rownames(coefs_first),pData(mset_test)$Trimester == 'First'], 
+  coefs_first,
+  lessThanOne = FALSE)
+
+res <- rbind(counts_third, counts_first) %>%
   as.data.frame() %>%
   bind_cols(Sample_Name = rownames(.), .) %>%
   inner_join(pData(mset_test) %>% as_tibble());res
@@ -107,12 +146,559 @@ res %>%
 
 ```
 
-works!
 
-TODO:
+# Compare accuracy
 
-- [] Apply reference-based deconvolution to first trimester samples and third separately (each with their own reference).
-- [] Apply to mixtures using 3rd trim ref, and calculate errors (assess accuracy)
-- [] Maybe apply IDOL
+Mixture 13 replaces mixture 4 due to failed BSC conversion
 
+Mixture 4 replaces mixture 8 due to failed BSC conversion
+Mixture 14 replaces mixture 7 ^ ^ ^ ^
+Mixture 7 replaces mixture 5 due to loss of DNA during mixing
+
+```{r}
+mixtures_results <- mixtures %>% select(Sample, Case_ID, contains('%')) %>%
+  janitor::clean_names() %>%
+  pivot_longer(cols = -c(sample, case_id),
+               names_to = 'component',
+               values_to = 'actual_percent') %>%
+  mutate(component = gsub('_percent', '', component))  %>%
+  dplyr::rename(Sample_Name = sample) %>%
+  filter(component !='total') %>%
+  mutate(Sample_Name = case_when(
+    Sample_Name == 'Mixture 4' ~ 'Mixture 13',
+    
+    Sample_Name == 'Mixture 5' ~ 'Mixture 14',
+    TRUE ~ as.character(Sample_Name)
+  ))
+
+
+mixture_results <- res %>%
+  select(Sample_Name:Endothelial) %>%
+  pivot_longer(cols = -Sample_Name,
+               names_to = 'component',
+               values_to = 'predicted_percent') %>%
+  mutate(component = str_to_lower(component),
+         predicted_percent = predicted_percent*100) %>%
+  full_join(mixtures_results, by = c('Sample_Name', 'component'))  %>%
+  mutate(component = str_to_sentence(component))
+
+# stats
+stats <- mixture_results %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(predicted_percent ~ actual_percent, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm) %>%
+  unnest(glanced) %>%
+  mutate(label = paste0('R2=', signif(r.squared, digits = 2),
+                        '\n', pvalue(p.value, add_p = TRUE)))
+
+
+# scatter plots
+mixture_results %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  ggplot() +
+  geom_point(aes(x = actual_percent, y = predicted_percent, color = component)) +
+  geom_smooth(aes(x = actual_percent, y = predicted_percent, color = component),
+              method = 'lm', se = FALSE) +
+  geom_label(data = stats, aes(label = label),
+             x = 0, y = 80, hjust = 0) +
+  scale_y_continuous(limits = c(0,100)) +
+  facet_wrap(~component) +
+  scale_color_manual(values = color_code_tissue[unique(mixture_results$component)], 
+                         na.value = '#636363',
+                         guide = 'none') 
+
+# bar plots
+mixture_results %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  mutate(Sample_Name = factor(Sample_Name, 
+                              levels = paste0('Mixture ', c(1:3, 13, 14, 6:12)))) %>%
+  pivot_longer(cols = contains('percent'),
+               names_to = 'type',
+               values_to = 'percent') %>%
+  mutate(type = gsub('_.*', '', type)) %>%
+  ggplot() +
+  geom_bar(stat=  'identity',
+           aes(x = Sample_Name, y = percent, fill = component)) +
+  facet_wrap(ncol = 1, vars(type)) +
+  labs(x = '') +
+  scale_x_discrete(labels = function(x)gsub('Mixture ', '', x))
+
+mixture_results %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  mutate(Sample_Name = factor(Sample_Name, 
+                              levels = paste0('Mixture ', c(1:3, 13, 14, 6:12)))) %>%
+  pivot_longer(cols = contains('percent'),
+               names_to = 'type',
+               values_to = 'percent') %>%
+  mutate(type = gsub('_.*', '', type)) %>%
+  ggplot() +
+  geom_bar(stat=  'identity',
+           aes(x = Sample_Name, y = percent, fill = component)) +
+  facet_grid(rows = vars(type),
+             cols = vars(case_id), scales = 'free', space = 'free') +
+  labs(x = '') +
+  theme(strip.background = element_blank()) +
+  scale_x_discrete(labels = function(x)gsub('Mixture ', '', x))
+             
+```
+
+# EPIDISH
+
+```{r}
+epidish_res1 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_third),pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_third,
+  method = 'RPC')
+
+epidish_res2 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_third),pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_third,
+  method = 'CBS')
+
+epidish_res3 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_third),pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_third,
+  method = 'CP',
+  constraint = 'inequality')
+
+#first trime
+epidish_res11 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_first),pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_first,
+  method = 'RPC')
+
+epidish_res22 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_first),pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_first,
+  method = 'CBS')
+
+epidish_res33 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_first),pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_first,
+  method = 'CP',
+  constraint = 'inequality')
+
+str(epidish_res1)
+
+epidish_res1 <- epidish_res1$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_res2 <- epidish_res2$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (CBS)')
+
+epidish_res3 <- epidish_res3$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (CP)')
+
+epidish_res11 <- epidish_res11$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_res22 <- epidish_res22$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (CBS)')
+
+epidish_res33 <- epidish_res33$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (CP)')
+
+epidish_results <- bind_rows(epidish_res1, epidish_res2, epidish_res3, 
+                             epidish_res11, epidish_res22, epidish_res33) %>%
+   dplyr::rename(Sample_Name = Sample_Names) %>%
+  mutate(percent = percent*100) %>%
+  left_join(mixture_results %>% select(Sample_Name, case_id))
+
+# combine epidish results with houseman
+mixture_results_all <- mixture_results %>%
+  pivot_longer(
+    cols = contains('percent'),
+    names_to = 'algorithm',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = gsub('_percent', '', algorithm),
+         algorithm = ifelse(algorithm == 'predicted', 'minfi (CP)', algorithm)) %>%
+  select(-case_id) %>%
+  bind_rows(epidish_results %>% select(-case_id)) %>%
+  mutate(algorithm = factor(algorithm, 
+                            levels = c('actual', 'epidish (RPC)', 'epidish (CBS)', 
+                                       'epidish (CP)', 'minfi (CP)'))) %>%
+  distinct()
+
+# bar plot
+mixture_results_all %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  mutate(Sample_Name = factor(Sample_Name, 
+                              levels = paste0('Mixture ', c(1:3, 13, 14, 6:12)))) %>%
+  ggplot() +
+  geom_bar(stat=  'identity',
+           aes(x = Sample_Name, y = percent, fill = component)) +
+  facet_wrap(ncol = 1, vars(algorithm)) +
+  labs(x = '', y= '') +
+  theme(strip.background = element_blank())+
+  scale_fill_manual(values = color_code_tissue[unique(mixture_results_all$component)],
+                    na.value = '#636363') +
+  scale_y_continuous(labels = function(x)paste0(x, '%'), expand = c(0,0))+
+  scale_x_discrete(labels = function(x)gsub('Mixture ', '', x), expand = c(0,0))
+
+# stats
+stats <- mixture_results_all %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  pivot_wider(id_cols = c(Sample_Name, component),
+              names_from = 'algorithm',
+              values_from = 'percent') %>%
+  pivot_longer(cols = -c(Sample_Name, component, actual),
+               names_to = 'algorithm',
+               values_to = 'predicted') %>%
+  
+  nest(data = -c(component, algorithm)) %>%
+  mutate(lm = map(data, ~lm(predicted ~ actual, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm) %>%
+  unnest(glanced) %>%
+  mutate(label = paste0('R2=', signif(r.squared, digits = 2),
+                        '\n', pvalue(p.value, add_p = TRUE)))
+
+mixture_results_all %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  pivot_wider(id_cols = c(Sample_Name, component),
+              names_from = 'algorithm',
+              values_from = 'percent') %>%
+  pivot_longer(cols = -c(Sample_Name, component, actual),
+               names_to = 'algorithm',
+               values_to = 'predicted') %>%
+  group_by(algorithm) %>%
+  rmse(truth = actual, estimate = predicted)
+
+
+stats %>%
+  group_by(algorithm) %>%
+  summarize(mean_r2 = mean(r.squared))
+
+mixture_results_all %>%
+  filter(grepl('Mix', Sample_Name)) %>%
+  pivot_wider(id_cols = c(Sample_Name, component),
+              names_from = 'algorithm',
+              values_from = 'percent') %>%
+  pivot_longer(cols = -c(Sample_Name, component, actual),
+               names_to = 'algorithm',
+               values_to = 'predicted')  %>%
+  ggplot(aes(x = actual, y = predicted, color = component)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE) +
+  geom_label(color = 'black', size = 3, data = stats, aes(label = label),
+             x = 0, y = 100, hjust = 0, vjust = 1) +
+  facet_grid(cols = vars(algorithm), rows = vars(component)) +
+  theme(strip.background = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_color_manual(values = color_code_tissue[unique(mixture_results_all$component)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_x_continuous(labels = function(x)paste0(x, '%'), breaks = c(0,30,60,100))+
+  scale_y_continuous(limits = c(0,100),labels = function(x)paste0(x, '%')) +
+  labs(x = 'Actual', y = 'Predicted')
+  
+```
+
+# Heatmap of deconvolution probes
+
+```{r}
+probes_third %>% str
+pheatmap(probes_third$coefEsts, cluster_cols = FALSE, cluster_rows = TRUE,
+         show_rownames = FALSE) 
+```
+
+# FACS-determined proportions
+
+So mixture data is potentially garbage. Here I look at the FACS cell proportions.
+
+```{r}
+facs_prop <- read_excel(here::here('data', 'main', 'raw', 'FACS_proportions.xlsx'))
+
+# process
+facs_prop <- facs_prop %>%
+  as.matrix() %>%
+  magrittr::set_rownames(.[,'Cell_type']) %>%
+  t() %>%
+  as.data.frame %>%
+  bind_cols(Sample_Name = rownames(.), .) %>%
+  dplyr::slice(-1) %>%
+  select(Sample_Name, contains('% of live')) %>%
+  pivot_longer(cols = -Sample_Name, names_to = 'component', values_to = 'value') %>%
+  mutate(component = gsub(' \\(\\% of live\\)', '', component),
+         percent = str_extract(value, '[0-9]?\\.?[0-9]+(?=\\%)') %>% as.numeric(),
+         Case_ID = str_extract(Sample_Name, 'PM[0-9]+'),
+         component = ifelse(component == 'Fibroblasts', 'Stromal', component)) %>%
+  select(-value) %>% 
+  
+  # REMOVE samples
+  filter(!grepl('TB Layer', Sample_Name),
+         ) %>% 
+  
+  # average percentage
+  group_by(Case_ID, component) %>%
+  summarize(percent = mean(percent)) %>%
+  
+  # rescale such that sums to 1
+  mutate(percent = percent*100 / sum(percent)) %>%
+  group_by(Case_ID, component == 'Trophoblasts') %>%
+  mutate(percent_constrained = percent*100/ sum(percent)) %>%
+  ungroup() %>%
+  mutate(percent_constrained = ifelse(percent_constrained == 100, NA,
+                                      percent_constrained)) %>%
+  select(-`component == "Trophoblasts"`) %>%
+  
+  pivot_longer(cols = contains('percent'),
+               names_to = 'FACS',
+               values_to = 'actual') %>%
+  mutate(FACS = ifelse(FACS == 'percent', 'FACS',
+                       ifelse(FACS == 'percent_constrained', 'FACS - constrained',
+                              FACS)))
+
+
+
+facs_results <-mixture_results_all %>%
+  filter(!grepl('Mix', Sample_Name),
+         algorithm != 'actual') %>%
+  mutate(Case_ID = str_extract(Sample_Name, 'PM[0-9]+'))  %>%
+  
+  # constrain to non-troph pops
+  filter(component != 'Trophoblasts') %>%
+  group_by(Case_ID, algorithm) %>%
+  mutate(percent = percent*100/sum(percent)) %>%
+  inner_join(facs_prop, by = c('component', 'Case_ID'))
+  
+plot_scatter <- function(x){
+  ggplot(data = x, aes(x = actual, y = percent, color =component)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE) +
+  facet_grid(cols = vars(algorithm), rows = vars(component), scales = 'fixed') +
+  theme(strip.background = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_color_manual(values = color_code_tissue[unique(facs_results$component)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_x_continuous(labels = function(x)paste0(x, '%'))+
+  scale_y_continuous(labels = function(x)paste0(x, '%')) +
+  labs(x = 'Actual', y = 'Predicted') +
+    coord_equal()
+}
+
+facs_results %>%
+  filter(FACS == 'FACS',
+         component == 'Endothelial')  %>%
+  plot_scatter()
+facs_results %>%
+  filter(FACS == 'FACS',
+         component == 'Hofbauer')  %>%
+  plot_scatter()+
+  scale_y_continuous(limits = c(0, 60), labels = function(x)paste0(x, '%')) 
+facs_results %>%
+  filter(FACS == 'FACS',
+         component == 'Stromal')  %>%
+  plot_scatter()
+
+
+
+# stats
+facs_stats <- facs_results %>%
+  filter(FACS == 'FACS - constrained',
+         component != 'Trophoblasts') %>%
+  nest(data = -c(algorithm, component)) %>%
+  mutate(lm = map(data, ~lm(percent ~ actual, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm) %>%
+  unnest(glanced) %>%
+  mutate(label = paste0('R2=', signif(r.squared, digits = 2),
+                        '\n', pvalue(p.value, add_p = TRUE)));facs_stats
+facs_results %>%
+  filter(FACS == 'FACS - constrained',
+         component != 'Trophoblasts') %>%
+  group_by(algorithm) %>%
+  rmse(truth = actual, estimate = percent)
+
+facs_results %>%
+  filter(FACS == 'FACS - constrained',
+         component != 'Trophoblasts') %>%
+  ggplot(aes(x = actual, y = percent, color =component)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE) +  
+  geom_label(data = facs_stats, 
+             color = 'black', size = 3, 
+             aes(label = label),
+             x = 10, y = 120, hjust = 0, vjust = 1,
+             alpha = 0) +
+
+  facet_grid(cols = vars(algorithm), rows = vars(component), scales = 'fixed') +
+  theme(strip.background = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_color_manual(values = color_code_tissue[unique(facs_results$component)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+  scale_x_continuous(labels = function(x)paste0(x, '%'))+
+  scale_y_continuous(limits = c(0, 120),labels = function(x)paste0(x, '%')) +
+  labs(x = 'Actual', y = 'Predicted') + 
+  coord_equal()
+
+
+facs_stats %>%
+  group_by(component, algorithm) %>%
+  summarize(r2 = mean(r.squared)) %>%
+  group_by(algorithm) %>%
+  mutate(overall_r2 = mean(r2)) %>%
+  ungroup() %>%
+  arrange(algorithm, component)
+```
+
+# Villi
+
+```{r}
+# both first and third barplots
+mixture_results_all %>%
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester)) %>%
+  filter(algorithm != 'actual',
+         Tissue == 'Villi')   %>%
+  ggplot() +
+  geom_bar(stat=  'identity',
+           aes(x = Sample_Name, y = percent, fill = component)) +
+  facet_grid(rows = vars(algorithm), cols = vars(Trimester), 
+             scales = 'free', space = 'free') +
+  labs(x = '') +
+  theme(strip.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_fill_manual(values = color_code_tissue[unique(mixture_results_all$component)], 
+                    na.value = '#636363') +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_discrete(expand = c(0,1), limits = c(0,100))
+
+# averaged
+mixture_results_all %>%
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester)) %>%
+  filter(algorithm != 'actual',
+         Tissue == 'Villi')   %>%
+  
+  group_by(Trimester, algorithm, component) %>%
+  summarize(percent = mean(percent)) %>%
+  ggplot() +
+  geom_bar(stat=  'identity',
+           aes(x = Trimester, y = percent, fill = component)) +
+  facet_grid(rows = vars(algorithm), scales = 'free', space = 'free') +
+  labs(x = '') +
+  theme(strip.background = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_fill_manual(values = color_code_tissue[unique(mixture_results_all$component)], 
+                    na.value = '#636363') +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_discrete(expand = c(0,1), limits = c(0,100))
+
+# between algorithms
+mixture_results_all %>%
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester)) %>%
+  filter(algorithm != 'actual',
+         Tissue == 'Villi')   %>%
+  ggplot() +
+  geom_boxplot(aes(x = algorithm, y = percent, fill = component)) +
+  facet_grid(cols = vars(component), rows = vars(Trimester), space = 'free') +
+  labs(x = '', fill = '') +
+  theme(strip.background = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  scale_fill_manual(values = color_code_tissue[unique(mixture_results_all$component)], 
+                    na.value = '#636363',
+                    guide = 'none') +
+  scale_x_discrete(labels = function(x)gsub('epidish', 'EpiDISH', x)) +
+  scale_y_continuous(labels = function(x)paste0(x, '%'))
+
+
+
+# first to third beeeswarm
+mixture_results_all %>%
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester)) %>%
+  filter(algorithm != 'actual',
+         Tissue == 'Villi') %>%
+  ggplot(aes(x = component, y = percent, color = Trimester)) +
+  ggbeeswarm::geom_beeswarm(dodge.width = 0.75) +
+  facet_grid(rows = vars(algorithm)) +
+  theme(strip.background = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_y_continuous(labels = function(x)paste0(x, '%'))
+```
+
+# In silico mixtures
+
+For each cell type ("a"),
+generate proportions randomly from 0-1.
+cell type b proportion is drawn from 0-a
+cell type c proportion is drawn from 0-(b+a)
+cell type d is 1-(a+b+c)
+
+These are the coefficients for generating mixtures with proportions uniformly distributed between 0-1 for cell type A. 
+
+Apply this to generate mixtures for each cell type.
+
+
+```{r}
+# generate coefficients
+n <- 250
+a <- runif(n = n);a
+b <- runif(n = n, min = 0, max = 1-a);b
+c <- runif(n = n, min = 0, max = 1-(b + a));c
+d <- 1-(a+b+c);d
+
+all(a + b + c + d == 1)
+
+# generate in silico mixtures
+
+
+```
+
+
+# Save
+
+```{r eval = F}
+saveRDS(mixture_results_all, here(base_path,'2_14_mixture_results_all.rds'))
+saveRDS(facs_results, here(base_path,'2_14_facs_results.rds'))
+saveRDS(facs_stats, here(base_path,'2_14_facs_stats.rds'))
+saveRDS(stats, here(base_path,'2_14_stats.rds'))
+```
 
