@@ -82,6 +82,47 @@ betas_filt <- betas[,pDat_filt$Sentrix]
 colnames(betas_filt) <- pDat_filt$Sample_Name
 ```
 
+
+# get nRBC data
+
+Meg's recent publciation provides a curated reference for cord blood data: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6712867/#CR22
+"Systematic evaluation and validation of reference and library selection methods for deconvolution of cord blood DNA methylation data"
+
+https://bioconductor.org/packages/release/data/experiment/vignettes/FlowSorted.CordBloodCombined.450k/inst/doc/FlowSorted.CordBloodCombined.450k.html
+
+Note this is a 450k dataset
+```{r, eval = FALSE}
+if (memory.limit()>8000){
+library(ExperimentHub)  
+
+hub <- ExperimentHub()  
+
+myfiles <- query(hub, "FlowSorted.CordBloodCombined.450k")
+
+FlowSorted.CordBloodCombined.450k <- myfiles[[1]]
+
+FlowSorted.CordBloodCombined.450k
+}
+
+# subset to nrbc
+nrbc <- FlowSorted.CordBloodCombined.450k[,pData(FlowSorted.CordBloodCombined.450k)$CellType == 'nRBC']
+
+pData(nrbc)
+nrbc_noob <- preprocessNoob(nrbc)
+
+
+nrbc_pDat <- pData(nrbc_noob) %>%
+  as_tibble() %>%
+  dplyr::rename(Tissue = CellType) %>%
+  mutate(Trimester = 'Third') %>%
+  select(Sample_Name, Tissue, Trimester, Sex, Study) 
+  
+pData(nrbc_noob) <- DataFrame(nrbc_pDat)
+
+saveRDS(nrbc_noob, here::here(base_path, '2_14_nrbc_noob.rds'))
+```
+
+
 # Houseman Deconvolution
 
 I apply to first and third trimester samples separately, each with their own trimester-specific reference.
