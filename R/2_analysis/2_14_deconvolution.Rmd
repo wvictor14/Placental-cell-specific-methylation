@@ -765,7 +765,7 @@ Apply this to generate mixtures for each cell type.
 
 ```{r}
 # generate coefficients
-n <- 250
+n <- 1
 a <- runif(n = n);a
 b <- runif(n = n, min = 0, max = 1-a);b
 c <- runif(n = n, min = 0, max = 1-(b + a));c
@@ -774,11 +774,68 @@ e <- 1-(a+b+c+d);e
 
 all(a + b + c + d + e== 1)
 
-# generate in silico mixtures
+props <- tibble(a = a, b=b, c=c, d=d, e=e)
+props <- props %>%
+  as.matrix() %>%
+  rbind(., .[,c(2:5,1)], 
+        .[,c(3:5,1:2)], 
+        .[,c(4:5,1:3)], 
+        .[,c(5,1:4)]) %>%
+  as_tibble()
 
 
-mset_combined[c(rownames(coefs_third), rownames(coefs_first)),]
+props %>%
+  mutate(cpg = list(rownames(mset_combined)[1:10])) %>%
+  unnest(cpg)
+ 
+#### generate in silico mixtures
+# filter to coefficient probes
+mset_combined_coefs <- 
+  mset_combined[c(rownames(coefs_combined_third), rownames(coefs_combined_first)),]
 
+colnames(mset_combined_coefs) <- pData(mset_combined_coefs)$Sample_Name
+betas_combined_coefs <- getBeta(mset_combined_coefs)
+
+# generate beta matrices
+b_3_troph <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Trophoblasts']
+b_3_endo <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Endothelial']
+b_3_strom <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Stromal']
+b_3_hofb <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Hofbauer']
+b_3_nrbc <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'nRBC']
+
+b_1_troph <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Trophoblasts']
+b_1_endo <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Endothelial']
+b_1_strom <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Stromal']
+b_1_hofb <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Hofbauer']
+
+
+betas_combined_coefs %>%
+  filter(cpg == "cg10590657",
+         !Tissue %in% c('Villi', 'Mixture')) %>%
+  group_by(Tissue) %>%
+  sample_n(1)
+
+betas_combined_coefs %>%
+  filter(!Tissue %in% c('Villi', 'Mixture')) %>%
+  nest(data = c(cpg, beta))
 
 ```
 
