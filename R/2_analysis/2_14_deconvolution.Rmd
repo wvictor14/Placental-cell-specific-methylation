@@ -82,7 +82,6 @@ betas_filt <- betas[,pDat_filt$Sentrix]
 colnames(betas_filt) <- pDat_filt$Sample_Name
 ```
 
-
 # get nRBC data
 
 Meg's recent publciation provides a curated reference for cord blood data: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6712867/#CR22
@@ -705,6 +704,52 @@ mixture_results_all %>%
   scale_y_continuous(labels = function(x)paste0(x, '%'))
 ```
 
+# Add nRBC to deconvolution
+
+and apply to villi
+
+```{r}
+mset_filt
+nrbc_noob <- readRDS(here::here(base_path, '2_14_nrbc_noob.rds'))
+
+pData(mset_filt)$Study <- 'Yuan'
+
+# combine nrbc to placenta data
+mset_combined <- combineArrays(nrbc_noob, mset_filt)
+mset_combined
+
+pData(mset_combined) <- pData(mset_combined) %>% as.data.frame() %>%
+  select(Sample_Name, Sex, Trimester, Tissue, Study) %>% 
+  mutate(Tissue = gsub(' cs', '', Tissue),
+         CellType = Tissue) %>% DataFrame()
+  
+pData(mset_combined) 
+pDat_combined <- pData(mset_combined) %>%
+  as_tibble() 
+  
+# subset to reference
+mset_combined_ref <- mset_combined[,pData(mset_combined)$CellType %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC')]
+
+# pick probes
+probes_third_nrbc <- minfi:::pickCompProbes(
+  mset_combined_ref[, pData(mset_combined_ref)$Trimester == 'Third'], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+probes_first_nrbc <- minfi:::pickCompProbes(
+  mset_combined_ref[, pData(mset_combined_ref)$Trimester == 'First' |
+             pData(mset_combined_ref)$CellType == 'nRBC'], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+# extract coefficients
+coefs_combined_third <- probes_third_nrbc$coefEsts
+coefs_combined_first <- probes_first_nrbc$coefEsts
+```
+
+
 # In silico mixtures
 
 For each cell type ("a"),
@@ -724,11 +769,15 @@ n <- 250
 a <- runif(n = n);a
 b <- runif(n = n, min = 0, max = 1-a);b
 c <- runif(n = n, min = 0, max = 1-(b + a));c
-d <- 1-(a+b+c);d
+d <- runif(n = n, min = 0, max = 1-(c + b + a));d
+e <- 1-(a+b+c+d);e
 
-all(a + b + c + d == 1)
+all(a + b + c + d + e== 1)
 
 # generate in silico mixtures
+
+
+mset_combined[c(rownames(coefs_third), rownames(coefs_first)),]
 
 
 ```
