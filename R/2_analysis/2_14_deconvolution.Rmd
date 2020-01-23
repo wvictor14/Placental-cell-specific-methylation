@@ -31,6 +31,7 @@ library(pheatmap)
 theme_set(theme_bw())
 library(EpiDISH)
 library(yardstick)
+library(ggbeeswarm)
 ```
 
 ## Data
@@ -64,6 +65,11 @@ mixtures <- read_excel(here::here('data', 'main', 'raw', 'Mixtures.xlsx'))
 # color key
 color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, gsub(' cs', '',color_code$label))
+
+color_code_tissue <- c(color_code_tissue, 'nRBC' = 'grey')
+
+# ancestry information
+ancestry <- readRDS(here(base_path, '2_11_ancestry.rds'))
 ```
 
 ## Remove samples
@@ -749,8 +755,15 @@ coefs_combined_third <- probes_third_nrbc$coefEsts
 coefs_combined_first <- probes_first_nrbc$coefEsts
 ```
 
+## Heatmap
 
-# In silico mixtures
+```{r}
+pheatmap(coefs_combined_third, cluster_cols = FALSE, cluster_rows = TRUE,
+         show_rownames = FALSE) 
+```
+
+
+## Generate in silico mixtures
 
 For each cell type ("a"),
 generate proportions randomly from 0-1.
@@ -764,37 +777,21 @@ Apply this to generate mixtures for each cell type.
 
 
 ```{r}
-# generate coefficients
-n <- 1
-a <- runif(n = n);a
-b <- runif(n = n, min = 0, max = 1-a);b
-c <- runif(n = n, min = 0, max = 1-(b + a));c
-d <- runif(n = n, min = 0, max = 1-(c + b + a));d
-e <- 1-(a+b+c+d);e
 
-all(a + b + c + d + e== 1)
-
-props <- tibble(a = a, b=b, c=c, d=d, e=e)
-props <- props %>%
-  as.matrix() %>%
-  rbind(., .[,c(2:5,1)], 
-        .[,c(3:5,1:2)], 
-        .[,c(4:5,1:3)], 
-        .[,c(5,1:4)]) %>%
-  as_tibble()
-
-
-props %>%
-  mutate(cpg = list(rownames(mset_combined)[1:10])) %>%
-  unnest(cpg)
- 
 #### generate in silico mixtures
 # filter to coefficient probes
 mset_combined_coefs <- 
-  mset_combined[c(rownames(coefs_combined_third), rownames(coefs_combined_first)),]
+  mset_combined[unique(c(rownames(coefs_combined_third), rownames(coefs_combined_first))),]
 
 colnames(mset_combined_coefs) <- pData(mset_combined_coefs)$Sample_Name
-betas_combined_coefs <- getBeta(mset_combined_coefs)
+
+getBeta(mset_combined_coefs) %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  pivot_longer(cols = -cpg, names_to = 'Sample_Name', values_to = 'beta') %>%
+  left_join(pDat_combined) %>%
+  nest(data = c(cpg, beta))
+
 
 # generate beta matrices
 b_3_troph <- 
@@ -826,26 +823,457 @@ b_1_hofb <-
   getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
                                  pData(mset_combined_coefs)$CellType == 'Hofbauer']
 
+# generate coefficients
+n <- 250
+a <- runif(n = n)
+b <- runif(n = n, min = 0, max = 1-a)
+c <- runif(n = n, min = 0, max = 1-(b + a))
+d <- runif(n = n, min = 0, max = 1-(c + b + a))
+e <- 1-(a+b+c+d)
 
-betas_combined_coefs %>%
-  filter(cpg == "cg10590657",
-         !Tissue %in% c('Villi', 'Mixture')) %>%
-  group_by(Tissue) %>%
-  sample_n(1)
+all(a + b + c + d + e== 1)
 
-betas_combined_coefs %>%
-  filter(!Tissue %in% c('Villi', 'Mixture')) %>%
-  nest(data = c(cpg, beta))
+props <- tibble(a = a, b=b, c=c, d=d, e=e)
+props <- props %>%
+  as.matrix() %>%
+  rbind(., .[,c(2:5,1)], 
+        .[,c(3:5,1:2)], 
+        .[,c(4:5,1:3)], 
+        .[,c(5,1:4)]) %>%
+  as_tibble() %>%
+  mutate(sample = 1:(n*5))
 
+# generate mixtures
+set.seed(1)
+silico_mix <- props %>%
+  group_by(sample) %>%
+  mutate(mix3 = list(
+           a*b_3_troph[,sample(1:ncol(b_3_troph),1)] + 
+           b*b_3_strom[,sample(1:ncol(b_3_strom),1)] +
+           c*b_3_endo[,sample(1:ncol(b_3_endo),1)] +
+           d*b_3_hofb[,sample(1:ncol(b_3_hofb),1)] +
+           e*b_3_nrbc[,sample(1:ncol(b_3_nrbc),1)]),
+         mix1 = list(
+           a*b_1_troph[,sample(1:ncol(b_1_troph),1)] + 
+           b*b_1_strom[,sample(1:ncol(b_1_strom),1)] +
+           c*b_1_endo[,sample(1:ncol(b_1_endo),1)] +
+           d*b_1_hofb[,sample(1:ncol(b_1_hofb),1)] +
+           e*b_3_nrbc[,sample(1:ncol(b_3_nrbc),1)]),
+         
+         cpg= list(rownames(mset_combined_coefs))) %>% ungroup()
+
+silico_pDat <- silico_mix %>%
+  select(a:sample) %>%
+  mutate(mix3 = 'mix3', mix1 = 'mix1') %>%
+   pivot_longer(cols = c(mix3, mix1),
+                names_to = 'sample2',
+                values_to = 'remove') %>%
+  mutate(sample_name = paste0('sample', sample, '_', sample2),
+         trimester = ifelse(grepl('mix3', sample_name), 'Third', 'First')) %>%
+  select(-sample, -sample2, -remove) 
+  
+
+silico_data <- silico_mix %>%
+  select(sample, mix3:cpg) %>%
+  unnest(c(mix3, mix1, cpg)) %>%
+  
+  pivot_longer(cols = c(mix3, mix1),
+               names_to = 'sample2',
+               values_to = 'beta') %>%
+  mutate(sample_name = paste0('sample', sample, '_', sample2)) %>%
+  select(-sample, -sample2) %>%
+  pivot_wider(id_cols = cpg, names_from = 'sample_name', values_from = 'beta' ) %>%
+  as.data.frame() %>%
+  magrittr::set_rownames(.$cpg) %>%
+  select(-cpg) %>%
+  as.matrix()
+```
+
+Check composition distribution
+
+```{r}
+silico_pDat %>%
+  pivot_longer(cols = a:e,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  mutate(component = case_when(
+    component == 'a' ~ 'Trophoblasts',
+    component == 'b' ~ 'Stromal',
+    component == 'c' ~ 'Endothelial',
+    component == 'd' ~ 'Hofbauer',
+    component == 'e' ~ 'nRBC',
+  )) %>% {
+    ggplot(data =., aes(x = proportion, color = component)) +
+  geom_density() +
+  facet_grid(rows = vars(component), cols = vars(trimester))  +
+  scale_color_manual(values = color_code_tissue[unique(.$component)], 
+                    na.value = '#636363',
+                    guide = 'none') 
+    }
+
+```
+
+
+## apply to in silico mixtures
+
+
+```{r}
+
+# houseman
+houseman_silico <- minfi:::projectCellType(
+  silico_data[rownames(coefs_combined_third),], 
+  coefs_combined_third,
+  lessThanOne = FALSE) %>%
+  as.data.frame() %>%
+  mutate(Sample_Names = rownames(.), .) %>%
+  as_tibble() %>%
+  pivot_longer(cols = -Sample_Names,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  mutate(algorithm = 'Houseman (CP)')
+
+epidish_res111 <- epidish(
+  beta.m = silico_data,
+  ref.m = coefs_combined_third,
+  method = 'RPC')
+
+epidish_res111 <- epidish_res111$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_res222 <- epidish(
+  beta.m = silico_data,
+  ref.m = coefs_combined_third,
+  method = 'CBS')
+
+epidish_res222 <- epidish_res222$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (CBS)')
+
+epidish_res333 <- epidish(
+  beta.m = silico_data,
+  ref.m = coefs_combined_third,
+  method = 'CP')
+
+epidish_res333 <- epidish_res333$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (CP)')
+
+#combine algorithms
+epidish_results <- bind_rows(epidish_res111, epidish_res222, epidish_res333, 
+                             houseman_silico) %>%
+  dplyr::rename(sample_name = Sample_Names) %>%
+  left_join(silico_pDat %>%
+              pivot_longer(cols = a:e,
+                           names_to ='component',
+                           values_to = 'actual') %>%
+              mutate(component = case_when(
+                    component == 'a' ~ 'Trophoblasts',
+                    component == 'b' ~ 'Stromal',
+                    component == 'c' ~ 'Endothelial',
+                    component == 'd' ~ 'Hofbauer',
+                    component == 'e' ~ 'nRBC'))) %>%
+  dplyr::rename(estimated = percent)
+
+# stats
+stats <- epidish_results %>%
+  group_by(algorithm, component) %>%
+  metrics(estimated, actual) %>%
+  mutate(label = number(.estimate, accuracy = 0.01)) %>%
+  pivot_wider(id_cols = c(algorithm, component),
+              names_from = '.metric',
+              values_from = c('label', '.estimate')) %>%
+  rowwise() %>%
+  mutate(label = paste0('RMSE=', label_rmse,
+                        '\nR2=', label_rsq,
+                        '\nMAE=', label_mae))
+
+# scatter plot
+epidish_results %>%
+  filter(trimester == 'Third') %>%
+  ggplot(aes(x = actual, y = estimated, color = component)) +
+  geom_point(alpha = 0.2) +
+  geom_text(data = stats, x= 0.05, y= 1, aes(label = label), color = 'black',
+             hjust = 0, vjust = 1) +
+  facet_grid(cols = vars(algorithm), rows = vars(component)) +
+  scale_color_manual(values = color_code_tissue[unique(epidish_results$component)], 
+                    na.value = '#636363',
+                    guide = 'none') +
+  scale_x_continuous(expand = c(0,0), labels = scales::percent) +
+  scale_y_continuous(expand = c(0,0), labels = scales::percent) +
+  theme(panel.grid = element_blank())
+
+stats %>%
+  group_by(algorithm) %>%
+  summarize(rmse = mean(.estimate_rmse),
+            rsq = mean(.estimate_rsq),
+            mae = mean(.estimate_mae))
+
+
+# mean difference
+epidish_results <- epidish_results %>%
+  mutate(deviation = estimated-actual)
+
+epidish_results %>%
+  filter(trimester == 'Third') %>%
+  ggplot(aes(x = deviation, color = component)) +
+  geom_density() +
+  geom_vline(data = epidish_results %>%
+               filter(trimester == 'Third') %>%
+               group_by(algorithm, component) %>%
+               summarize(mean_diff = mean(deviation)),
+             aes(xintercept = mean_diff),
+             linetype = 'dashed') +
+  geom_text(data = epidish_results %>%
+               filter(trimester == 'Third') %>%
+               group_by(algorithm, component) %>%
+               summarize(mean_diff = percent(mean(deviation), accuracy = 0.01)),
+             aes(label = mean_diff),
+            x = -0.05, y = 39, hjust = 0, vjust =1,color = 'black') +
+  geom_vline(xintercept = 0) +
+  facet_grid(cols = vars(algorithm), rows = vars(component)) +
+  scale_color_manual(values = color_code_tissue[unique(epidish_results$component)], 
+                    na.value = '#636363',
+                    guide = 'none') +
+  scale_x_continuous(limits = c(-0.05, 0.05), labels = percent) +
+  scale_y_continuous(expand = c(0,0))+
+  theme(panel.grid = element_blank(),
+        strip.background = element_blank()) +
+  labs(x = '(estimated percentage) - (actual)')
+```
+
+## apply to villi
+
+```{r}
+# apply deconvolution and process results
+epidish_res111 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_third)
+                                ,pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_combined_third,
+  method = 'RPC')
+
+epidish_res1111 <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_first)
+                                ,pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_combined_first,
+  method = 'RPC')
+
+epidish_res111 <- epidish_res111$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_res1111 <- epidish_res1111$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_rpc <- bind_rows(epidish_res111, epidish_res1111) %>%
+  dplyr::rename(Sample_Name = Sample_Names) %>%
+  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue))  %>%
+  distinct() 
+```
+
+### plots 
+
+```{r}
+# analyze
+epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
+  pivot_longer(cols = Trophoblasts:nRBC,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                    na.value = '#636363') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border= element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust =0)) +
+  scale_y_continuous(expand = c(0,0), labels = percent) +
+  labs(x = '', y = '', fill = '') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free')
+
+epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  ggplot(aes(x = component, y = percent, color = component)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_color_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                    na.value = '#636363', guide = 'none') +
+  scale_y_continuous(labels = percent) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  facet_grid(cols = vars(Trimester)) +
+  labs(x = '', color = '', y = '') 
+
+epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  group_by(Trimester, component) %>%
+  summarize(mean = mean(percent))
+```
+
+### Stats n stuff
+
+```{r}
+# between trimester
+epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Trimester, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p))
+
+# between sex
+stats_by_sex <- epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third', component != 'nRBC') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Sex, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p),
+         testing_variable = 'Sex');stats_by_sex
+  
+epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third', component !='nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Sex)) +
+  geom_beeswarm(dodge.width = 0.75) +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = function(x)percent(x,accuracy = 1)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '') 
+
+epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third') %>%
+  select(Sample_Name, Sex) %>%
+  distinct() %>%
+  dplyr::count(Sex)
+
+# between ancestry
+epidish_rpc  %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third') %>%
+  left_join(ancestry) %>%
+  ggplot(aes(x = PC1_geno, y = PC2_geno, color = Predicted_ethnicity)) +
+  geom_point()
+
+epidish_rpc %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Predicted_ethnicity)) +
+  geom_beeswarm(dodge.width = 0.75,size = 0.9) +
+  #geom_boxplot() +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = percent) +
+  scale_color_manual(values = c('#d8b365', '#5ab4ac')) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '')  
+
+stats_by_ancestry <- epidish_rpc %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Predicted_ethnicity, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p),
+         testing_variable = 'ancestry'); stats_by_ancestry
+
+epidish_rpc %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi') %>%
+  select(Sample_Name, Predicted_ethnicity) %>%
+  distinct() %>%
+  dplyr::count(Predicted_ethnicity)
 ```
 
 
 # Save
 
 ```{r eval = F}
-saveRDS(mixture_results_all, here(base_path,'2_14_mixture_results_all.rds'))
-saveRDS(facs_results, here(base_path,'2_14_facs_results.rds'))
-saveRDS(facs_stats, here(base_path,'2_14_facs_stats.rds'))
-saveRDS(stats, here(base_path,'2_14_stats.rds'))
+# 3rd and 1st trimester reference cpgs
+write_csv(as.data.frame(coefs_combined_third), na = 'NA',
+          path = here('outs', '2_14_deconvolution_reference_cpgs_third.csv'))
+
+write_csv(as.data.frame(coefs_combined_first), na = 'NA',
+          path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
+
+# save deconvolution (nrbc included) estimates on villi
+epidish_rpc %>%
+  left_join(ancestry) %>%
+  saveRDS(here(base_path, '2_14_deconvolution_results.rds'))
+
+# save statistical testing
+bind_rows(stats_by_sex, stats_by_ancestry) %>%
+  write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry.csv'))
+
+# in silico stuff
+epidish_results %>%
+  saveRDS(here(base_path, '2_14_in_silico_deconvolution_results.rds'))
+stats %>%
+  write_csv(here('outs', '2_14_in_silico_deconvolution_stats.csv'))
 ```
 
