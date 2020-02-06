@@ -11621,10 +11621,10 @@ stats %>%
 ## # A tibble: 4 x 4
 ##   algorithm       rmse   rsq    mae
 ##   <chr>          <dbl> <dbl>  <dbl>
-## 1 epidish (CBS) 0.0457 0.963 0.0266
-## 2 epidish (CP)  0.0457 0.963 0.0274
-## 3 epidish (RPC) 0.0447 0.965 0.0263
-## 4 Houseman (CP) 0.0459 0.963 0.0276
+## 1 epidish (CBS) 0.0458 0.962 0.0264
+## 2 epidish (CP)  0.0461 0.962 0.0274
+## 3 epidish (RPC) 0.0450 0.963 0.0263
+## 4 Houseman (CP) 0.0463 0.962 0.0275
 ```
 
 ```r
@@ -11661,7 +11661,7 @@ epidish_results %>%
 ```
 
 ```
-## Warning: Removed 3644 rows containing non-finite values (stat_density).
+## Warning: Removed 3582 rows containing non-finite values (stat_density).
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
@@ -11847,9 +11847,10 @@ epidish_rpc %>%
   filter(Tissue == 'Villi') %>%
   filter(Trimester == 'Third', component !='nRBC') %>%
   ggplot(aes(x = component, y = percent, color = Sex)) +
-  geom_beeswarm(dodge.width = 0.75) +
+  geom_beeswarm(dodge.width = 0.75, cex = 1.5) +
   #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
   scale_y_continuous(labels = function(x)percent(x,accuracy = 1)) +
+  scale_color_manual(values = c('#af8dc3', '#7fbf7b')) +
   theme(panel.grid.minor = element_blank(),
         panel.border = element_blank(),
         axis.line = element_line(),
@@ -11979,11 +11980,17 @@ epidish_rpc %>%
 
 ```r
 # 3rd and 1st trimester reference cpgs
-write_csv(as.data.frame(coefs_combined_third), na = 'NA',
-          path = here('outs', '2_14_deconvolution_reference_cpgs_third.csv'))
+coefs_combined_third %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  write_csv( na = 'NA',
+             path = here('outs', '2_14_deconvolution_reference_cpgs_third.csv'))
 
-write_csv(as.data.frame(coefs_combined_first), na = 'NA',
-          path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
+coefs_combined_first %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  write_csv(na = 'NA',
+            path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
 
 # save deconvolution (nrbc included) estimates on villi
 epidish_rpc %>%

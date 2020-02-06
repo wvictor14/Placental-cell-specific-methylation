@@ -1184,9 +1184,10 @@ epidish_rpc %>%
   filter(Tissue == 'Villi') %>%
   filter(Trimester == 'Third', component !='nRBC') %>%
   ggplot(aes(x = component, y = percent, color = Sex)) +
-  geom_beeswarm(dodge.width = 0.75) +
+  geom_beeswarm(dodge.width = 0.75, cex = 1.5) +
   #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
   scale_y_continuous(labels = function(x)percent(x,accuracy = 1)) +
+  scale_color_manual(values = c('#af8dc3', '#7fbf7b')) +
   theme(panel.grid.minor = element_blank(),
         panel.border = element_blank(),
         axis.line = element_line(),
@@ -1255,11 +1256,17 @@ epidish_rpc %>%
 
 ```{r eval = F}
 # 3rd and 1st trimester reference cpgs
-write_csv(as.data.frame(coefs_combined_third), na = 'NA',
-          path = here('outs', '2_14_deconvolution_reference_cpgs_third.csv'))
+coefs_combined_third %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  write_csv( na = 'NA',
+             path = here('outs', '2_14_deconvolution_reference_cpgs_third.csv'))
 
-write_csv(as.data.frame(coefs_combined_first), na = 'NA',
-          path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
+coefs_combined_first %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  write_csv(na = 'NA',
+            path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
 
 # save deconvolution (nrbc included) estimates on villi
 epidish_rpc %>%
