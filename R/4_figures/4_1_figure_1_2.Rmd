@@ -21,6 +21,7 @@ library(here)
 library(ggrepel)
 library(forcats)
 library(GGally)
+library(irlba)
 font_size <- 7
 ```
 
@@ -58,6 +59,15 @@ gene <- tibble(gene = str_split(anno$genes_symbol, ', ') %>%
 #pull out cpg name for search list use
 cpg <- unique(anno$cpg) 
 cpg <- cpg[cpg %in% rownames(betas)] %>% as_tibble()
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),)
+# filter to first trimester
+betas_filt <- betas[,pDat_filt$Sample_Name]
 ```
 # Figure 2 gene plot
 
@@ -497,7 +507,7 @@ p2 <- tests %>%
 # Number of DMCs
 
 ```{r}
-dmcs <- readRDS(here(base_path, '2_4_dmcs.rds'))
+dmcs <- readRDS(file.path(base_path, '2_4_dmcs.rds'))
 
 # define cutoffs
 p_thresh <- 0.01
@@ -560,6 +570,29 @@ plot_object <- dmcs_sig %>%
       coord_flip() +
       labs(x = '', y = '', fill = '') 
     };plot_object
+
+dmcs_sig %>% 
+  # calculate proportions
+  spread(key = delta_b, value = n_cpg) %>%
+  mutate(hyper_p = hyper*100/all,
+         hypo_p = hypo*100/all) %>%
+  select(-Trimester, -Celltype, -pvalue) %>%
+  
+  mutate(Hypermethylated = paste0(hyper, ' (', prettyNum(hyper_p, digits = 2), '%)'),
+         Hypomethylated = paste0(hypo, ' (', prettyNum(hypo_p, digits = 2), '%)')) %>%
+  
+  # specify color of cells
+  mutate(Hypermethylated = cell_spec(Hypermethylated, color = 'white', 
+                                     background = spec_color(hyper_p, end = 0.5, direction = -1)),
+         Hypomethylated = cell_spec(Hypomethylated, color = 'white', 
+                                     background = spec_color(hypo_p, end = 0.5, direction = -1))) %>%
+  separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>%
+  select(-(hyper:hypo_p)) %>%
+  dplyr::rename(Num_sig = all) %>%
+  kable(escape = F) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1)
 ```
 
 # PCA
@@ -619,6 +652,118 @@ p <- pDat %>%
   labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
   coord_equal();p
   
+```
+
+PC association
+
+```{r}
+library(yahew)
+# compute pca
+set.seed(1)
+pca <- prcomp_irlba(t(betas_filt), n = 20, center = T, scale = F)
+
+# add pc scores to pdata
+pca_scores <- pca$x[,1:20] %>% as.data.frame()
+colnames(pca_scores) <- paste0(colnames(pca_scores), '_processed')
+pDat_filt <- pDat_filt %>% 
+  bind_cols(pca_scores)
+
+# create proportion variance explained data frame
+pc_info <- summary(pca)$importance %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var = 'variable') %>%
+  gather(key = 'PC', value = 'value', -variable) %>%
+  as_tibble() %>%
+  mutate(PC = factor(as.character(PC), levels = paste0('PC', 1:20)),
+         Label = ifelse(variable == 'Proportion of Variance',
+                        paste0(PC, ' (', prettyNum(value*100, digits = 2), '%)'),
+                        as.character(PC))) %>%
+  arrange(variable, PC)
+
+  
+# correlate PCs with phenodata
+pc_cor <- lmmatrix(dep = pca$x[,1:20, drop = F],
+                   ind = pDat_filt %>%
+                   dplyr::select(Case_ID, Tissue, Sex, Trimester, #bio
+                                 Week, Chip_number, Row_numeric, Row_factor, Batch_BSC, # batch
+                                 DNA_loaded, 
+                                 failed_probes,
+                                 maternal_contamination_norm_flip),
+                   metric = 'Pvalue')
+# plot data
+pc_cor <- pc_cor %>% as.data.frame() %>% 
+  
+  # add dep variables
+  mutate(dep = rownames(pc_cor)) %>%
+  
+  # reshape
+  gather(PC, pval, -dep) %>%
+  
+  # pvalue categories
+  mutate(pval_cat = factor(case_when(
+    pval > 0.05  ~ '> 0.05',
+    pval < 0.05 & pval > 0.01 ~ '< 0.05',
+    pval < 0.01 & pval > 0.001 ~ '< 0.01',
+    pval < 0.001 ~ '< 0.001'
+  ), levels = c('> 0.05', '< 0.05','< 0.01', '< 0.001')),
+  
+  # make PC is encoded with proper levels!!!
+  PC = factor(PC, levels = paste0('PC', 1:20))) %>% as_tibble()
+
+# create color palette
+colpal <- c('white', '#fee8c8', '#fdbb84', '#e34a33')
+names(colpal) <- levels(pc_cor$pval_cat)
+
+# relevel
+pc_cor <- pc_cor %>% 
+  mutate(dep = factor(dep, levels = c('Case_ID', 'Tissue', 'Sex', 'Trimester',
+                                     'Week', 'Chip_number', 'Row_numeric', 'Row_factor', 
+                                     'Batch_BSC', # batch
+                                     'DNA_loaded',
+                                     'failed_probes',
+                                     'maternal_contamination_norm_flip')))
+                                     
+p7 <- ggplot(pc_cor, aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+p8 <- ggplot(pc_info %>% filter(variable == 'Proportion of Variance') %>%
+               mutate(value = value*100), 
+             aes(x = PC, y = value)) +
+  geom_bar(stat = 'identity') +
+  theme_bw(base_size = 8) + 
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(y = '% variance explained')
+
+egg::ggarrange(p7, p8, heights = c(3,1))
+
+
+# create another without all variables
+var_interest <- c('Tissue', 'Sex', 'Trimester', 
+                  'Week', 'Chip_number', 'Row_numeric', 'Row_factor', 'Batch_BSC')
+
+p9 <- pc_cor %>% 
+  filter(dep %in% var_interest) %>%
+  mutate(dep = ifelse(dep %in% var_interest[4:8], paste0('TECH_', dep), as.character(dep))) %>%
+  mutate(dep = factor(dep, levels = c('TECH_Week', 'TECH_Chip_number', 'TECH_Row_numeric',
+                                      'TECH_Row_factor', 'TECH_Batch_BSC', 
+                                      'Sex', 'Trimester', 'Tissue'))) %>%
+  ggplot(aes(x = PC, y = dep, fill = pval_cat)) +
+  geom_tile(col = 'lightgrey') + theme_bw() +
+  scale_x_discrete(expand = c(0, 0), labels = 1:20) +
+  scale_y_discrete(expand = c(0, 0)) +
+  theme_bw(base_size = 8) + 
+  scale_fill_manual(values = colpal)  + 
+  labs(y = '', fill = 'P value')
+
+egg::ggarrange(p9, p8, heights = c(3,1))
+
+pDat_filt %>% 
+  dplyr::count(Trimester, Tissue, Sex)
 ```
 
 # Number of DMCs in genes
