@@ -1,5 +1,5 @@
 ---
-title: "4_3_figure3"
+title: "4_3_figure_5_6"
 author: "Victor Yuan"
 date: "26/11/2019"
 output: html_document
@@ -18,7 +18,7 @@ library(scales)
 library(kableExtra)
 library(ggbeeswarm)
 library(readxl)
-theme_set(theme_bw())
+theme_set(theme_bw(base_size=8))
 
 base_path <- file.path('data', 'main', 'interim')
 
@@ -212,4 +212,173 @@ p3 <- kegg %>%
        y = '% of CpGs that are DMCs\nin KEGG pathway-associated genes')
 ```
 
+# Figure 6
 
+```{r}
+# pData
+# 3rd and 1st trimester reference cpgs
+coefs_combined_third <- read_csv(here('outs','2_14_deconvolution_reference_cpgs_third.csv'))
+coefs_combined_first <- read_csv(here('outs','2_14_deconvolution_reference_cpgs_first.csv'))
+
+# save deconvolution (nrbc included) estimates on villi
+epidish_rpc <- readRDS(here(base_path, '2_14_deconvolution_results.rds'))
+
+# save statistical testing
+stats_by_pdat <- read_csv(here('outs', '2_14_stats_by_sex_ancestry.csv'))
+
+# in silico stuff
+epidish_results <- readRDS(here(base_path, '2_14_in_silico_deconvolution_results.rds'))
+stats <- read_csv(here('outs', '2_14_in_silico_deconvolution_stats.csv'))
+
+# color key
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, gsub(' cs', '',color_code$label))
+
+color_code_tissue <- c(color_code_tissue, 'nRBC' = 'grey')
+```
+
+```{r}
+library(pheatmap)
+library(viridis)
+pheat <- pheatmap(coefs_combined_third*100, cluster_cols = FALSE, 
+         cluster_rows = TRUE,
+         show_rownames = FALSE,
+         breaks = seq(0, 100, by = 1),
+         color = rev(magma(100)),
+         angle_col = 90,
+         fontsize = 8) ;pheat # h: 3, w: 2
+
+p_composition_v <- epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
+  pivot_longer(cols = Trophoblasts:nRBC,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                    na.value = '#636363') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.grid.major.y = element_line(color = 'grey'),
+        panel.border= element_blank(),
+        legend.key.size = unit(0.5,"line"),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust =0),
+        legend.position = 'bottom') +
+  scale_y_continuous(expand = c(0,0), labels = percent) +
+  labs(x = '', y = '', fill = '') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free');p_composition_v
+
+  
+p_decon_sex <- epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third', component !='nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Sex)) +
+  geom_beeswarm(dodge.width = 0.75, cex = 1.75, size = 0.25) +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = function(x)percent(x,accuracy = 1)) +
+  scale_color_manual(values = c('#af8dc3', '#7fbf7b'),
+                     guide = guide_legend(override.aes = list(size = 2.5))) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        legend.key.size = unit(0.4, 'cm'),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '') ;p_decon_sex #h: 2.5, w:2.5
+
+
+
+p_decon_ancestry <- epidish_rpc %>%
+  filter(Tissue == 'Villi') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Predicted_ethnicity)) +
+  geom_beeswarm(dodge.width = 0.75, cex = 1.75, size = 0.25) +
+  #geom_boxplot() +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = percent) +
+  scale_color_manual(values = c('#d8b365', '#5ab4ac'),
+                     guide = guide_legend(override.aes = list(size = 2.5))) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        legend.key.size = unit(0.4, 'cm'),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '');p_decon_ancestry #h: 2.5, w: 3
+
+epidish_rpc %>%
+  
+  filter(Tissue == 'Villi')  %>%
+  group_by(Trimester, component) %>%
+  summarize(mean = mean(percent),
+            sd = sd(percent),
+            min = min(percent),
+            max = max(percent)) %>%
+  pivot_wider(id_cols = component,
+              names_from = 'Trimester',
+              values_from = c('mean', 'sd')) %>%
+  mutate(First = paste0(percent(mean_First), ' (', percent(sd_First), ')'),
+         Third = paste0(percent(mean_Third), ' (', percent(sd_Third), ')')) %>%
+  select(component, Third, First)
+  
+```
+
+# insilico 
+
+```{r}
+
+p_sil_scatter <- epidish_results %>%
+  filter(trimester == 'Third') %>%
+  ggplot(aes(x = actual, y = estimated, color = component)) +
+  geom_point(alpha = 0.2, size = 0.5) +
+  geom_text(data = stats, x= 0.05, y= 1, aes(label = label), color = 'black',
+             hjust = 0, vjust = 1,
+            size = 2) +
+  facet_grid(cols = vars(algorithm), rows = vars(component)) +
+  scale_color_manual(values = color_code_tissue[unique(epidish_results$component)], 
+                    na.value = '#636363',
+                    guide = 'none') +
+  scale_x_continuous( limits = c(0,1), breaks = c(0,0.5, 1), labels = scales::percent) +
+  scale_y_continuous(breaks = c(0,0.5,1), labels = scales::percent) +
+  theme(panel.grid = element_blank(),
+        panel.spacing = unit(0.25, "cm"),
+        strip.background = element_blank()) +
+  labs(x = 'Actual', y = 'Estimated');p_sil_scatter #h: 4, w:5.5
+
+
+p_sil_dev <- epidish_results %>%
+  filter(trimester == 'Third') %>%
+  ggplot(aes(x = deviation, color = component)) +
+  geom_density() +
+  geom_vline(data = epidish_results %>%
+               filter(trimester == 'Third') %>%
+               group_by(algorithm, component) %>%
+               summarize(mean_diff = mean(deviation)),
+             aes(xintercept = mean_diff),
+             linetype = 'dashed') +
+  geom_text(data = epidish_results %>%
+               filter(trimester == 'Third') %>%
+               group_by(algorithm, component) %>%
+               summarize(mean_diff = percent(mean(deviation), accuracy = 0.01)),
+             aes(label = mean_diff),
+            x = -0.05, y = 39, hjust = 0, vjust =1,color = 'black',
+            size = 2.5) +
+  geom_vline(xintercept = 0) +
+  facet_grid(cols = vars(algorithm), rows = vars(component)) +
+  scale_color_manual(values = color_code_tissue[unique(epidish_results$component)], 
+                    na.value = '#636363',
+                    guide = 'none') +
+  scale_x_continuous(limits = c(-0.05, 0.05), breaks = c(-0.04, 0, 0.04), labels = percent) +
+  scale_y_continuous(expand = c(0,0), breaks = c(0, 20, 40))+
+  theme(panel.grid = element_blank(),
+        strip.background = element_blank()) +
+  labs(x = '(estimated percentage) - (actual)');p_sil_dev #h:4 ,w:5.5
+```
