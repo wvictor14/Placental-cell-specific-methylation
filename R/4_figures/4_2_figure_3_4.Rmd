@@ -319,7 +319,6 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
     geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
               aes(x = pos, y = beta, color = Tissue, alpha = alpha_group)) +
     
-    theme_bw(base_size = 6) +
     theme(panel.grid = element_blank(),
           panel.border = element_blank(),
           axis.line = element_line(color = 'black')) +
