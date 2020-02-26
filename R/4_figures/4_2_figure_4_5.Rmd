@@ -1,5 +1,5 @@
 ---
-title: "4_2_figure_3_4"
+title: "4_2_figure_4_5"
 author: "Victor Yuan"
 date: "25/11/2019"
 output: html_document
@@ -11,7 +11,8 @@ editor_options:
 
 ```{r, message = FALSE, warning = FALSE}
 # libraries and data
-library(tidyverse); theme_set(theme_bw(base_size = 6))
+fontsize <- 8
+library(tidyverse); theme_set(theme_bw(base_size = fontsize))
 library(glue)
 library(scales)
 library(DT)
@@ -93,37 +94,40 @@ p1 <- densities_high_res %>%
                names_to = 'range',
                values_to = 'prop') %>%
   
+  mutate(range_num = case_when(
+    range == '(0, 0.2]' ~ 0.1,
+    range == '(0.2, 0.4]' ~ 0.3,
+    range == '(0.4, 0.6]' ~ 0.5,
+    range == '(0.6, 0.8]' ~ 0.7,
+    range == '(0.8, 1]' ~ 0.9
+  )) %>%
+  
   {
-    ggplot(data = ., aes(x = Trimester, y = prop, col = Celltype)) +
+    ggplot(data = ., aes(x = range_num, y = prop, col = Celltype)) +
       geom_point(size = 0.9) +
       geom_line(aes(group = Celltype), show.legend = FALSE) +
-      facet_wrap(~range, ncol = 5,
-                 labeller = labeller(
-                   range = c('(0, 0.2]' = '0-20',
-                             '(0.2, 0.4]' = '20-40',
-                             '(0.4, 0.6]' = '40-60',
-                             '(0.6, 0.8]' = '60-80',
-                             '(0.8, 1]' = '80-100')
-                 )) +
+      facet_wrap(vars(Trimester), ncol = 1, labeller = 'label_both') +
       scale_color_manual(values= color_code_tissue[unique(.$Celltype)],
                          labels = function(x)gsub(' cs', '', x),
                          guide = guide_legend(override.aes = list(size = 2))) +
-      scale_x_discrete(labels = c('1', '3')) +
+      scale_x_continuous(breaks = c(0.1, 0.3, 0.5, 0.7, 0.9),
+                         labels = c('<20', '20-40', '40-60', '60-80', '>80')) +
       scale_y_continuous(expand = c(0, 0), 
                          limits = c(0, 0.56), 
-                         breaks = seq(0,1, by = 0.1), 
+                         breaks = seq(0,1, by = 0.25), 
                          labels = function(x)percent(x, accuracy = 1)) +
       labs(color = '', 
            #title = 'Percent of total CpGs',
            #subtitle = 'in different methylation intervals',
-           y = '') +
+           y = 'Percentage of CpGs',
+           x = 'DNAm interval (%)') +
       theme(legend.position = 'right',
-            legend.text = element_text(size = 6),
+            legend.text = element_text(size = fontsize),
             legend.spacing.y = unit(0.1, 'mm'),
             legend.key.size = unit(0.5, 'lines'),
             axis.ticks.x = element_blank(),
             strip.background = element_blank(),
-            strip.text = element_text(face = 'bold', size = 5),
+            strip.text = element_text(face = 'bold', size = fontsize, hjust = 0),
             panel.grid = element_blank(),
             
             panel.border = element_blank(),
@@ -174,7 +178,7 @@ p_i1 <- imprint_density %>%
                          expand = c(0,0), 
                          breaks = c(0, 0.25, 0.5, 0.75, 1), 
                          labels = c('', '', '50%', '', '100%')) +
-      theme_bw(base_size = 7) +
+      theme_bw(base_size = fontsize) +
       theme(panel.border = element_blank(),
             panel.grid = element_blank(),
             panel.spacing.x = unit(2, "mm"),
@@ -222,7 +226,7 @@ p_i2 <- imprint_density_allele %>%
                          expand = c(0,0), 
                          breaks = c(0, 0.25, 0.5, 0.75, 1), 
                          labels = c('', '', '50%', '', '100%')) +
-      theme_bw(base_size = 7) +
+      theme_bw(base_size = fontsize) +
       theme(panel.border = element_blank(),
             panel.grid = element_blank(),
             panel.spacing.x = unit(2, "mm"),
@@ -340,7 +344,7 @@ p3 <- plot_region(c = 'chr4', s = 1500000, e = 8500000,
             span = 0.07, filtered = FALSE, array = 'EPIC')
 
 p2 <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
-            array = 'EPIC')
+            array = 'EPIC') #h:1.25, w: 2.75
 ```
 
 # Repetitive elements & global
@@ -480,29 +484,29 @@ p_re_5 <- global_data %>%
               size = 0.2,
               position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.05))+
   geom_signif(color = 'black',
-              textsize = 1.5,
+              textsize = 2,
               size = 0.25,
               annotations = c("p<0.001", "p=0.04"),
               y_position = c(0.8, 0.72),
               xmin=c(2.85,  3.15), xmax=rep(3.33, 2))+
   geom_signif(color = 'black',
-              textsize = 1.5,
+              textsize = 2,
               size = 0.25,
               annotations = c("p<0.001", "p<0.001", "p=0.02"),
-              y_position = c(0.86, 0.83, 0.76),
+              y_position = c(0.9, 0.84, 0.78),
               xmin=c(1.74, 1.85,  2.15), xmax=rep(2.33, 3))+
   geom_signif(color = 'black',
               size = 0.25,
-              textsize = 1.5,
+              textsize = 2,
               annotations = c("p<0.001", "p<0.001", "p=0.036"),
-              y_position = c(0.65, 0.625, 0.6),
+              y_position = c(0.675, 0.625, 0.575),
               xmin=c(0.74, 0.85,  1), xmax=rep(1.33, 3))+
   scale_color_manual(values = color_code_tissue[unique(pDat_filt$Tissue)], 
                          na.value = '#636363',
                          guide = 'none') +
   scale_y_continuous(expand = c(0,0),
-                     limits = c(0.47, 0.87), 
-                     breaks = c(0, 0.4, 0.5, 0.6, 0.7, 0.8, 1), 
+                     limits = c(0.47, 0.92), 
+                     breaks = c(0, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), 
                      labels = percent) +
   labs(color = '', x = '', y = 'Mean DNAm') +
   theme(strip.background = element_blank(),
@@ -510,8 +514,9 @@ p_re_5 <- global_data %>%
         axis.title.y = element_text(angle = 0, vjust = 0.5),
         panel.border = element_blank(),
         axis.line = element_line(),
+        axis.ticks = element_blank(),
         panel.grid.minor = element_blank(),
-        panel.grid.major.x = element_blank());p_re_5  #h:1.75, w:4
+        panel.grid.major.x = element_blank());p_re_5  #h:1.75, w:4.5
 
 # just first trim, Figure S3
 p_re_6 <- global_data %>%
@@ -572,15 +577,15 @@ p4 <- results %>%
   mutate(tissue = fct_rev(tissue)) %>%
   ggplot(aes(x = tissue, y = n)) +
   geom_bar(stat = 'identity', color = 'white') +
-  geom_text(aes(label = n), nudge_y = 200, size = 2) +
+  geom_text(aes(label = n), nudge_y = 200, size = 2.5) +
   ggrepel::geom_text_repel(data = data.frame(tissue = "Endothelial cs",
                                              n = 2956,
                                              label = 'Out of a total of\n2956 tested mQTLs'), 
                            nudge_y = -650,
                            aes(label = label),
-                           size = 1.75) +
+                           size = 2.75) +
   geom_hline(yintercept = 2956, linetype = 'dashed') +
-  theme_bw(base_size = 6) +
+  theme_bw(base_size = fontsize) +
   theme(panel.border = element_blank(),
         axis.line = element_line(),
         axis.ticks = element_blank(),
@@ -591,7 +596,7 @@ p4 <- results %>%
   scale_y_continuous(expand = c(0,0), limits = c(0, 3000)) +
   scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
   labs(x = '', y= 'Number of significant (FDR < 0.05)\nCpG-SNP associations') + 
-  coord_flip();p4
+  coord_flip();p4 #h: 2.5, w: 3
 ```
 
 ## Overlap (upset)
@@ -606,9 +611,9 @@ results_dummy <- results %>%
               values_from = 'significant') %>% as.data.frame
 
 p5 <- upset(results_dummy, 
-            point.size = 4,
-            line.size = 1.25,
-            text.scale = c(1.25, 1, 1, 1, 1.25, 1.5),
+            point.size = 3.25,
+            line.size = 0.9,
+            text.scale = c(1.25, 1, 1, 1, 1.25, 1.5)*0.85,
             mainbar.y.label = 'number of intersecting mQTLs', 
             sets.x.label = 'mQTLs per cell type',
             mb.ratio = c(0.55, 0.45),
@@ -637,7 +642,7 @@ p5 <- upset(results_dummy,
               list(query = intersects,
                    params = list('Villi', 'Stromal', 'Endothelial', 'Hofbauer', 'Trophoblasts'),
                    active = TRUE)
-            ));p3 #h: 6, w : 8 save as ppt, edit, and size down as image
+            ));p5 #h: 2.5, w : 3.75 #edit 
 ```
 
 ## example mQTLs
@@ -675,7 +680,7 @@ p6 <- data_results %>%
   #            aes(group = genotype),
   #            position = position_jitterdodge(dodge.width = 0.75,
   #                                            jitter.width = 0.1)) +
-  theme_bw(base_size = 6) +
+  theme_bw(base_size = fontsize) +
   theme(axis.ticks = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.y = element_blank(),
@@ -700,7 +705,7 @@ p6 <- data_results %>%
                                                   alpha = c(0.2, 0.5, 1),
                                                   color = 'black')),
          color = 'none',
-         fill = 'none');p5
+         fill = 'none');p6 #h: 2.5, w: 6.5
 
 ```
 
@@ -711,45 +716,49 @@ p7 <- prop_var %>%
   ggplot(aes(x = PC, y = p_variance)) +
   geom_bar(stat = 'identity') +
   scale_x_continuous(expand = c(0,0),
-                     breaks = c(1:60)) +
+                     limits = c(0,21),
+                     breaks = 1:20) +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         panel.border = element_blank(),
         axis.line = element_line()) +
   scale_y_continuous(expand = c(0,0), limits = c(0, 0.5), labels = scales::percent) +
-  labs(y = '', title = 'Percent variance explained');p7
+  labs(y = '', title = 'Percent variance explained');p7 #h:2.5, w:6
 
 p8 <- pcs_eth %>%
   ggplot(aes(x = PC1, y = PC2, color = Predicted_ethnicity)) +
-  geom_point(size = 0.25) +
-  theme_classic(base_size = 6) +
-  theme(legend.spacing.y = unit(0.01, 'cm'))+
-  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  geom_point(size = 1, alpha = 0.75) +
+  theme_classic(base_size = fontsize) +
+  theme(legend.spacing.y = unit(0, 'cm'),
+        legend.key.size = unit(0, 'cm'))+
+  guides(color = guide_legend(override.aes = list(size = 3))) +
   labs(x = paste0('PC1 (', prop_var$p_variance[1] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC2 (', prop_var$p_variance[2] %>% scales::percent(accuracy = 0.1),')'),
-       color = 'PLANET-predicted\nethnicity');p8
+       color = 'PLANET-predicted\nethnicity');p8 # h:2.5, w: 2.5
 
 p9 <- pcs_eth %>%
   ggplot(aes(x = PC3, y = PC4, color = Predicted_ethnicity)) +
-  geom_point(size = 0.25) +
-  theme_classic(base_size = 6) +
-  theme(legend.spacing.y = unit(0.01, 'cm'))+
-  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  geom_point(size = 1, alpha = 0.75) +
+  theme_classic(base_size = fontsize) +
+  theme(legend.spacing.y = unit(0, 'cm'),
+        legend.key.size = unit(0, 'cm'))+
+  guides(color = guide_legend(override.aes = list(size = 3))) +
   labs(x = paste0('PC3 (', prop_var$p_variance[3] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC4 (', prop_var$p_variance[4] %>% scales::percent(accuracy = 0.1),')'),
        color = 'PLANET-predicted\nethnicity') +
-  coord_equal();p9
+  coord_equal();p9 # h:2.5, w: 3
 
 p9b <- pcs_eth %>%
   ggplot(aes(x = PC5, y = PC6, color = Predicted_ethnicity)) +
-  geom_point(size = 0.25) +
-  theme_classic(base_size = 6) +
-  theme(legend.spacing.y = unit(0.01, 'cm'))+
-  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  geom_point(size = 1, alpha = 0.75) +
+  theme_classic(base_size = fontsize) +
+  theme(legend.spacing.y = unit(0, 'cm'),
+        legend.key.size = unit(0, 'cm'))+
+  guides(color = guide_legend(override.aes = list(size = 3))) +
   labs(x = paste0('PC5 (', prop_var$p_variance[5] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC6 (', prop_var$p_variance[6] %>% scales::percent(accuracy = 0.1),')'),
        color = 'PLANET-predicted\nethnicity') +
-  coord_equal();p9b
+  coord_equal();p9b# h:2.5, w: 3
 ```
 
 # filtering / processing
@@ -759,14 +768,14 @@ p10 <- locus_summary_plot_data %>%
   ggplot(aes(x = step, y = n)) +
   geom_bar(stat = 'identity') +
   geom_text(aes(label = scales::number(n)), nudge_y = 150000,
-            size = 2) +
+            size = 2.5) +
   theme(panel.border = element_blank(),
         panel.grid.major.y = element_blank(),
         panel.grid.minor = element_blank(),
         axis.ticks = element_blank()) +
   scale_y_continuous(labels = scales::number, breaks = c(0, 500000, 1000000)) +
   labs(x = '', title = 'Number of SNPs removed', y = '') +
-  coord_flip();p10
+  coord_flip();p10 #h:1.5, w:2.5
 
 # calculate MAF
 p11 <- data_results %>%
@@ -797,5 +806,5 @@ p11 <- data_results %>%
   scale_fill_manual(values = c(viridis(3), 'grey')) +
   scale_color_manual(values = c(viridis(3), 'grey'), guide = 'none') +
   scale_y_continuous(expand = c(0,0)) +
-  labs(y = 'Count', x = 'SNP', fill = '# B alleles') ;p11 #h: 1.2, w: 3.5
+  labs(y = 'Count', x = 'SNP', fill = '# B alleles') ;p11 #h: 1.5, w: 3.5
 ```

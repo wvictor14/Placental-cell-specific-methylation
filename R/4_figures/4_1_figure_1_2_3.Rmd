@@ -1,5 +1,5 @@
 ---
-title: "4_1_figure_1_2"
+title: "4_1_figure_1_2_3"
 author: "Victor Yuan"
 date: "14/11/2019"
 output: html_document
@@ -14,7 +14,6 @@ editor_options:
 ```{r}
 #install.packages('ggforce')
 library(RColorBrewer)
-library(tidyverse)
 library(egg)
 library(scales)
 library(here)
@@ -22,7 +21,8 @@ library(ggrepel)
 library(forcats)
 library(GGally)
 library(irlba)
-font_size <- 7
+library(tidyverse)
+font_size <- 8
 ```
 
 ## Data
@@ -493,7 +493,7 @@ p1 <- tests %>%
          genomic_feature_category %in% c('pmd', 'gene', 'enhancer', 'cpg_island')) %>%
   arrange(genomic_feature_category, genomic_feature) %>%
   mutate(genomic_feature = as_factor(genomic_feature)) %>%
-  plot_bar();p1 #h:3.75, w: 3.5
+  plot_bar();p1 #h:4.25, w: 3.25
 
 p2 <- tests %>% 
   filter(Trimester == 'First',
@@ -543,7 +543,7 @@ plot_object <- dmcs_sig %>%
                   distinct(),
                 aes(label = scales::number(all), y = all),
                 direction = 'y',
-                size = 2,
+                size = 2.5,
                 nudge_y = 15000,
                 hjust = 'inward') +
       facet_wrap(~Trimester, ncol = 1, labeller = 'label_both') +
@@ -569,7 +569,7 @@ plot_object <- dmcs_sig %>%
             legend.key.size = unit('0.4', 'cm')) +
       coord_flip() +
       labs(x = '', y = '', fill = '') 
-    };plot_object
+    };plot_object #h: 2.75, w: 3
 
 dmcs_sig %>% 
   # calculate proportions
@@ -593,6 +593,30 @@ dmcs_sig %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T) %>%
   collapse_rows(columns = 1)
+```
+
+# DMCs boxplots
+
+```{r}
+dmcs <- readRDS(file.path(base_path, '2_4_dmcs.rds'))
+
+# define cutoffs
+p_thresh <- 0.01
+b_thresh <- 0.25
+
+dmcs_filt <- dmcs %>%
+  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
+  dplyr::rename(cpg = gene) %>%
+  left_join(anno) %>%
+  separate(Group1, into = c('Trimester', 'Celltype')) %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo' ~'Endothelial',
+    Celltype == 'Hofb' ~ 'Hofbauer',
+    Celltype == 'Strom' ~ 'Stromal',
+    Celltype == 'Troph' ~ 'Trophoblast'
+  ))
+
+dmcs_filt %>% View
 ```
 
 # PCA
@@ -875,7 +899,7 @@ p3 <- all_genes %>%
                         filter(genes_symbol %in% c('DNMT1', 'DNMT3A', 'DNMT3B', 'DNMT3L', 'TET1')),
                  color = '#c95353', size = 0.5) +
       
-      theme_bw(base_size = 6) +
+      theme_bw(base_size = font_size) +
       theme(panel.grid = element_blank(),
             panel.border = element_blank(),
             axis.line = element_line(),
@@ -899,7 +923,7 @@ p4 <- all_genes %>%
              color = 'black', 
              linetype = 'dashed',
              size = 0.75) + # average
-  theme_bw(base_size = 6) +
+  theme_bw(base_size = font_size) +
   theme(axis.title.y = element_text(angle = 0, vjust = 0.5),
         panel.grid = element_blank(),
         panel.grid.major.y = element_line(color = 'grey'),
@@ -908,7 +932,7 @@ p4 <- all_genes %>%
         axis.line = element_line()) +
   scale_x_continuous(expand = c(0,0), labels = scales::percent) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x = 'Gene-wise percentage of CpGs\nthat are differentially methylated', y = 'Count');p4 #h: 1.25, w:2.5
+  labs(x = 'Gene-wise percentage of CpGs\nthat are differentially methylated', y = 'Count');p4 #h: 2.25, w:2.5
 
 
 
@@ -1194,4 +1218,162 @@ p11 <- pDat_2_3 %>%
   };p11 # h:1.5, w: 6
 
 
+```
+
+# Hofb and STB analysis
+
+```{r, message = FALSE, warning = FALSE}
+library(limma)
+library(lumi)
+library(broom)
+library(biobroom)
+library(DMRcate)
+library(missMethyl)
+library(tidyverse)
+library(pheatmap)
+library(ggridges)
+library(umap)
+library(pheatmap)
+library(viridis)
+library(here)
+
+pDat <- readRDS(here('data', 'main', 'interim', '2_3_pDat_contam.rds')) # for mat contam
+
+betas <- readRDS(here::here('data', 'main', 'interim', '1_4_betas_noob_filt.rds'))
+pca <- readRDS(here::here('data', 'main', 'interim','2_4_pca.rds'))
+
+betas_bmiq <- readRDS(here::here('data', 'main', 'interim', '1_6_bmiq.rds'))
+
+pDat$Sentrix == colnames(betas_bmiq) 
+pDat$Sentrix == colnames(betas) 
+colnames(betas) <- pDat %>% pull(Sample_Name)
+colnames(betas_bmiq) <- pDat %>% pull(Sample_Name)
+
+color_code <- readRDS(here::here('data', 'main', 'interim', '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$Tissue)
+colors <- color_code_tissue[unique(pDat$Tissue)]
+
+# filter samples
+pDat_filt <-  pDat %>%
+  filter(!Tissue %in% c('Villi maternal',  'Mixture'),
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'))
+
+betas_filt <- betas[, pDat_filt %>%
+                      pull(Sample_Name)]
+```
+
+## STB and dead cells PCA
+
+```{r}
+pDat %>% dplyr::count(Trimester, Tissue)
+
+p_sd_pca <- pDat %>% 
+  filter(Trimester != 'Second',
+         !Tissue %in% c('Villi maternal',  'Dead Cells and Lymphocytes')) %>%
+  mutate(Tissue = ifelse(Tissue %in% c('Syncytiotrophoblast'),
+                         Tissue, NA)) %>%
+  ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 0.75) +
+  theme_bw(base_size = font_size) +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        legend.position = 'top',
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm')) +
+  scale_x_continuous(breaks = c(-100, 0, 100)) +
+  scale_y_continuous(breaks = c(-100, 0, 100)) +
+  scale_color_manual(values = colors,
+                     breaks = c('Syncytiotrophoblast'),
+                     na.value = 'grey',
+                     guide = guide_legend(override.aes = list(size = 3, alpha = 1),
+                                          ncol = 1),
+                     labels = function(x)gsub(' cs', '', x)) +
+  scale_shape_manual(values = c(19, 3)) +
+  guides(shape = guide_legend(override.aes = list(size = 1))) +
+  labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
+  coord_equal();p_sd_pca #h: 1.75, w: 2.75
+
+
+#just for the legend
+p <- pDat %>% 
+  filter(Trimester != 'Second',
+         Tissue != 'Villi maternal') %>%
+  mutate(Tissue = ifelse(Tissue %in% c('Syncytiotrophoblast', 'Dead Cells and Lymphocytes'),
+                         Tissue, NA)) %>%
+  ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 0.75) +
+  theme_bw(base_size = font_size) +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.position = 'right',
+        legend.key.size = unit(0.2, 'cm')) +
+  scale_x_continuous(breaks = c(-100, 0, 100)) +
+  scale_y_continuous(breaks = c(-100, 0, 100)) +
+  scale_color_manual(values = colors,
+                     breaks = c('Syncytiotrophoblast', 'Dead Cells and Lymphocytes'),
+                     na.value = 'grey',
+                     guide = guide_legend(override.aes = list(size = 3, alpha = 1),
+                                          ncol = 1),
+                     labels = function(x)gsub(' cs', '', x)) +
+  scale_shape_manual(values = c(19, 3)) +
+  guides(shape = guide_legend(override.aes = list(size = 1.5)),
+         color = guide_legend(override.aes = list(size = 1.5))) +
+  labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
+  coord_equal();p
+```
+
+## STB pheatmap
+
+```{r}
+pheatmap <- readRDS(here::here('data', 'main', 'interim', '2_15_pheatmap_stb_troph.rds'))
+pheatmap #1400 h, 1000 w
+```
+
+## Density plots
+
+```{r}
+stb_troph_dens <- readRDS(here::here('data', 'main', 'interim', '2_15_stb-troph-density-data.rds'))
+p_std <- stb_troph_dens %>%
+  ggplot(aes(y = label, x = beta, fill = Tissue)) +
+  geom_density_ridges(alpha = 0.75, color = 'white', panel_scaling = FALSE, size = 0.5) +
+  facet_grid(rows = vars(gene), 
+             scales = 'free_y', 
+             switch = 'y',
+             space = 'free') +
+  scale_fill_manual(values = colors) +
+  scale_x_continuous(limits = c(0,1), labels = scales::percent) +
+  theme_bw(base_size = font_size+1) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.y = element_text(size = font_size-2),
+        strip.placement = 'outside',
+        strip.background = element_blank(),
+        strip.text.y = element_text(angle = 180),
+        legend.position = 'top',
+        legend.key.size = unit(0.35, 'cm'),
+        legend.spacing = unit(0, 'cm'),
+        plot.title = element_blank(),
+        plot.subtitle = element_blank()) +
+  guides(fill = guide_legend(direction = 'vertical')) +
+  labs(x = '', y = '', fill = '');p_std ###fig_height <- 3;fig_width <- 3.75
+```
+
+## Hofb
+
+```{r}
+pheatmap <- readRDS(here::here('data', 'main', 'interim', '2_15_pheatmap_450k_cord_hofb.rds'))
+pheatmap #1400h, 1200w
 ```
