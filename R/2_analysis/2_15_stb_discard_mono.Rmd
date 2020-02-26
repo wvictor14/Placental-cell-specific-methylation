@@ -1,0 +1,1425 @@
+---
+title: "2_15_stb_discard"
+author: "Victor Yuan"
+date: "06/02/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Here I analyze the enzymatically digested syncytiotrophoblasts and "discard" samples.
+
+Discard samples were those that were removed when sorting.
+
+# library
+
+```{r, message = FALSE, warning = FALSE}
+library(annotatr)
+library(limma)
+library(lumi)
+library(broom)
+library(biobroom)
+library(DMRcate)
+library(missMethyl)
+library(tidyverse)
+library(pheatmap)
+library(ggridges)
+library(umap)
+library(pheatmap)
+library(viridis)
+library(here)
+
+pDat <- readRDS(here('data', 'main', 'interim', '2_3_pDat_contam.rds')) # for mat contam
+
+betas <- readRDS(here::here('data', 'main', 'interim', '1_4_betas_noob_filt.rds'))
+pca <- readRDS(here::here('data', 'main', 'interim','2_4_pca.rds'))
+
+betas_bmiq <- readRDS(here::here('data', 'main', 'interim', '1_6_bmiq.rds'))
+
+pDat$Sentrix == colnames(betas_bmiq) 
+pDat$Sentrix == colnames(betas) 
+colnames(betas) <- pDat %>% pull(Sample_Name)
+colnames(betas_bmiq) <- pDat %>% pull(Sample_Name)
+
+color_code <- readRDS(here::here('data', 'main', 'interim', '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$Tissue)
+colors <- color_code_tissue[unique(pDat$Tissue)]
+
+# filter samples
+pDat_filt <-  pDat %>%
+  filter(!Tissue %in% c('Villi maternal',  'Mixture'),
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'))
+
+betas_filt <- betas[, pDat_filt %>%
+                      pull(Sample_Name)]
+```
+
+# PCA
+
+## Just STB and dead cells
+
+```{r}
+pDat %>% count(Trimester, Tissue)
+
+pDat %>% 
+  filter(Trimester != 'Second',
+         Tissue != 'Villi maternal') %>%
+  mutate(Tissue = ifelse(Tissue %in% c('Syncytiotrophoblast', 'Dead Cells and Lymphocytes'),
+                         Tissue, NA)) %>%
+  ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue)) +
+  geom_point(alpha = 0.9) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_x_continuous(breaks = c(-100, 0, 100)) +
+  scale_y_continuous(breaks = c(-100, 0, 100)) +
+  scale_color_manual(values = colors,
+                     breaks = c('Syncytiotrophoblast', 'Dead Cells and Lymphocytes'),
+                     na.value = 'grey',
+                     guide = guide_legend(override.aes = list(size = 3, alpha = 1),
+                                          ncol = 1),
+                     labels = function(x)gsub(' cs', '', x)) +
+  scale_shape_manual(values = c(19, 3)) +
+  guides(shape = guide_legend(override.aes = list(size = 1))) +
+  labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
+  coord_equal()
+```
+
+## cord blood
+
+Let's project monocytes from cord blood onto here
+
+Lets grab the cord blood r package
+
+
+```{r eval = FALSE}
+library(FlowSorted.CordTissueAndBlood.EPIC) # x lin 2018
+data(FlowSorted.CordTissueAndBlood.EPIC)
+FlowSorted.CordTissueAndBlood.EPIC <- updateObject(FlowSorted.CordTissueAndBlood.EPIC)
+
+FlowSorted.CordTissueAndBlood.EPIC$CellType %>% table
+FlowSorted.CordTissueAndBlood.EPIC_noobed <- preprocessNoob(FlowSorted.CordTissueAndBlood.EPIC)
+
+saveRDS(FlowSorted.CordTissueAndBlood.EPIC_noobed, "Z:/7_ExternalData/FlowSorted.CordTissueAndBlood.EPIC/FlowSorted.CordTissueAndBlood.EPIC.rds")
+
+if (memory.limit()>8000){
+library(ExperimentHub)  
+
+hub <- ExperimentHub()  
+
+myfiles <- query(hub, "FlowSorted.CordBloodCombined.450k")
+
+FlowSorted.CordBloodCombined.450k <- myfiles[[1]]
+
+FlowSorted.CordBloodCombined.450k
+}
+
+pData(FlowSorted.CordBloodCombined.450k)$CellType %>% table
+
+# noob normalized
+noobed <- preprocessNoob(FlowSorted.CordBloodCombined.450k)
+
+saveRDS(noobed, "Z:/7_ExternalData/FlowSorted.CordBloodCombined.450k/FlowSorted.CordBloodCombined.450k.rds")
+```
+
+```{r}
+cordblood <- readRDS('Z:/7_ExternalData/FlowSorted.CordTissueAndBlood.EPIC/FlowSorted.CordTissueAndBlood.EPIC.rds')
+
+cordblood
+cordblood$CellType %>% table
+
+# extract cord data
+betas_cord <- getBeta(cordblood)
+colnames(betas_cord) <- cordblood$Sample_Name
+pDat_cord <- pData(cordblood) %>% as.data.frame() %>% bind_cols(sentrix = rownames(.), .)
+
+# project pcs
+all(rownames(betas) %in% rownames(betas_cord)) #T
+pred <- predict(pca, t(betas_cord[rownames(betas),]))
+
+pDat_cord <- pDat_cord %>%
+  bind_cols(., as.data.frame(pred))
+
+# join to placental pcs
+pDat_cord_placenta <- pDat_cord %>%
+  filter(CellType == 'Mono') %>%
+  mutate(Tissue = CellType, Sex = gender) %>%
+  dplyr::rename(PC1_raw = PC1, PC2_raw = PC2, PC3_raw = PC3) %>%
+  dplyr::select(Sample_Name, Tissue, Sex, PC1_raw, PC2_raw, PC3_raw) %>%
+  bind_rows(pDat_filt %>%
+              dplyr::select(Sample_Name, Tissue, Trimester, Sex, PC1_raw, PC2_raw, PC3_raw))
+
+pDat_cord_placenta %>% 
+  mutate(Tissue_2 = ifelse(Tissue %in% c('Mono', 'Dead Cells and Lymphocytes', 'Syncytiotrophoblast'),
+                           Tissue, NA),
+         Tissue_2 = ifelse(Tissue_2 == 'Mono', 'Monocytes (cord blood)', Tissue_2)) %>%
+  ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue_2)) +
+  geom_point(alpha = 0.9) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_x_continuous(breaks = c(-100, 0, 100)) +
+  scale_y_continuous(breaks = c(-100, 0, 100)) +
+  scale_color_manual(values = c(colors, 'Monocytes (cord blood)' = '#3182bd'),
+                     na.value = 'grey',
+                     breaks = c('Dead Cells and Lymphocytes', 'Syncytiotrophoblast', 
+                                'Monocytes (cord blood)'),
+                     guide = guide_legend(override.aes = list(size = 3, alpha = 1),
+                                          ncol = 1),
+                     labels = function(x)gsub(' cs', '', x)) +
+  scale_shape_manual(values = c(19, 3)) +
+  guides(shape = guide_legend(override.aes = list(size = 1))) +
+  labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
+  coord_equal()
+```
+
+Now let's apply PCA to hofbauer + others
+
+```{r}
+# combine betas
+betas_hofb_cord <-
+  cbind(betas[,pDat %>% filter(Tissue == 'Hofbauer') %>% pull(Sample_Name)],
+        betas_cord[rownames(betas),])
+
+pDat_hofb_cord <- pDat_cord %>%
+  filter(Tissue == 'CB') %>% # exclude cord tissue samples
+  mutate(Tissue = CellType, Sex = gender) %>%
+  select(Sample_Name, Tissue, Sex) %>%
+  bind_rows(., pDat %>% filter(Tissue == 'Hofbauer') %>% select(Sample_Name, Sex, Trimester, Tissue))
+
+dim(betas_hofb_cord)
+betas_hofb_cord <- betas_hofb_cord[,pDat_hofb_cord$Sample_Name]
+
+# pca
+pca_hofb_cord <- prcomp(t(betas_hofb_cord))
+
+tibble(p_var = pca_hofb_cord$sdev^2 / sum(pca_hofb_cord$sdev^2),
+       pc = as_factor(colnames(pca_hofb_cord$x)))  %>%
+  dplyr::slice(1:20) %>%
+  ggplot(aes(x = pc, y = p_var)) +
+  geom_bar(stat = 'identity') +
+  scale_y_continuous(labels = scales::percent)
+
+# extract projection
+pDat_hofb_cord <- pDat_hofb_cord %>%
+  bind_cols(., as.data.frame(pca_hofb_cord$x)[,1:10])
+
+
+pDat_hofb_cord %>%
+  ggplot(aes(x = PC1, y = PC2, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 2) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_color_brewer(palette = "Dark2") +
+  coord_equal()
+pDat_hofb_cord %>%
+  ggplot(aes(x = PC3, y = PC4, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 2) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_color_brewer(palette = "Dark2") +
+  coord_equal()
+pDat_hofb_cord %>%
+  ggplot(aes(x = PC5, y = PC6, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 2) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_color_brewer(palette = "Dark2") +
+  coord_equal()
+```
+
+I suspect this reference is not of very high quality based on some cells not clustering tightly together.
+
+## 450k cord blood
+
+Here I used the curated cord blood 450k reference instead
+
+```{r}
+# load reference
+cord_blood_450k <- readRDS("Z:/7_ExternalData/FlowSorted.CordBloodCombined.450k/FlowSorted.CordBloodCombined.450k.rds")
+dim(cord_blood_450k)
+betas_cord_blood_450k <- getBeta(cord_blood_450k)
+
+# combine with hofb sites, filter to 450k sites
+betas_hofb_cord_450k <- 
+  cbind(betas[intersect(rownames(betas), rownames(betas_cord_blood_450k)),
+              pDat %>% filter(Tissue == 'Hofbauer') %>% pull(Sample_Name)],
+        betas_cord_blood_450k[intersect(rownames(betas), rownames(betas_cord_blood_450k)),])
+
+pDat_hofb_cord_450k <- pDat %>% 
+  filter(Tissue == 'Hofbauer') %>%
+  mutate(rownames = Sample_Name) %>%
+  select(Sample_Name, Trimester, Sex, Tissue, rownames, maternal_contamination_norm_flip) %>%
+  bind_rows(., pData(cord_blood_450k) %>% 
+              as.data.frame() %>%
+              bind_cols(rownames = rownames(.), .) %>%
+              dplyr::rename(Tissue = CellType) %>%
+              select(Sample_Name, Sex, Tissue, rownames))
+
+betas_hofb_cord_450k <- betas_hofb_cord_450k[,pDat_hofb_cord_450k$rownames]
+
+# pca
+pca_hofb_cord_450k <- prcomp(t(betas_hofb_cord_450k))
+
+tibble(p_var = pca_hofb_cord_450k$sdev^2 / sum(pca_hofb_cord_450k$sdev^2),
+       pc = as_factor(colnames(pca_hofb_cord_450k$x)))  %>%
+  dplyr::slice(1:20) %>%
+  ggplot(aes(x = pc, y = p_var)) +
+  geom_bar(stat = 'identity') +
+  scale_y_continuous(labels = scales::percent)
+
+
+pDat_hofb_cord_450k <- bind_cols(pDat_hofb_cord_450k,
+          as.data.frame(pca_hofb_cord_450k$x)[,1:10])
+
+pDat_hofb_cord_450k %>%
+  ggplot(aes(x = PC1, y = PC2, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 2) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_color_brewer(palette = "Dark2") +
+  coord_equal()
+
+pDat_hofb_cord_450k %>%
+  ggplot(aes(x = PC3, y = PC4, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 2) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_color_brewer(palette = "Dark2") +
+  coord_equal()
+```
+
+### umap
+
+```{r}
+umap_res <- umap(pca_hofb_cord_450k$x[,1:50])
+pDat_hofb_cord_450k <- bind_cols(pDat_hofb_cord_450k,
+          as.data.frame(umap_res$layout)) %>%
+  rename(UMAP1 = V1, UMAP2 = V2)
+
+pDat_hofb_cord_450k %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, color = Tissue)) +
+  geom_point(alpha = 0.9, size = 2) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(color = 'black'),
+        legend.spacing.x = unit(-0.1, 'cm'),
+        legend.spacing.y = unit(-0.2, 'cm'),
+        legend.position = 'top') +
+  scale_color_viridis_d() +
+  coord_equal()
+```
+
+### Cluster on the 1000 most variable probes
+
+```{r}
+var <- tibble(cpg = rownames(betas_hofb_cord_450k),
+       sd = apply(betas_hofb_cord_450k, 1, FUN = sd))
+
+mostvar1000 <- var %>% arrange(desc(sd)) %>%
+  dplyr::slice(1:1000) %>%
+  pull(cpg)
+
+annotation <- pDat_hofb_cord_450k %>% 
+  select(Tissue, maternal_contamination_norm_flip, Trimester, Sex) %>% 
+  as.data.frame()
+rownames(annotation) <- pDat_hofb_cord_450k$rownames
+
+annotation_colors <-
+  list(Tissue = c('Bcell' = '#300E9E',
+                  'CD4T' = '#1FAE1B',
+                  'CD8T' = '#185A30',
+                  'Gran' = '#EBCD45',
+                  'Hofbauer' = '#1565C0',
+                  'Mono' = '#219ABC',
+                  'NK' = '#E0855D',
+                  'nRBC' = '#8A2121',
+                  'WBC' = '#D4C2BE'))
+
+out <- pheatmap(betas_hofb_cord_450k[mostvar1000,]*100,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation,
+         annotation_colors = annotation_colors,
+         color = inferno(100),
+         breaks = seq(0,100, 1),
+         annotation_names_col = FALSE)
+
+colnames(betas_hofb_cord_450k[,out$tree_col[["order"]]])
+```
+
+Repeat without contaminated samples
+
+```{r}
+# calculate standard deviation
+var2 <- tibble(cpg = rownames(betas_hofb_cord_450k),
+       sd = apply(betas_hofb_cord_450k[,
+                       pDat_hofb_cord_450k %>%
+                         filter(maternal_contamination_norm_flip < 0.35 |
+                                  is.na(maternal_contamination_norm_flip),
+                                !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2',
+                                                    'P131_hofb_cs')) %>%
+                         pull(rownames)], 
+                  1,
+                  FUN = sd))
+
+mostvar1000_2 <- var2 %>% arrange(desc(sd)) %>%
+  dplyr::slice(1:500) %>%
+  pull(cpg)
+
+# set up annotation
+annotation <- pDat_hofb_cord_450k %>% 
+  filter(maternal_contamination_norm_flip < 0.35 | is.na(maternal_contamination_norm_flip), 
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs')) %>%
+  select(Tissue) %>% 
+  as.data.frame()
+rownames(annotation) <- pDat_hofb_cord_450k %>% 
+  filter(maternal_contamination_norm_flip < 0.35 | is.na(maternal_contamination_norm_flip), 
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs')) %>%
+  pull(rownames)
+
+# apply pheatmapP
+out <- pheatmap(
+  betas_hofb_cord_450k[mostvar1000_2,
+                       pDat_hofb_cord_450k %>%
+                         filter(maternal_contamination_norm_flip < 0.35 |
+                                  is.na(maternal_contamination_norm_flip),
+                                !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2',
+                                                    'P131_hofb_cs')) %>%
+                         pull(rownames)]*100,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation,
+         annotation_colors = annotation_colors,
+         color = inferno(100),
+         breaks = seq(0,100, 1),
+         annotation_names_col = FALSE)
+```
+
+# Limma
+
+## STB vs troph/villi
+
+## DMCs
+
+```{r}
+# filter samples
+pDat_filt <-  pDat %>%
+  filter(Trimester == 'Third',
+         Tissue %in% c('Villi', 'Trophoblasts', 'Syncytiotrophoblast'),
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs'))
+
+betas_filt <- betas[, pDat_filt %>%
+                      pull(Sample_Name)]
+mvals_filt <- beta2m(betas_filt)
+
+# desing matrix with Tissue and trimester
+design <- pDat_filt  %>% 
+  select(Tissue, Case_ID)
+
+design <- model.matrix(~0 + Tissue + Case_ID, data = design)
+colnames(design) <- gsub(':', '\\.', 
+                               gsub('Tissue', '',
+                                    gsub('Trimester', '', 
+                                         gsub('\\ ', '_', 
+                                              colnames(design))))) # rename columns
+
+# contrasts
+contMatrix <- makeContrasts(
+  Syncytiotrophoblast - Trophoblasts,
+  Syncytiotrophoblast - Villi,
+  
+  levels=design)
+
+# fit the linear model ☺
+fit_m <- lmFit(mvals_filt, design) %>%
+  contrasts.fit(contMatrix) %>%
+  eBayes()%>%
+  tidy()  %>%
+  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s') %>%
+  group_by(Group1) %>%
+  mutate(fdr = p.adjust(p.value, method = "fdr"),
+         bonferroni = p.adjust(p.value, method = 'bonferroni'))  %>%
+  ungroup() 
+
+# add delta betas
+fit_b <- lmFit(betas_filt, design) %>%
+  contrasts.fit(contMatrix) %>%
+  eBayes() %>%
+  tidy() %>%
+  separate(term, into = c('Group1', 'Group2'), sep = '\\s-\\s') %>%
+  dplyr::rename(delta_b = estimate) %>%
+  select(gene, Group1, Group2, delta_b)
+
+dmcs <- fit_m %>% left_join(fit_b)
+```
+
+
+```{r volcano_plot}
+dmcs %>% 
+  group_by(Group1, Group2) %>%
+  summarize(hyper = sum(bonferroni < 0.01 & delta_b > 0.25),
+            hypo = sum(bonferroni < 0.01 & delta_b < 0.25))
+
+
+dmcs %>%
+  rename(p = p.value) %>%
+  mutate(negp = -p) %>%
+  {
+    ggplot(data = filter(., bonferroni < 0.01, abs(delta_b) > 0.25),
+           aes(x = delta_b, y = p)) +
+      geom_point(alpha = 0.1, color = 'orange') +
+      geom_point(data = filter(., bonferroni >= 0.01 | (delta_b <= 0.25 & delta_b > 0)) %>%
+                   sample_n(500000),
+                 aes(fill = 'n.s. (bonferroni p > 0.01)'), 
+                 alpha = 0.15, shape = 19) +
+      geom_point(data = filter(., bonferroni >= 0.01 | (delta_b >= -0.25 & delta_b < 0)) %>%
+                   sample_n(500000),
+                 aes(fill = 'n.s. (bonferroni p > 0.01)'), 
+                 alpha = 0.15, shape = 19) +
+      
+      # add fdr p = 0.01 line
+      geom_hline(data = group_by(., Group1, Group2) %>%
+                   filter(bonferroni <= 0.01) %>%
+                   arrange(desc(fdr)) %>%
+                   summarize(threshold = max(p)),
+                 linetype = 'dashed',
+                 aes(yintercept = threshold)) +
+      geom_vline(linetype = 'dashed', xintercept = 0.25) +
+      geom_vline(linetype = 'dashed', xintercept = -0.25) + 
+      theme_bw() +
+      theme(panel.grid = element_blank(),
+            strip.background = element_blank()) +
+      facet_wrap(~Group2) +
+      scale_x_continuous(limits = c(-1, 1), labels = scales::percent) +
+      scale_y_continuous(expand = c(0,0),
+                         trans = scales::trans_new('neglog', 
+                                           transform = function(x)(-log(x)), 
+                                           inverse = function(x)(exp(-x)),
+                                           breaks = scales::log_breaks()),
+                         label = function(x) {
+                           parse(text = gsub("1e", "10^", scales::scientific_format()(x)))
+                           }) +
+      scale_fill_manual(values = c('n.s. (bonferroni > 0.01)' = 'grey'), 
+                        guide = guide_legend(override.aes = list(size = 2, alpha = 0.5))) +
+      labs(x = 'Difference in (% methylation)', y = 'p-value',
+           color = '', fill = '')
+  }
+```
+
+## dmrCaller
+
+```{r eval = TRUE}
+myannotation <- cpg.annotate("array", 
+                             mvals_filt, 
+                             analysis.type="differential", 
+                             what  = "M",
+                             design=design,
+                             contrasts = T, cont.matrix = contMatrix,
+                             fdr = 0.001,
+                             
+                             coef = colnames(contMatrix)[1])
+dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, pcutoff = 'fdr', min.cpgs = 3,
+                      betacutoff = 0.1)
+
+results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
+
+
+# enrichment
+enrichment_GO <- goregion(results.ranges[1:100], #all.cpg = rownames(mvals_filt),
+                          collection = "GO", array.type = "EPIC")
+enrichment_GO %>% as_tibble() %>%
+  arrange(P.DE)
+
+
+dmrs <- results.ranges %>% as_tibble
+dmrs
+```
+
+## Cluster on top variable probes
+
+```{r}
+betas_stb_troph <- betas[,pDat %>% 
+             filter(Tissue %in% c('Villi', 'Trophoblasts cs', 'Trophoblasts enz'),
+                    !Sample_Name %in% c('PL293_v_R2', 'PM366_vc_R2'),
+                    Trimester == 'Third') %>%
+             pull(Sample_Name)
+             ]
+
+var3 <- tibble(cpg = rownames(betas_stb_troph),
+       sd = apply(betas_stb_troph, 1, FUN = sd))
+
+mostvar1000_3 <- var3 %>% arrange(desc(sd)) %>%
+  dplyr::slice(1:1000) %>%
+  pull(cpg)
+
+annotation <- pDat %>% 
+  filter(Tissue %in% c('Villi', 'Trophoblasts cs', 'Trophoblasts enz'),
+         !Sample_Name %in% c('PL293_v_R2', 'PM366_vc_R2'),
+         Trimester == 'Third') %>%
+  
+  mutate(Tissue = case_when(
+    Tissue == 'Villi' ~ 'Villi',
+    Tissue == 'Trophoblasts cs' ~ 'Trophoblasts',
+    Tissue == 'Trophoblasts enz' ~ 'Syncytiotrophoblasts'
+  )) %>%
+  select(Tissue) %>% 
+  as.data.frame()
+rownames(annotation) <- pDat %>% 
+  filter(Tissue %in% c('Villi', 'Trophoblasts cs', 'Trophoblasts enz'),
+         !Sample_Name %in% c('PL293_v_R2', 'PM366_vc_R2'),
+         Trimester == 'Third') %>%
+  pull(Sample_Name)
+
+annotation_colors <-
+  list(
+    Tissue = c('Villi' = '#721111',
+               'Trophoblasts' = '#FBC02D',
+               'Syncytiotrophoblasts' = '#f4702e')
+  )
+
+out2 <- pheatmap(betas_stb_troph[mostvar1000_3,]*100,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation,
+         annotation_colors = annotation_colors,
+         color = inferno(100),
+         breaks = seq(0,100, 1),
+         annotation_names_col = FALSE)
+
+```
+
+## Syncytin-1
+
+```{r}
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+probe_anno <- readRDS(here::here('data', 'main', 'interim', '1_1_probe_anno.rds'))
+
+anno <- anno %>%
+  as_tibble() %>%
+  left_join(probe_anno, by = c('cpg' = 'probe_ID')) # indicate if filtered
+
+# define start and end of region of interest
+start <- 92097694-3500
+end <- 92107260+3500
+
+region_of_interest <- anno %>%
+  filter(chr == 'chr7', start > 92097694-5000, end < 92107260+5000) 
+
+# add betas, annotation, and pdata
+ERVW1 <- betas_bmiq[region_of_interest$cpg,pDat_filt$Sample_Name] %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  pivot_longer(cols = -cpg,
+               names_to = 'Sample_Name',
+               values_to = 'beta') %>%
+  left_join(anno, by = 'cpg') %>% 
+  right_join(pDat_filt, by = 'Sample_Name') 
+
+
+ERVW1 %>%
+  filter(Trimester == 'Third') %>%
+  group_by(cpg, Tissue) %>%
+  summarize(mean = mean(beta), start = dplyr::first(start)) %>%
+  ggplot(aes(x = start, color = Tissue)) +
+  geom_linerange(ymin = 0, aes(ymax = mean)) +
+  facet_wrap(vars(Tissue), ncol = 1) +
+  theme_bw() +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0,0.5,1), labels = scales::percent) +
+  scale_x_continuous(labels = scales::number)
+```
+
+```{r, eval = TRUE}
+# create gene model
+# Select annotations for intersection with regions
+# Note inclusion of custom annotation, and use of shortcuts
+annots <- c('hg19_cpgs', 'hg19_basicgenes', 'hg19_genes_intergenic',
+           'hg19_genes_intronexonboundaries')
+
+# Build the annotations (a single GRanges object)
+annotations <- build_annotations(genome = 'hg19', annotations = annots)
+annotations <- annotations %>%
+  as_tibble() %>%
+  mutate(type = gsub('genes_', '',
+                     gsub('hg19_', '', type)),
+         type = fct_relevel(type,
+                            c('1to5kb', 'promoters', '5UTRs', 
+                              'exons', 'introns', 'intronexonboundaries', 
+                              '3UTRs',
+                              'cpg_islands', 'cpg_shores', 'cpg_shelves', 'cpg_inter'))) 
+
+c <- dmrs$seqnames[32]
+s <- dmrs$start[32]
+e <- dmrs$end[32]
+s_extend <- s -2500
+e_extend <- e + 2500
+
+
+region_of_interest <- anno %>%
+  filter(chr == c, start > s_extend, end < e_extend)
+
+# add betas, annotation, and pdata
+b <- betas_bmiq[region_of_interest$cpg,pDat_filt$Sample_Name] %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  pivot_longer(cols = -cpg,
+               names_to = 'Sample_Name',
+               values_to = 'beta') %>%
+  left_join(anno, by = 'cpg') %>% 
+  right_join(pDat_filt, by = 'Sample_Name') 
+
+
+p1 <- b %>%
+  filter(Trimester == 'Third') %>%
+  group_by(cpg, Tissue) %>%
+  summarize(mean = mean(beta), start = dplyr::first(start)) %>%
+  ggplot(aes(x = start, color = Tissue)) +
+  geom_linerange(ymin = 0, aes(ymax = mean)) +
+  annotate(geom = 'rect', xmin = s, xmax = e, ymin = 0, ymax = 1, alpha = 0.1) +
+  facet_wrap(vars(Tissue), ncol = 1, strip.position = 'left') +
+  theme_bw() +
+  theme(strip.background = element_blank(),
+        strip.text.y = element_text(angle = 180, hjust = 1, face = 'bold'),
+        strip.placement = 'outside',
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.minor = element_blank(),
+        #panel.grid = element_blank()
+        ) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0,1), labels = scales::percent) +
+  scale_x_continuous(limits = c(s_extend, e_extend), labels = scales::number) +
+  scale_color_manual(values = colors,guide = 'none') +
+  labs(y = '', x = '', title = paste0('DMR ', c, ':', s, '-', e));p1
+
+p2 <- annotations %>%
+  filter(seqnames == as.character(c), start > s_extend, end < e_extend,
+         type %in% c('exons', 'introns', 'promoters')) %>%
+  ggplot(aes(x = start, xend = end)) +
+  geom_segment(y= 0.5, yend = 0.5, aes(size = type, color = type))  +
+  annotate(geom = 'rect', xmin = s, xmax = e, ymin = 0.475, ymax = 0.525, alpha = 0.1) +
+  facet_wrap(~symbol + tx_id, ncol = 1, strip.position = 'left') +
+  theme_bw()+
+  theme(strip.background = element_blank(),
+        strip.text.y  = element_text(angle = 180, face = 'bold'),
+        strip.placement = 'outside',
+        plot.title =  element_blank(),
+        plot.subtitle = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.border = element_blank()) +
+  scale_size_manual(values = c('exons' = 7, 'introns' = 1, 'intronexonboundaries' = 3,
+                               '5UTRs' = 5, '3UTRs' = 6,
+                               '1to5kb' = 2,
+                               'promoters' = 2,
+                               
+                               'cpg_inter' = 1,
+                               'cpg_islands' = 5,
+                               'cpg_shores' = 4,
+                               'cpg_shelves' = 3)) +
+  scale_color_manual(values = c('exons' = 'black', 'introns' = 'black', 'intronexonboundaries' = 'black',
+                               '5UTRs' = 'grey', '3UTRs' = 'grey',
+                               '1to5kb' = 'grey',
+                               'promoters' = 'forestgreen',
+                               
+                               'cpg_inter' = 1,
+                               'cpg_islands' = 5,
+                               'cpg_shores' = 4,
+                               'cpg_shelves' = 3)) +
+  scale_x_continuous(limits = c(s_extend,e_extend), labels = scales::number) +
+  labs(x = 'position', size = '', color = '');p2
+egg::ggarrange(p1,p2, ncol = 1, heights = c(3, 1))
+
+# alternative view
+p2 <- b %>%
+  filter(Trimester == 'Third') %>%
+  group_by(cpg, Tissue) %>%
+  summarize(mean = mean(beta), start = dplyr::first(start),
+            sd = sd(beta)) %>%
+  ggplot(aes(x = start, color = Tissue)) +
+  geom_line(aes(y = mean)) +
+  theme_bw() +
+  theme(strip.background = element_blank(),
+        strip.text.y = element_text(angle = 180, hjust = 1),
+        strip.placement = 'outside',
+        axis.ticks = element_blank(),
+        axis.line = element_line(),
+        panel.border = element_blank(),
+        panel.grid.minor = element_blank(),
+        #panel.grid = element_blank()
+        ) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0,1), labels = scales::percent) +
+  scale_x_continuous(limits = c(s-5000,e +5000), labels = scales::number) +
+  scale_color_manual(values = colors,guide = 'none') +
+  labs(y = '', x = '', title = c);p2
+
+
+```
+
+# boxplots
+
+parp1- cg23712594
+CGA - cg26554423
+SLC22A11 - cg07559401
+PAPPA2 - cg16856819, cg18236464
+CYP19A1 - cg13926553, cg04348026, cg07340020, cg20266498
+SLC13A4 - cg09847139, cg03083251
+
+```{r}
+cgs <- c('cg23712594', 
+         'cg26554423', 
+         'cg07559401', 
+         'cg16856819', 'cg18236464', 
+         'cg13926553', 'cg04348026', 'cg07340020', 'cg20266498',
+         'cg09847139', 'cg03083251')
+
+ge <- c('intron',
+        '1to5kb',
+        '1tok5kb, intron',
+        'promoter', 'intron',
+        '1to5kb', 'intron', '1to5kb', 'promoter',
+        'intron', 'intron')
+
+genes <- c('PARP1', 
+           'CGA',
+           'SLC22A11',
+           'PAPPA2', 'PAPPA2', 
+           'CYP19A1', 'CYP19A1', 'CYP19A1', 'CYP19A1',
+           'SLC13A4', 'SLC13A4')
+
+features <- tibble(cpg = cgs, gene = genes, gene_element = ge)
+
+t(betas_filt[features$cpg,]) %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Name = rownames(.), .) %>%
+  left_join(pDat_filt %>% dplyr::select(Sample_Name, Sex, Tissue)) %>%
+  pivot_longer(cols = contains('cg'),
+               names_to = 'cpg',
+               values_to = 'beta') %>%
+  left_join(features) %>%
+  mutate(label = paste0(cpg, ' (', gene_element, ')')) %>%
+  ggplot(aes(y = label, x = beta, fill = Tissue)) +
+  geom_density_ridges(alpha = 0.75, color = 'white', panel_scaling = FALSE) +
+  facet_grid(rows = vars(gene), 
+             scales = 'free_y', 
+             switch = 'y',
+             space = 'free') +
+  scale_fill_manual(values = colors) +
+  scale_x_continuous(limits = c(0,1), labels = scales::percent) +
+  theme_bw() +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.ticks = element_blank(),
+        strip.placement = 'outside',
+        strip.background = element_blank(),
+        strip.text.y = element_text(angle = 180),
+        legend.position = 'top') +
+  labs(x = '', y = '', fill = '')
+```
+
+```{r}
+# boxplots
+pDat_filt %>%
+  mutate(cg26554423 = betas_filt['cg26554423',]) %>%
+  ggplot(aes(x = Tissue, y = cg26554423, color = Tissue)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_color_manual(values = colors,guide = 'none') +
+  theme_bw() +
+  scale_y_continuous(limits = c(0,1)) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank())+ 
+  labs(x = '', title = 'CGA; 1to5kb upstream')
+ 
+pDat_filt %>%
+  mutate(cg07559401 = betas_filt['cg07559401',]) %>%
+  ggplot(aes(x = Tissue, y = cg07559401, color = Tissue)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_color_manual(values = colors,guide = 'none') +
+  theme_bw() +
+  scale_y_continuous(limits = c(0,1)) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank())+ 
+  labs(x = '', title = 'SLC22A11; intron')
+
+pDat_filt %>%
+  mutate(cg16856819 = betas_filt['cg16856819',]) %>%
+  ggplot(aes(x = Tissue, y = cg16856819, color = Tissue)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_color_manual(values = colors,guide = 'none') +
+  theme_bw() +
+  scale_y_continuous(limits = c(0,1)) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank())+ 
+  labs(x = '', title = 'PAPPA2; promoter')
+
+pDat_filt %>%
+  mutate(cg18236464 = betas_filt['cg18236464',]) %>%
+  ggplot(aes(x = Tissue, y = cg18236464, color = Tissue)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_color_manual(values = colors,guide = 'none') +
+  theme_bw() +
+  scale_y_continuous(limits = c(0,1)) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.minor = element_blank())+ 
+  labs(x = '', title = 'PAPPA2; intron')
+
+
+```
+
+# gene plots
+
+## define function 
+
+```{r}
+#### add dmcs to anno
+dmcs_join <- dmcs %>%
+  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
+  dplyr::select(gene, Group2, bonferroni, delta_b) %>%
+  dplyr::rename(cpg = gene)  %>%
+  
+  # widen
+  mutate(sig = (bonferroni < 0.01) & (abs(delta_b) > 0.1)) %>%
+  pivot_wider(id_cols = cpg,
+              names_from = Group2,
+              values_fill = list(sig = FALSE),
+              values_from = sig)
+
+# join to annotation
+anno <- anno %>% 
+  left_join(dmcs_join, by = 'cpg') %>% 
+  mutate_if(is.logical, function(x)if_else(is.na(x), FALSE, x)) 
+
+
+# function
+annoPlot_with_tracks <- function(
+  cpg_name = NULL, gene_name = NULL, Chr = NULL, Start = NULL, End = NULL, 
+  cpg_number = 50, first_cpg = NULL, end_cpg = NULL, 
+  Tissue_type = unique(pDat_filt$Tissue),
+  font_size_scale = 0.75){
+  
+find_cpg_from_region <- function(Chr, Start, End){
+  
+  cpg_name <- anno %>% 
+    filter(chr == Chr, start > Start, end < End) %>%
+    pull(cpg) %>%
+    unique()
+  
+  cpg_name <- cpg_name[cpg_name %in% rownames(betas)]
+  
+  cpg_name
+}
+
+######## FILTER ANNOTATION TO RELEVANT CPGS, DEPENDING ON INPUT #################
+  if (!is.null(gene_name) & is.null(first_cpg) & is.null(end_cpg)){
+
+    # If a gene symbol is supplied,
+    # filter to gene in annotation
+    anno_gene <- anno %>%
+      filter(grepl(paste0('(?<!-)\\b', gene_name, '\\b(?!-)'), genes_symbol, perl = TRUE),
+             cpg %in% rownames(betas)) %>%
+      arrange(desc(start)) %>% slice(1:cpg_number)
+    
+    # stop if gene symbol is invalid
+    if (nrow(anno_gene) == 0) {
+      stop('No cpgs found, maybe they were filtered out.')
+    }
+  }  else if (!is.null(gene_name) & !is.null(first_cpg) & !is.null(end_cpg)){
+
+    # If a gene symbol is supplied,
+    # filter to gene in annotation
+    anno_gene <- anno %>%
+      filter(grepl(paste0('(?<!-)\\b', gene_name, '\\b(?!-)'), genes_symbol, perl = TRUE),
+             cpg %in% rownames(betas)) %>%
+      arrange(desc(start)) %>% slice(first_cpg: end_cpg)
+    
+    # stop if gene symbol is invalid
+    if (nrow(anno_gene) == 0) {
+      stop('No cpgs found, maybe they were filtered out.')
+    }
+  }  else if (!is.null(cpg_name)){
+      
+      # If a cpg is provided,
+      # filter annotation to cpgs
+      anno_gene <- anno %>%
+        filter(cpg %in% cpg_name,
+               cpg %in% rownames(betas)) %>% 
+        arrange(chr, desc(start))
+      
+      # stop if no cpgs were found
+      if (nrow(anno_gene) == 0) {
+        stop('None of the selected CpGs exist in our processed data.')
+      }
+      
+      if (length(cpg_name) < length(intersect(cpg_name, rownames(betas)))) {
+        print(paste0('The following selected CpGs do not exist in our processed data:\n', 
+                     setdiff(cpg_name, rownames(betas))))
+      }
+      
+  }      else if (!is.null(Chr) & !is.null(Start) & !is.null(End) & is.null(first_cpg) & is.null(end_cpg)){
+        
+        #get cpg sites within a given region
+        cpg_name <- find_cpg_from_region(Chr, Start, End)
+        # filter annotation to cpgs
+        anno_gene <- anno %>%
+        filter(cpg %in% cpg_name,
+               cpg %in% rownames(betas)) %>% 
+        arrange(chr, desc(start)) %>% slice(1:cpg_number)
+        
+      # stop if no cpgs were found
+      if (nrow(anno_gene) == 0) {
+      stop('No cpgs found in the selected region')
+    }
+      }     else if (!is.null(Chr) & !is.null(Start) & !is.null(End) & !is.null(first_cpg) & !is.null(end_cpg)){
+        
+        #get cpg sites within a given region
+        cpg_name <- find_cpg_from_region(Chr, Start, End)
+        # filter annotation to cpgs
+        anno_gene <- anno %>%
+        filter(cpg %in% cpg_name,
+               cpg %in% rownames(betas)) %>% 
+        arrange(chr, desc(start)) %>% slice(first_cpg : end_cpg)
+      # stop if no cpgs were found
+      if (nrow(anno_gene) == 0) {
+      stop('No cpgs found in the selected region')
+    }
+      }    else {
+      stop('Enter valid cpg(s) OR one specific gene.')
+  }
+  
+  ######## SETUP INPUT TO PLOTS ###############
+  #
+  # Title
+  #
+  title <- paste0(
+    unique(anno_gene$chr), ':',
+    min(anno_gene$start), '-',
+    max(anno_gene$start)
+  )
+  
+  if (is.null(cpg_name)){
+    title <- paste0(gene_name, ', ', title)
+  } 
+  
+  
+  #
+  # now we wrangle the betas/annotations/pdata information into a format usable for plotting
+  #
+    betas_gene <- t(betas_filt[anno_gene$cpg,,drop = FALSE]*100) %>% as_tibble %>% 
+    mutate(Sample_Name = colnames(betas_filt)) %>%
+    
+    # reshape into longer format
+    pivot_longer(cols = -Sample_Name,
+                 names_to = 'cpg', 
+                 values_to = 'beta')  %>%
+    
+    # add tissue and trimester info
+    left_join(pDat_filt %>% dplyr::select(Sample_Name, Trimester, Tissue), by = 'Sample_Name') %>%
+    
+    # calculate mean and sd for each cpg for each group
+    group_by(Tissue, Trimester, cpg) %>%
+    summarize(mean = mean(beta),
+              sd = sd(beta)) %>%
+    mutate(lower = mean-sd, upper = mean+sd) %>%
+    
+    # add cpg info
+    left_join(anno_gene, by = 'cpg') %>%
+    
+    # order on cpg position
+    ungroup() %>%
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           Trimester_Tissue = paste0(Trimester, ' - ', Tissue)) %>%
+    filter(Tissue %in% Tissue_type)
+  
+  ##### GENERATE INDIVIDUAL PLOT TRACKS #####
+  font_size <- 12*font_size_scale
+  point_size <- 2.5
+  line_size <- 1.25
+  
+  # Generate  methylation track
+  p1 <- betas_gene %>%
+    mutate(cpg_num = as.numeric(cpg)) %>%
+    ggplot() +
+    
+    # geom_ribbon is to generate the alternating shaded background
+    #geom_ribbon(aes(x = cpg_num, ymin = 0, ymax = 25),
+    #            fill = 'grey', alpha = 0.15)+
+    #geom_ribbon(aes(x = cpg_num, ymin = 50, ymax = 75),
+    #            fill = 'grey', alpha = 0.15)+
+    
+    # geom_linerange and geom_point is for the actual methylation data
+    #geom_linerange(alpha = 0.5, size = line_size, 
+    #               aes(x = cpg_num, ymin =lower, ymax = upper, color = Tissue),
+    #               show.legend = FALSE) +
+    geom_point(alpha = 0.75, aes(x = cpg_num, y = mean, color = Tissue), size = point_size) +
+    geom_line(aes(x = cpg_num, y = mean, color = Tissue), 
+              alpha = 0.75, size = line_size, show.legend = FALSE)+
+    
+    #geom_ribbon(alpha = 0.5, aes(x = cpg_num, ymin = lower, ymax = upper, fill = Tissue))+
+    
+    # we want to facet by trimester
+    facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+    
+    # cosmetics
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_blank(), 
+          axis.text.y = element_text(size = font_size*0.9),
+          axis.ticks.x = element_blank(),
+          axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0, size = font_size),
+          
+          legend.text = element_text(size = font_size*0.9),
+          
+          panel.grid = element_blank(),
+          
+          panel.spacing.y = unit(0.5, 'cm'),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0),
+          
+          plot.margin=margin(l=-0.1, unit="cm")) +
+    scale_y_continuous(limits = c(0, 100), 
+                       expand = c(0, 0), 
+                       labels = function(x)paste0(x, '%')) +
+    scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)],
+                       guide = guide_legend(override.aes = list(size = 4)),
+                       labels = function(x)gsub(' cs', '', x)) +
+    labs(y = 'DNA\nmethylation', 
+         x = '', 
+
+         color = '', 
+         title = title)
+
+    
+  p_dmc <- betas_gene %>%
+    
+    # tidy data
+    dplyr::select(cpg, Trophoblasts:Villi) %>%
+    distinct() %>%
+    pivot_longer(cols = -cpg,
+                 names_to = 'Group',
+                 values_to = 'Significant') %>%
+    mutate(facet_title = 'Differentially methylated compared to Syncytiotrophoblasts') %>%
+    
+     # convert axes to numeric for geom_path to work
+    mutate(cpg_num = as.numeric(cpg),
+           Tissue = Group,
+           Tissue_num = as.numeric(as.factor(Tissue)),
+           
+           # Add tissue-specific color when significant
+           Significant_num = if_else(Significant, Tissue_num, NA_real_)) %>% 
+    
+    {
+      ggplot(data = ., aes(x = cpg_num, y = Significant_num, color = Tissue)) +
+        geom_point(data = . %>% 
+                     filter(!is.na(Significant_num)), size = point_size) +
+        geom_path(na.rm = TRUE, size = line_size-0.25, alpha = 1) +
+        facet_grid(cols = vars(facet_title),
+                   switch = 'y') +
+        theme_bw(base_size = font_size) +
+        theme(axis.text.x = element_blank(),
+              panel.grid = element_blank(),
+              panel.background = element_rect(fill = '#f7f7f7'),
+              
+              #axis.text.x = element_text(angle = 90, vjust = 0),
+              axis.ticks = element_blank(),
+              axis.text.y = element_text(vjust = 0.5),
+              
+              legend.text = element_text(size = font_size*0.9),
+              
+              plot.margin = margin(l=-0.1,unit="cm"),
+              plot.background = element_rect(fill = '#f7f7f7'),
+              
+              strip.background = element_blank(),
+              strip.text.y = element_text(face = 'bold', vjust = 0.5, hjust = 0.5, angle = 180),
+              strip.text.x = element_text(face = 'bold', hjust = 0),
+              strip.placement = 'outside') +
+        scale_color_manual(values = colors,
+                          na.value = '#f7f7f7',
+                          guide = 'none') +
+       scale_y_continuous(expand = c(0.15,0.15),
+                         breaks = c(1, 2), 
+                           labels = c('Trophoblasts', 'Villi') %>% 
+                             as.factor() %>% 
+                             levels()) +
+        labs(x = '', y = '')
+      
+    }
+  
+  # plot cpg annotations
+  p2 <- betas_gene %>% 
+    
+    # First we need to process the annotation data
+    mutate(# absent/presence for different genomic elements
+           enhancer = !is.na(enhancers_id),
+           pmd = !is.na(pmd_id),
+           imprint_tissue_specificity = !is.na(imprint_tissue_specificity)) %>%
+    mutate_if(is.logical, as.character) %>%
+    dplyr::select(cpg, enhancer, pmd, 
+           imprint_tissue_specificity, cpg_id, start) %>%
+    
+    # reshape
+    pivot_longer(cols = c(-cpg, -start),
+               names_to = 'cpg_element', 
+               values_to = 'presence') %>%
+    distinct() %>%
+    
+    # arrange plot orde for each track
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           cpg_element = factor(cpg_element, 
+                                levels = c('enhancer', 'pmd', 'imprint_tissue_specificity', 'cpg_id')),
+           presence = factor(ifelse(presence == "TRUE", 'Present',
+                                    ifelse(presence == "FALSE", 'Absent', presence)),
+                             levels = c('sea', 'shelf', 'shore', 'island',
+                                        'Present', 'Absent')),
+           # for facet label
+           group = 'Annotations') %>%
+    
+    # plot code
+    ggplot(aes(x = cpg, y = cpg_element, fill = presence)) +
+    geom_tile(color = 'white') +
+    guides(fill=guide_legend(ncol=3, override.aes = list(colour = 'white'))) +
+    facet_wrap(vars(group), ncol = 2) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text.y = element_text(vjust = 0.5),
+          
+          legend.text = element_text(size = font_size*0.9),
+          
+          plot.margin = margin(l=-0.1,unit="cm"),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0)) +
+    scale_fill_manual(values = c('Present' = '#cccccc', 'Absent' = '#f7f7f7', 
+                                 'sea' = '#ffffcc', 'shelf' = '#a1dab4', 
+                                 'shore' = '#41b6c4', 'island' = '#225ea8'), drop = F,
+                      labels = stringr::str_to_title) +
+    scale_y_discrete(expand = c(0,0),
+                     labels = function(x)gsub('cpg_id', 'Relation to CpG Islands',
+                       gsub('imprint_tissue_specificity', 'Imprinted DMR',
+                       gsub('pmd', 'Placental PMD',
+                       gsub('enhancer', 'Enhancer', 
+                            x))))) +
+    scale_x_discrete(expand = c(0,0)) +
+    labs(x = '', y = '', fill = '')
+  
+  # transcript annotations
+  
+  # cpgs can have more than one mapping to a gene element per transcript
+  # cpgs mapped to intronexonboundaries can also be part of exons and introns
+  # 5 UTR and 3 UTR can also overlap with exons and introns
+  
+  # If there are multiple mappings then only the following will be displayed in order of priority:
+  # 5UTR / 3UTR, exon / intron, intronexonboundary
+  
+  p3 <- betas_gene %>% 
+    dplyr::select(cpg, end, genes_id, genes_tx_id, genes_symbol) %>%
+    distinct() %>%
+    
+    # split comma separate list and put each entry into a new row
+    mutate(genes_tx_id = str_split(genes_tx_id, ', '),
+           genes_id = str_split(genes_id, ', '),
+           genes_symbol = str_split(genes_symbol, ', ')) %>%
+    unnest(c(genes_tx_id, genes_id, genes_symbol)) %>%
+    
+    # paste together transcript ID and genes symbol
+    mutate(genes_tx_id_symbol = if_else(genes_symbol != 'no_associated_gene', 
+                                        paste0(genes_tx_id, ' (', genes_symbol, ')'),
+                                        genes_tx_id)) %>%
+    
+    ### ORDER TRANSCRIPTS IN PLOT 
+    #
+    # note that the first level appears on the bottom of the graph (y = 0 if it was continuous)
+    
+    # calculate earliest end of each symbol
+    group_by(genes_symbol) %>%
+    mutate(genes_symbol_end = min(end)) %>%
+    ungroup() %>%
+    
+    # reorder gene symbols by their earliest end position
+    mutate(genes_symbol = fct_reorder(genes_symbol, genes_symbol_end)) %>%
+    
+    # reorder transcripts based on gene symbol levels and then by their end position
+    arrange(genes_symbol, end) %>%
+    mutate(genes_tx_id_symbol = 
+             factor(genes_tx_id_symbol, levels = unique(genes_tx_id_symbol)) %>%
+             fct_explicit_na()) %>%
+    
+    
+    ####
+    # fill all combinations of cpg and gene_tx_id with NA if missing, so that they show in plot
+    complete(cpg, genes_tx_id_symbol) %>%
+    
+    # filter out to unique mappings using the priority described above
+    # strategy is to order by factor level and take the first occurence
+    mutate(genes_id = factor(genes_id, 
+                             levels = c('1to5kb', 'promoter', '5UTR', '3UTR', 'exon',
+                                        'intron', 'intronexonboundary', 'intergenic'))) %>%
+    
+    group_by(cpg, genes_tx_id_symbol) %>%
+    arrange(genes_id)  %>%
+    dplyr::slice(1) %>%
+    
+    # reorder factor levels for appearance in plot legend
+    mutate(genes_id = factor(genes_id, 
+                             levels = c('1to5kb', 'promoter', '5UTR', 'exon', 'intron',
+                                        'intronexonboundary', '3UTR', 'intergenic')),
+           group = 'Transcripts') %>%
+    
+    #plot
+    ggplot(aes(x = cpg, y = genes_tx_id_symbol, fill = genes_id)) +
+    geom_tile(color = 'white', alpha = 0.6) +
+    facet_wrap(vars(group), ncol = 1) +
+    guides(fill=guide_legend(ncol=2, override.aes = list(alpha=0.7, color = 'white'))) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), 
+          axis.text.y = element_text(vjust = 0.5),
+          axis.ticks = element_blank(),
+          
+          plot.margin = margin(l=-0.1,unit="cm"),
+          
+          legend.text = element_text(size = font_size*0.9),
+          
+          panel.grid = element_blank(),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0)) +
+    scale_fill_brewer(na.value = '#f7f7f7', breaks = c('1to5kb', 'promoter', '5UTR', 'exon', 
+                                                        'intron', 'intronexonboundary', '3UTR',
+                                                        'intergenic'),
+                      palette = 'Paired', direction = -1) +
+    scale_y_discrete(expand = c(0,0), 
+                     labels = function(x)(if_else(x == '(Missing)', '', x))) +
+    scale_x_discrete(expand = c(0,0)) +
+    coord_cartesian(clip = "off") +
+    labs(x = '', y = '', fill = '')
+  
+  # the size of each plot depends on the number of unique transcripts
+  # More transcripts means a longer transcript track
+  # so the plot height depends on the number of transcripts
+  
+  # number of transcripts
+  n_trans <- betas_gene$genes_tx_id %>% str_split(', ') %>% unlist() %>% unique %>% length()
+  
+  # size of p1
+  p1_h <- 40
+  
+  # combine tracks plot
+  egg::ggarrange(p1, p_dmc, p2, p3, ncol = 1, heights = c(p1_h-(n_trans-6), 3, 6, n_trans))
+}
+```
+
+## plot
+
+```{r}
+annoPlot_with_tracks(gene_name = 'CGA')
+annoPlot_with_tracks(gene_name = 'SLC22A11')
+annoPlot_with_tracks(gene_name = 'PAPPA2')
+annoPlot_with_tracks(gene_name = 'CYP19A1')
+annoPlot_with_tracks(gene_name = 'GDF15')
+annoPlot_with_tracks(gene_name = 'SLC13A4')
+annoPlot_with_tracks(gene_name = 'SLC52A1')
+annoPlot_with_tracks(gene_name = 'LCMT1-AS2')
+annoPlot_with_tracks(gene_name = 'INSL4')
+
+annoPlot_with_tracks(gene_name = 'ZNF300')
+
+```
+
+
+# Save
+
+
+```{r}
+saveRDS(out, here::here('data', 'main', 'interim', '2_15_pheatmap_450k_cord_hofb.rds'))
+saveRDS(out2, here::here('data', 'main', 'interim', '2_15_pheatmap_stb_troph.rds'))
+
+t(betas_filt[features$cpg,]) %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Name = rownames(.), .) %>%
+  left_join(pDat_filt %>% dplyr::select(Sample_Name, Sex, Tissue)) %>%
+  pivot_longer(cols = contains('cg'),
+               names_to = 'cpg',
+               values_to = 'beta') %>%
+  left_join(features) %>%
+  mutate(label = paste0(cpg, ' (', gene_element, ')')) %>%
+  saveRDS( here::here('data', 'main', 'interim', '2_15_stb-troph-density-data.rds'))
+
+```
