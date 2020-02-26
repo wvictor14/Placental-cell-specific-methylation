@@ -32,6 +32,7 @@ theme_set(theme_bw())
 library(EpiDISH)
 library(yardstick)
 library(ggbeeswarm)
+library(planet)
 ```
 
 ## Data
@@ -1098,7 +1099,7 @@ epidish_res1111 <- epidish_res1111$estF %>%
 
 epidish_rpc <- bind_rows(epidish_res111, epidish_res1111) %>%
   dplyr::rename(Sample_Name = Sample_Names) %>%
-  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue))  %>%
+  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue, GA))  %>%
   distinct() 
 ```
 
@@ -1126,7 +1127,8 @@ epidish_rpc %>%
         strip.text = element_text(hjust =0)) +
   scale_y_continuous(expand = c(0,0), labels = percent) +
   labs(x = '', y = '', fill = '') +
-  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free')
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') +
+  geom_text(aes(label = number(GA)), y = 0.1)
 
 epidish_rpc %>%
   filter(Tissue == 'Villi') %>%
@@ -1249,10 +1251,103 @@ epidish_rpc %>%
   select(Sample_Name, Predicted_ethnicity) %>%
   distinct() %>%
   dplyr::count(Predicted_ethnicity)
+
+
 ```
 
+# estimate GA
+
+We want to find any association with gestational age and cell composition.
+
+Here I predict Ga using planet
+
+```{r}
+?pl_infer_age()
+
+
+ga <- tibble(Sample_Name = colnames(mset_test),
+  ga_rpc = pl_infer_age(getBeta(mset_test), 'RPC'),
+  ga_cpc = pl_infer_age(getBeta(mset_test), 'CPC'),
+  ga_rrpc = pl_infer_age(getBeta(mset_test), 'RRPC')
+)
+
+# join ga to pDat
+pDat_filt <- pDat_filt %>%
+  left_join(ga)
+
+# join deconv estimates to pDat
+pDat_filt <- pDat_filt %>%
+  left_join(
+    by = c('Sample_Name' = 'sample_name'),
+    epidish_rpc %>%
+      pivot_wider(id_cols = Sample_Name,
+                  names_from = c('algorithm', 'component'),
+                  values_from = 'percent') %>%
+      clean_names() 
+  )
+
+pDat_ga_comp <- pDat_filt %>% 
+  filter(Trimester == 'First', Tissue == 'Villi') %>%
+  select(Sample_Name, Trimester, Tissue, contains('ga'), contains('epidish')) %>%
+  pivot_longer(cols = contains('epidish'),
+               names_to = 'component',
+               names_prefix = 'epidish_rpc_',
+               values_to = 'proportion') %>%
+  pivot_longer(cols = contains('ga'),
+               names_to = 'ga',
+               names_prefix = 'ga_',
+               values_to = 'weeks') %>%
+  mutate(ga = ifelse(ga == 'GA', 'reported', ga) %>%
+           as.factor() %>%
+           fct_relevel(levels = c('reported')))
+
+stats_by_ga <- pDat_ga_comp %>%
+  filter(component != 'n_rbc',
+         ga %in% c('reported', 'rpc')) %>%
+  nest(data = -c(component, ga)) %>%
+  mutate(lm = map(data, ~lm(proportion ~ weeks, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, ga, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'fdr'),
+         p_value = pvalue(p.value, 0.01) %>%
+           ifelse(. < 0.05, 'p<0.05', .),
+         component = str_to_sentence(component) ); stats_by_ga
+
+pDat_ga_comp %>% 
+  filter(component != 'n_rbc',
+         ga %in% c('reported', 'rpc')) %>%
+  mutate(component = str_to_sentence(component)) %>%
+  {
+    ggplot(data = ., aes(x = weeks, y = proportion, color = component)) +
+      geom_point() +
+      geom_smooth(method = 'lm', se = FALSE,alpha = 0.5) +
+      facet_grid(cols = vars(ga), rows = vars(component), scales = 'free_y') +
+      scale_y_continuous(labels = percent) +  
+      scale_color_manual(values = color_code_tissue[unique(.$component)], 
+                       na.value = '#636363',
+                       guide = 'none')  +
+      theme(panel.grid = element_blank())
+  }
+  
+```
 
 # Save
+
+Join to pDat_filt and save
+
+```{r eval = F}
+
+epidish_rpc %>%
+  pivot_wider(id_cols = Sample_Name,
+              names_from = c('algorithm', 'component'),
+              values_from = 'percent') %>%
+  clean_names() %>%
+  right_join(pDat_filt, by = c('sample_name'= 'Sample_Name')) %>%
+  saveRDS(here(base_path, '2_14_pDat_filt.rds'))
+
+```
 
 ```{r eval = F}
 # 3rd and 1st trimester reference cpgs
