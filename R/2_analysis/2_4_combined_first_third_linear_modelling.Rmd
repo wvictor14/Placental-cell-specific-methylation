@@ -20,11 +20,9 @@ editor_options:
 
 ```{r}
 # libraries and data
-library(ggplot2)
 library(tidyverse)
 library(ggrepel)
 library(viridis)
-library(scales)
 library(RColorBrewer)
 library(pheatmap)
 library(irlba)
@@ -489,7 +487,7 @@ dmcs <- fit_m %>% left_join(fit_b)
 
 Here I use dmrcate to find DMRs
 
-```{r eval = F}
+```{r eval = T}
 myannotation <- cpg.annotate("array", 
                              mvals_filt, 
                              analysis.type="differential", 
@@ -498,7 +496,7 @@ myannotation <- cpg.annotate("array",
                              contrasts = T, cont.matrix = contMatrix,
                              fdr = 0.05,
                              coef = colnames(contMatrix)[1])
-dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, p.adjust.method = 'fdr')
+dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2)
 
 results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
 results.ranges %>% tidy()
@@ -847,6 +845,7 @@ cell_calcs %>%
 # Save Data
 
 ```{r, eval = F}
+saveRDS(pca, here(base_path, '2_4_pca.rds'))
 saveRDS(cell_calcs, here(base_path, '2_4_cell_calcs.rds'))
 saveRDS(removed_df, here(base_path, '2_4_removed_samples'))
 saveRDS(sample_densities, here(base_path, '2_4_sample_densities.rds'))
@@ -855,7 +854,7 @@ saveRDS(dmcs_sig, here(base_path, '2_4_dmcs_summary.rds'))
 saveRDS(list(kegg = kegg, GO = gst), here(base_path, '2_4_enrich.rds'))
 saveRDS(list(cell_mean_cor, cell_mean), here(base_path, '2_4_cell_means.rds'))
 
-dmcs %>% 
+dmcs2 <- dmcs %>% 
   filter(bonferroni < 0.01, delta_b > 0.25) %>%
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
   mutate(Celltype = case_when(
@@ -870,8 +869,19 @@ dmcs %>%
   left_join(anno %>% select(cpg, chr, start, contains('genes'), -genes_width, -genes_gene_id)) %>%
   select(Trimester, Celltype, cpg, chr, start, contains('genes'), 
          contains('mean'), p_value, fdr, bonferroni, statistic, lod,
-         everything()) %>%
-  writexl::write_xlsx(here('outs', '2_4_cell_dmcs.xlsx'))
+         everything())
+
+# one file for each trimester
+dmcs2 %>%
+  select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
+  filter(Trimester == 'First') %>%
+  write_csv(here('outs', '2_4_cell_dmcs_first.csv'))
+
+
+dmcs2 %>%
+  select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
+  filter(Trimester == 'First') %>%
+  write_csv(here('outs', '2_4_cell_dmcs_third.csv'))
 ```
 
 # SessionInfo
