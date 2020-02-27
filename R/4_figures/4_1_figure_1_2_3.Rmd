@@ -595,28 +595,596 @@ dmcs_sig %>%
   collapse_rows(columns = 1)
 ```
 
-# DMCs boxplots
+# DMCs genomic viewer
 
 ```{r}
-dmcs <- readRDS(file.path(base_path, '2_4_dmcs.rds'))
+#install.packages('ggforce')
 
-# define cutoffs
-p_thresh <- 0.01
-b_thresh <- 0.25
+library(annotatr)
+library(RColorBrewer)
+library(egg)
+library(scales)
+library(here)
+library(ggrepel)
+library(forcats)
+library(GGally)
+library(irlba)
+library(tidyverse)
+font_size <- 8
 
-dmcs_filt <- dmcs %>%
-  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
-  dplyr::rename(cpg = gene) %>%
-  left_join(anno) %>%
-  separate(Group1, into = c('Trimester', 'Celltype')) %>%
-  mutate(Celltype = case_when(
-    Celltype == 'Endo' ~'Endothelial',
-    Celltype == 'Hofb' ~ 'Hofbauer',
-    Celltype == 'Strom' ~ 'Stromal',
-    Celltype == 'Troph' ~ 'Trophoblast'
-  ))
+# parent directory
+base_path <- here("data", "main", "interim")
 
-dmcs_filt %>% View
+# sample data
+pDat <- readRDS(file.path(base_path, '3_1_pDat_filt.rds'))
+
+# methylation data
+betas <- readRDS(file.path(base_path, '3_1_betas_filt.rds'))
+
+# annotation
+anno <- readRDS(file.path('Z:/', 
+                          'Victor', 'Repositories', 'EPIC_annotation',
+                          'hg19_epic_annotation.rds'))
+
+#color code
+color_code <- readRDS(file.path(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+
+#list of genes for search list
+gene <- tibble(gene = str_split(anno$genes_symbol, ', ') %>%
+                 unlist() %>%
+                 unique() %>%
+                 na.omit() %>%
+                 sort())
+
+#pull out cpg name for search list use
+cpg <- unique(anno$cpg) 
+cpg <- cpg[cpg %in% rownames(betas)] %>% as_tibble()
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),)
+# filter to first trimester
+betas_filt <- betas[,pDat_filt$Sample_Name]
+```
+
+## setup annotation
+
+```{r}
+#ect annotations for intersection with regions
+# Note inclusion of custom annotation, and use of shortcuts
+annots <- c('hg19_cpgs', 'hg19_basicgenes', 'hg19_genes_intergenic',
+           'hg19_genes_intronexonboundaries')
+
+# Build the annotations (a single GRanges object)
+annotations <- build_annotations(genome = 'hg19', annotations = annots)
+annotations <- annotations %>%
+  as_tibble() %>%
+  mutate(type = gsub('genes_', '',
+                     gsub('hg19_', '', type)),
+         type = fct_relevel(type,
+                            c('1to5kb', 'promoters', '5UTRs', 
+                              'exons', 'introns', 'intronexonboundaries', 
+                              '3UTRs',
+                              'cpg_islands', 'cpg_shores', 'cpg_shelves', 'cpg_inter'))) 
+
+anno <- anno %>%
+  filter(cpg %in% rownames(betas_filt))
+```
+
+## setup function
+
+```{r}
+igv <- function(gene_name = NULL, 
+                
+                start_extend = 2500, # how far to extend the plot left, in genomic coordinates 
+                end_extend = 2500,   # how far to extend right
+                
+                show_transcript_gene = TRUE, # show transcripts associated gene symbol
+                breaks_width = 15000, # determines the spacing of x axis breaks
+                
+                highlight_region = NULL, # a df with start end columns, indicating regions to highlight
+                
+                trimester = 'Third', # can be Third, First, or Both
+                sex = 'Both', # can be Male, Female, or Both
+                
+                plot_sizes = c(3,1), # a 2-element numeric vector indicating the relative plot heights 
+                                    # of the methylation plot to the transcript plot
+                transcript_height = 1 # scale factor for height of transcript elements. e.g. 1.1 = 110%
+                
+                # required components:
+                # pDat_filt with columns Sample_Name, Trimester, Sex, and Tissue
+                # betas_filt data.frame with column names == pDat$Sample_Name
+                # anno data frame that is contains a column cpg, genes_symbol, chr, start, end
+                # the cpgs in anno and betas_filt need to be exactly the same, and same order
+                # annotation data.frame that I built from annotatr, and slightly cleaned
+                # colors, a named vector corresponding to the color codes for each celltype
+                ) {
+  
+  # subset to relevant samples
+  if (trimester %in% c('Third', 'First')) {
+    pDat_filt <- pDat_filt %>%
+      filter(Trimester == trimester)
+  }
+  
+  if (!trimester %in% c('Third', 'First', 'Both')) {
+    stop('trimester must be set to one of "Third", "First", or "Both"')
+  }
+  
+  if (sex %in% c('Male', 'Female')) {
+    pDat_filt <- pDat_filt %>%
+      filter(Sex == sex)
+  }
+  
+  if (!sex %in% c('Male', 'Female', 'Both')) {
+    stop('sex must be set to one of "Male", "Female", or "Both"')
+  }
+  
+   
+  # subset to cpgs associated with gene
+  anno_gene_subset <- anno %>%
+    filter(grepl(paste0('\\<', gene_name, '\\>'), genes_symbol)) %>% 
+    dplyr::select(chr, start, end) 
+  
+  c <- unique(anno_gene_subset$chr)
+  s <- min(anno_gene_subset$start) # first cpg
+  e <- max(anno_gene_subset$start) # last cpg
+  s_extend <- s - start_extend
+  e_extend <- e + end_extend
+  
+  region_of_interest <- anno %>%
+    filter(chr == c, start > s_extend, end < e_extend)
+  
+  # subset betas
+  b <- betas_filt[region_of_interest$cpg, pDat_filt$Sample_Name] %>%
+    as.data.frame() %>%
+    bind_cols(cpg = rownames(.), .) %>%
+    pivot_longer(cols = -cpg,
+                 names_to = 'Sample_Name',
+                 values_to = 'beta') %>%
+    left_join(anno, by = 'cpg') %>% 
+    right_join(pDat_filt, by = 'Sample_Name') 
+  
+  
+  p1 <- b %>%
+    
+    # calculate mean beta for each cpg for each tissue
+    group_by(cpg, Tissue) %>%
+    summarize(mean = mean(beta), start = dplyr::first(start)) %>%
+    
+    # plot methylation means
+    ggplot(aes(x = start)) +
+    geom_linerange(ymin = 0, aes(ymax = mean, color = Tissue)) +
+    
+    facet_wrap(vars(Tissue), ncol = 1, strip.position = 'left',
+               labeller = labeller(Tissue = function(x)gsub(' cs', '', x))) +
+    
+    theme_bw(base_size = font_size) +
+    theme(strip.background = element_blank(),
+          strip.text.y = element_text(angle = 180, hjust = 1),
+          strip.placement = 'outside',
+          axis.ticks = element_blank(),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.line = element_line(size = 0.5),
+          panel.border = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.spacing = unit(0, 'lines'),
+          #panel.grid = element_blank()
+          ) +
+    scale_y_continuous(limits = c(0,1), breaks = c(0,1), expand = c(0,0), labels = NULL) +
+    scale_x_continuous(limits = c(s_extend, e_extend), expand = c(0,0), 
+                       breaks = breaks_width(breaks_width),
+                       labels = scales::number) +
+    scale_color_manual(values = color_code_tissue, guide = 'none') +
+    labs(y = '', x = '', title = gene_name)
+  
+  p2 <- annotations %>%
+    filter(seqnames == as.character(c), start > s_extend, end < e_extend,
+           type %in% c('exons', 'introns', 'promoters')) %>%
+    
+    mutate(symbol = ifelse(is.na(symbol), '', symbol)) %>%
+    ggplot(aes(x = start, xend = end)) +
+    geom_segment(y= 0.5, yend = 0.5, aes(size = type, color = type)) +
+    theme_bw(base_size = font_size)+
+    theme(strip.background = element_blank(),
+          strip.text.y  = element_text(angle = 180),
+          strip.placement = 'outside',
+          legend.position = 'bottom',
+          plot.title =  element_blank(),
+          plot.subtitle = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.line = element_line(size = 0.5),
+          panel.spacing = unit(0, 'lines'),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.border = element_blank(),
+          legend.key.size = unit(0.5, 'cm'),
+          legend.spacing = unit(0.25, 'cm')) +
+    scale_size_manual(values = c('exons' = 3, 'introns' = 1, 'intronexonboundaries' = 3,
+                                 '5UTRs' = 5, '3UTRs' = 6,
+                                 '1to5kb' = 2,
+                                 'promoters' = 2,
+                                 
+                                 'cpg_inter' = 1,
+                                 'cpg_islands' = 5,
+                                 'cpg_shores' = 4,
+                                 'cpg_shelves' = 3)*transcript_height) +
+    scale_color_manual(values = c('exons' = 'black', 'introns' = 'black', 'intronexonboundaries' = 'black',
+                                 '5UTRs' = 'grey', '3UTRs' = 'grey',
+                                 '1to5kb' = 'grey',
+                                 'promoters' = 'forestgreen',
+                                 
+                                 'cpg_inter' = 1,
+                                 'cpg_islands' = 5,
+                                 'cpg_shores' = 4,
+                                 'cpg_shelves' = 3)) +
+    scale_x_continuous(limits = c(s_extend,e_extend), 
+                       expand = c(0,0), 
+                       labels = scales::number,
+                       breaks = breaks_width(breaks_width)) +
+    scale_y_continuous(expand = c(0,0)) +
+    labs(x = 'position', size = '', color = '')
+  
+  if (show_transcript_gene) {
+    p2 <- p2 + 
+      facet_wrap(~symbol + tx_id, ncol = 1, strip.position = 'left') 
+  } else if (show_transcript_gene == FALSE) {
+    p2 <- p2 + 
+      facet_wrap(~tx_id, ncol = 1, strip.position = 'left') 
+  }
+  
+  if (!is.logical(show_transcript_gene)) {
+    stop('show_transcript_gene must be set to TRUE or FALSE')
+  }
+  
+  if (!is.null(highlight_region)) {
+    p1 <- p1 + 
+      geom_rect(data = highlight_region,
+                aes(xmin = start, xmax = end),
+                ymin = 0, ymax = 1,
+                alpha = 0.1)
+    p2 <- p2 + 
+      geom_rect(data = highlight_region,
+                aes(xmin = start, xmax = end),
+                ymin = 0, ymax = 1,
+                alpha = 0.1)
+  }
+  egg::ggarrange(p1,p2, ncol = 1, heights = plot_sizes) #H:4.25, #w: 3.25
+
+}
+```
+
+## GCM1
+
+```{r}
+igv(gene_name = 'GCM1')
+```
+
+## INHBA
+
+```{r}
+anno %>%
+  filter(grepl('INHBA$', genes_symbol)) %>%
+  pull(start) %>% range
+
+c <- 'chr7'
+s <- 41731552
+e <- 41742795
+s_extend <- s - 2500
+e_extend <- e + 7500
+
+
+region_of_interest <- anno %>%
+  filter(chr == c, start > s_extend, end < e_extend,
+         cpg %in% rownames(betas_filt))
+
+# add betas, annotation, and pdata
+b <- betas_filt[region_of_interest$cpg,pDat_filt$Sample_Name] %>%
+  as.data.frame() %>%
+  bind_cols(cpg = rownames(.), .) %>%
+  pivot_longer(cols = -cpg,
+               names_to = 'Sample_Name',
+               values_to = 'beta') %>%
+  left_join(anno, by = 'cpg') %>% 
+  right_join(pDat_filt, by = 'Sample_Name') 
+
+
+
+p1 <- b %>%
+  filter(Trimester == 'Third') %>%
+  group_by(cpg, Tissue) %>%
+  summarize(mean = mean(beta), start = dplyr::first(start)) %>%
+  ggplot(aes(x = start, color = Tissue)) +
+  geom_linerange(ymin = 0, aes(ymax = mean)) +
+  annotate(geom = 'rect', ymin = 0, ymax = 1, alpha = 0.1,
+           xmin =41745000-200, 
+           xmax = 41745000+1250
+           ) +
+  annotate(geom = 'rect', ymin = 0, ymax = 1, alpha = 0.1,
+           xmin = 41739801-1250, 
+           xmax = 41739742 + 250
+           ) +
+  annotate(geom = 'rect', ymin = 0, ymax = 1, alpha = 0.1,
+           xmin = 41733356-1900, 
+           xmax = 41733356 -950
+           ) +
+  facet_wrap(vars(Tissue), ncol = 1, strip.position = 'left',
+             labeller = labeller(Tissue = function(x)gsub(' cs', '', x))) +
+  theme_bw(base_size = font_size) +
+  theme(strip.background = element_blank(),
+        strip.text.y = element_text(angle = 180, hjust = 1),
+        strip.placement = 'outside',
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line = element_line(size = 0.5),
+        panel.border = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.spacing = unit(0, 'lines'),
+        #panel.grid = element_blank()
+        ) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0,1), expand = c(0,0), labels = NULL) +
+  scale_x_continuous(limits = c(s_extend, e_extend), expand = c(0,0), 
+                     breaks = breaks_width(15000),
+                     labels = scales::number) +
+  scale_color_manual(values = color_code_tissue,guide = 'none') +
+  labs(y = '', x = '', title = 'INHBA');p1
+
+p2 <- annotations %>%
+  filter(seqnames == as.character(c), start > s_extend, end < e_extend,
+         type %in% c('exons', 'introns', 'promoters')) %>%
+  
+  filter(symbol != 'INHBA-AS1') %>%
+  
+  ggplot(aes(x = start, xend = end)) +
+  geom_segment(y= 0.5, yend = 0.5, aes(size = type, color = type))  +
+  annotate(geom = 'rect', ymin = 0, ymax = 1, alpha = 0.1,
+           xmin =41745000-200, 
+           xmax = 41745000+1250
+           ) +
+  annotate(geom = 'rect', ymin = 0, ymax = 1, alpha = 0.1,
+           xmin = 41739801-1250, 
+           xmax = 41739742 + 250
+           ) +
+  annotate(geom = 'rect', ymin = 0, ymax = 1, alpha = 0.1,
+           xmin = 41733356-1900, 
+           xmax = 41733356 -950
+           ) +
+  facet_wrap(~tx_id, ncol = 1, strip.position = 'left') +
+  theme_bw(base_size = font_size)+
+  theme(strip.background = element_blank(),
+        strip.text.y  = element_text(angle = 180),
+        strip.placement = 'outside',
+        legend.position = 'bottom',
+        plot.title =  element_blank(),
+        plot.subtitle = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(size = 0.5),
+        panel.spacing = unit(0, 'lines'),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.border = element_blank(),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.spacing = unit(0.25, 'cm')) +
+  scale_size_manual(values = c('exons' = 7, 'introns' = 1, 'intronexonboundaries' = 3,
+                               '5UTRs' = 5, '3UTRs' = 6,
+                               '1to5kb' = 2,
+                               'promoters' = 2,
+                               
+                               'cpg_inter' = 1,
+                               'cpg_islands' = 5,
+                               'cpg_shores' = 4,
+                               'cpg_shelves' = 3)) +
+  scale_color_manual(values = c('exons' = 'black', 'introns' = 'black', 'intronexonboundaries' = 'black',
+                               '5UTRs' = 'grey', '3UTRs' = 'grey',
+                               '1to5kb' = 'grey',
+                               'promoters' = 'forestgreen',
+                               
+                               'cpg_inter' = 1,
+                               'cpg_islands' = 5,
+                               'cpg_shores' = 4,
+                               'cpg_shelves' = 3)) +
+  scale_x_continuous(limits = c(s_extend,e_extend), 
+                     expand = c(0,0), 
+                     labels = scales::number,
+                     breaks = breaks_width(15000)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x = 'position', size = '', color = '');p2
+egg::ggarrange(p1,p2, ncol = 1, heights = c(3, 1)) #H:4.25, #w: 3.25
+```
+
+## TFAP2C
+
+```{r}
+igv(gene_name = 'TFAP2C', show_transcript_gene = FALSE, breaks_width = 10000,
+    highlight_region = tibble(start = c(55200000-600),
+                              end = c(55200000 + 4000)))#H:4.25, #w: 3.25
+```
+
+## MMP2
+
+```{r}
+igv(gene_name = 'MMP2', start_extend = 2500, end_extend = 2500,
+    show_transcript_gene = FALSE,
+    highlight_region = tibble(start = c(55515000 - 2750),
+                              end = c(55515000 -500)))#H:4.25, #w: 3.25
+```
+
+## SLC1A5
+
+```{r}
+igv(gene_name = 'SLC1A5', start_extend = 2500, end_extend = 2500,
+    show_transcript_gene = FALSE,
+    highlight_region = tibble(start = c(47280000 + 7600),
+                              end = c(47280000 +12500)))#H:4.25, #w: 3.25
+```
+
+## RRM2
+
+```{r}
+igv(gene_name = 'RRM2', start_extend = 2600, end_extend = 500)#H:4.25, #w: 3.25
+```
+
+## GATA3
+
+```{r}
+igv(gene_name = 'GATA3', start_extend = 2600, end_extend = 500,
+    highlight_region = tibble(start = c(8090000 - 300),
+                              end = c(8105000-1000)),
+    exon_size = 3)#H:4.25, #w: 3.25
+```
+
+
+## TEAD3
+
+```{r}
+igv(gene_name = 'TEAD3', start_extend = 2600, end_extend = 500,
+    highlight_region = tibble(start = c(35460000 - 7000),
+                              end = c(35460000 + 7000)))#H:4.25, #w: 3.25
+```
+
+## JUNB
+
+```{r}
+igv(gene_name = 'JUNB', start_extend = 2600, end_extend = 2600)#H:4.25, #w: 3.25
+```
+
+## ST3GAL1
+
+```{r}
+igv(gene_name = 'ST3GAL1', start_extend = 5000, end_extend = 500)#H:4.25, #w: 3.25
+```
+
+## PKM2
+
+```{r}
+#igv(gene_name = 'PKM2', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## NDRG1
+
+```{r}
+igv(gene_name = 'NDRG1', start_extend = 2500, end_extend = 500,
+    breaks_width = 25000,
+    show_transcript_gene = FALSE,
+    transcript_height = 0.5,
+     highlight_region = tibble(start = c(134250000 +8000),
+                              end = c(134250000 + 14000)))#H:4.25, #w: 3.25
+```
+
+## CHI3L2
+
+```{r}
+igv(gene_name = 'CHI3L2', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## FAM3B
+
+ok
+
+```{r}
+igv(gene_name = 'FAM3B', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## SYNE1
+
+too many transcripts
+
+```{r}
+igv(gene_name = 'SYNE1', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## AGAP1
+
+too large of a region
+
+```{r}
+igv(gene_name = 'AGAP1', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## ADAM12
+
+good but lots of data
+
+```{r}
+igv(gene_name = 'ADAM12', start_extend = 2500, end_extend = 7500,
+    show_transcript_gene = FALSE, 
+    breaks_width = 100000,
+    highlight_region = tibble(start = c(128050000 + 10000, 
+                                        128000000 - 15000,
+                                        127900000 - 4000,
+                                        127800000 - 10000),
+                              end = c(128050000 + 38000, 
+                                      128000000 + 5000,
+                                      127900000 + 18000,
+                                      127800000 + 25000))
+      )#H:4.25, #w: 3.25
+```
+
+## CGA
+
+```{r}
+igv(gene_name = 'CGA', start_extend = 500, end_extend = 500,
+    breaks_width = 2500,
+    show_transcript_gene = FALSE,
+    highlight_region = tibble(start = c(87805000-100),
+                              end = c(87805000+100)))#H:4.25, #w: 3.25
+```
+
+## FN1
+
+```{r}
+igv(gene_name = 'FN1', start_extend = 500, end_extend = 500)#H:4.25, #w: 3.25
+```
+
+## PKM2
+
+```{r}
+#igv(gene_name = 'PKM2', start_extend = 500, end_extend = 500)#H:4.25, #w: 3.25
+```
+
+## KRT15 
+
+```{r}
+igv(gene_name = 'KRT15', start_extend = 500, end_extend = 500)#H:4.25, #w: 3.25
+```
+
+## DNMT1 
+
+```{r}
+igv(gene_name = 'DNMT1', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## DNMT3A 
+
+```{r}
+igv(gene_name = 'DNMT3A', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## DNMT3B 
+
+```{r}
+igv(gene_name = 'DNMT3B', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## DNMT3L 
+
+```{r}
+igv(gene_name = 'DNMT3L', start_extend = 2500, end_extend = 2500)#H:4.25, #w: 3.25
+```
+
+## TET1 
+
+```{r}
+igv(gene_name = 'TET1', start_extend = 10000, end_extend = 2500)#H:4.25, #w: 3.25
 ```
 
 # PCA

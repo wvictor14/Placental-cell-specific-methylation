@@ -1,0 +1,295 @@
+---
+title: "2_16_igv_viewer"
+author: "Victor Yuan"
+date: "27/02/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#install.packages('ggforce')
+
+library(annotatr)
+library(RColorBrewer)
+library(egg)
+library(scales)
+library(here)
+library(ggrepel)
+library(forcats)
+library(GGally)
+library(irlba)
+library(tidyverse)
+font_size <- 8
+
+# parent directory
+base_path <- here("data", "main", "interim")
+
+# sample data
+pDat <- readRDS(file.path(base_path, '3_1_pDat_filt.rds'))
+
+# methylation data
+betas <- readRDS(file.path(base_path, '3_1_betas_filt.rds'))
+
+# annotation
+anno <- readRDS(file.path('Z:/', 
+                          'Victor', 'Repositories', 'EPIC_annotation',
+                          'hg19_epic_annotation.rds'))
+
+#color code
+color_code <- readRDS(file.path(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$Tissue)
+
+#list of genes for search list
+gene <- tibble(gene = str_split(anno$genes_symbol, ', ') %>%
+                 unlist() %>%
+                 unique() %>%
+                 na.omit() %>%
+                 sort())
+
+dmcs <- readRDS(file.path(base_path, '2_4_dmcs.rds'))
+
+#pull out cpg name for search list use
+cpg <- unique(anno$cpg) 
+cpg <- cpg[cpg %in% rownames(betas)] %>% as_tibble()
+
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),)
+# filter to first trimester
+betas_filt <- betas[,pDat_filt$Sample_Name]
+```
+
+# setup annotation
+
+```{r}
+#ect annotations for intersection with regions
+# Note inclusion of custom annotation, and use of shortcuts
+annots <- c('hg19_cpgs', 'hg19_basicgenes', 'hg19_genes_intergenic',
+           'hg19_genes_intronexonboundaries')
+
+# Build the annotations (a single GRanges object)
+annotations <- build_annotations(genome = 'hg19', annotations = annots)
+annotations <- annotations %>%
+  as_tibble() %>%
+  mutate(type = gsub('genes_', '',
+                     gsub('hg19_', '', type)),
+         type = fct_relevel(type,
+                            c('1to5kb', 'promoters', '5UTRs', 
+                              'exons', 'introns', 'intronexonboundaries', 
+                              '3UTRs',
+                              'cpg_islands', 'cpg_shores', 'cpg_shelves', 'cpg_inter'))) 
+
+anno <- anno %>%
+  filter(cpg %in% rownames(betas_filt))
+```
+
+# setup function
+
+```{r}
+igv <- function(gene_name = NULL, 
+                
+                start_extend = 2500, # how far to extend the plot left, in genomic coordinates 
+                end_extend = 2500,   # how far to extend right
+                
+                show_transcript_gene = TRUE, # show transcripts associated gene symbol
+                breaks_width = 15000, # determines the spacing of x axis breaks
+                
+                highlight_region = NULL, # a df with start end columns, indicating regions to highlight
+                
+                trimester = 'Third', # can be Third, First, or Both
+                sex = 'Both', # can be Male, Female, or Both
+                
+                plot_sizes = c(3,1) # a 2-element numeric vector indicating the relative plot heights 
+                                    # of the methylation plot to the transcript plot
+                
+                # required components:
+                # pDat_filt with columns Sample_Name, Trimester, Sex, and Tissue
+                # betas_filt data.frame with column names == pDat$Sample_Name
+                # anno data frame that is contains a column cpg, genes_symbol, chr, start, end
+                # the cpgs in anno and betas_filt need to be exactly the same, and same order
+                # annotation data.frame that I built from annotatr, and slightly cleaned
+                
+                ) {
+  
+  # subset to relevant samples
+  if (trimester %in% c('Third', 'First')) {
+    pDat_filt <- pDat_filt %>%
+      filter(Trimester == trimester)
+  }
+  
+  if (!trimester %in% c('Third', 'First', 'Both')) {
+    stop('trimester must be set to one of "Third", "First", or "Both"')
+  }
+  
+  if (sex %in% c('Male', 'Female')) {
+    pDat_filt <- pDat_filt %>%
+      filter(Sex == sex)
+  }
+  
+  if (!sex %in% c('Male', 'Female', 'Both')) {
+    stop('sex must be set to one of "Male", "Female", or "Both"')
+  }
+  
+   
+  # subset to cpgs associated with gene
+  anno_gene_subset <- anno %>%
+    filter(grepl(paste0('\\<', gene_name, '\\>'), genes_symbol)) %>% 
+    dplyr::select(chr, start, end) 
+  
+  c <- unique(anno_gene_subset$chr)
+  s <- min(anno_gene_subset$start) # first cpg
+  e <- max(anno_gene_subset$start) # last cpg
+  s_extend <- s - start_extend
+  e_extend <- e + end_extend
+  
+  region_of_interest <- anno %>%
+    filter(chr == c, start > s_extend, end < e_extend)
+  
+  # subset betas
+  b <- betas_filt[region_of_interest$cpg, pDat_filt$Sample_Name] %>%
+    as.data.frame() %>%
+    bind_cols(cpg = rownames(.), .) %>%
+    pivot_longer(cols = -cpg,
+                 names_to = 'Sample_Name',
+                 values_to = 'beta') %>%
+    left_join(anno, by = 'cpg') %>% 
+    right_join(pDat_filt, by = 'Sample_Name') 
+  
+  
+  p1 <- b %>%
+    
+    # calculate mean beta for each cpg for each tissue
+    group_by(cpg, Tissue) %>%
+    summarize(mean = mean(beta), start = dplyr::first(start)) %>%
+    
+    # plot methylation means
+    ggplot(aes(x = start)) +
+    geom_linerange(ymin = 0, aes(ymax = mean, color = Tissue)) +
+    
+    facet_wrap(vars(Tissue), ncol = 1, strip.position = 'left',
+               labeller = labeller(Tissue = function(x)gsub(' cs', '', x))) +
+    
+    theme_bw(base_size = font_size) +
+    theme(strip.background = element_blank(),
+          strip.text.y = element_text(angle = 180, hjust = 1),
+          strip.placement = 'outside',
+          axis.ticks = element_blank(),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.line = element_line(size = 0.5),
+          panel.border = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.spacing = unit(0, 'lines'),
+          #panel.grid = element_blank()
+          ) +
+    scale_y_continuous(limits = c(0,1), breaks = c(0,1), expand = c(0,0), labels = NULL) +
+    scale_x_continuous(limits = c(s_extend, e_extend), expand = c(0,0), 
+                       breaks = breaks_width(15000),
+                       labels = scales::number) +
+    scale_color_manual(values = colors, guide = 'none') +
+    labs(y = '', x = '', title = gene_name);p1
+  
+  p2 <- annotations %>%
+    filter(seqnames == as.character(c), start > s_extend, end < e_extend,
+           type %in% c('exons', 'introns', 'promoters')) %>%
+    
+    mutate(symbol = ifelse(is.na(symbol), '', symbol)) %>%
+    ggplot(aes(x = start, xend = end)) +
+    geom_segment(y= 0.5, yend = 0.5, aes(size = type, color = type))  +
+    facet_wrap(~symbol + tx_id, ncol = 1, strip.position = 'left') +
+    theme_bw(base_size = font_size)+
+    theme(strip.background = element_blank(),
+          strip.text.y  = element_text(angle = 180),
+          strip.placement = 'outside',
+          legend.position = 'bottom',
+          plot.title =  element_blank(),
+          plot.subtitle = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.line = element_line(size = 0.5),
+          panel.spacing = unit(0, 'lines'),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.border = element_blank(),
+          legend.key.size = unit(0.5, 'cm'),
+          legend.spacing = unit(0.25, 'cm')) +
+    scale_size_manual(values = c('exons' = 7, 'introns' = 1, 'intronexonboundaries' = 3,
+                                 '5UTRs' = 5, '3UTRs' = 6,
+                                 '1to5kb' = 2,
+                                 'promoters' = 2,
+                                 
+                                 'cpg_inter' = 1,
+                                 'cpg_islands' = 5,
+                                 'cpg_shores' = 4,
+                                 'cpg_shelves' = 3)) +
+    scale_color_manual(values = c('exons' = 'black', 'introns' = 'black', 'intronexonboundaries' = 'black',
+                                 '5UTRs' = 'grey', '3UTRs' = 'grey',
+                                 '1to5kb' = 'grey',
+                                 'promoters' = 'forestgreen',
+                                 
+                                 'cpg_inter' = 1,
+                                 'cpg_islands' = 5,
+                                 'cpg_shores' = 4,
+                                 'cpg_shelves' = 3)) +
+    scale_x_continuous(limits = c(s_extend,e_extend), 
+                       expand = c(0,0), 
+                       labels = scales::number,
+                       breaks = breaks_width(15000)) +
+    scale_y_continuous(expand = c(0,0)) +
+    labs(x = 'position', size = '', color = '');p2
+  
+  if (!is.null(highlight_region)) {
+    p1 <- p1 + 
+      geom_rect(data = highlight_region,
+                aes(xmin = start, xmax = end),
+                ymin = 0, ymax = 1,
+                alpha = 0.1)
+    p2 <- p2 + 
+      geom_rect(data = highlight_region,
+                aes(xmin = start, xmax = end),
+                ymin = 0, ymax = 1,
+                alpha = 0.1)
+  }
+  egg::ggarrange(p1,p2, ncol = 1, heights = plot_sizes) #H:4.25, #w: 3.25
+
+}
+  
+```
+
+# GCM1
+
+```{r}
+igv(gene_name = 'GCM1', start_extend = 2500, end_extend = 2500,
+    highlight_region = tibble(start = c(53010000+2600, 53010000 + 8600),
+                              end = c(53010000+4100, 53010000 + 9100)))
+```
+
+# TFAP2C
+
+```{r}
+igv(gene_name = 'TFAP2C', start_extend = 2500, end_extend = 2500)
+```
+
+# MMP2
+
+```{r}
+igv(gene_name = 'MMP2', start_extend = 2500, end_extend = 2500)
+```
+
+# SLC1A5
+
+```{r}
+igv(gene_name = 'SLC1A5', start_extend = 2500, end_extend = 2500)
+```
+
+# RRM2
+
+```{r}
+igv(gene_name = 'RRM2', start_extend = 5000, end_extend = 2500)
+```
+
