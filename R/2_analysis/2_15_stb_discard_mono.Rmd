@@ -454,6 +454,140 @@ out <- pheatmap(
          annotation_names_col = FALSE)
 ```
 
+# Public hofbauer cell data
+
+grab geo data
+
+```{r}
+library(GEOquery)
+GSE31680 <- getGEO('GSE31680')
+
+GSE31680_betas <- exprs(GSE31680[[1]])
+GSE31680_betas[1:6,1:6]
+
+GSE31680_pDat <- pData(GSE31680[[1]]) %>% 
+  as_tibble() %>%
+  select(title, geo_accession, `cell type:ch1`) %>%
+  janitor::clean_names() %>%
+  rename(Celltype = cell_type_ch1,
+         Sample_Name = title)
+
+GSE31680_pDat
+all(colnames(GSE31680_betas) == GSE31680_pDat$geo_accession)
+colnames(GSE31680_betas) <- GSE31680_pDat$Sample_Name
+
+table(GSE31680_pDat$Celltype)
+```
+
+combine with hofbauer cells
+
+```{r}
+length(intersect(rownames(betas_filt), rownames(GSE31680_betas))) # 22488 probes common 
+nrow(GSE31680_betas)
+
+betas_mono <- 
+  cbind(betas_filt[intersect(rownames(betas_filt), rownames(GSE31680_betas)),
+              pDat_filt %>% filter(Tissue == 'Hofbauer') %>% pull(Sample_Name)],
+        GSE31680_betas[intersect(rownames(betas_filt), rownames(GSE31680_betas)),])
+
+
+pDat_mono <- pDat_filt  %>% 
+  filter(Tissue == 'Hofbauer') %>%
+  select(Sample_Name, Trimester, Tissue, ) %>%
+  bind_rows(., GSE31680_pDat %>% 
+              dplyr::rename(Tissue = Celltype))
+
+# ensure samples in pdat and betas are in same order
+all(pDat_mono$Sample_Name == colnames(betas_mono)) #T
+
+dim(betas_mono) # 50 samples
+pDat_mono$Tissue %>% table
+
+```
+
+## PCA
+
+```{r}
+library(ggridges)
+pca_mono <- prcomp(t(na.omit(betas_mono)), center = T)
+pDat_mono <- bind_cols(pDat_mono, 
+                       pca_mono$x[,1:10] %>%
+                         as.data.frame())
+
+tibble(PC = forcats::as_factor(colnames(pca_mono$x)),
+       index = 1:length(PC),
+       p_var = pca_mono$sdev^2 / sum(pca_mono$sdev^2)) %>%
+  filter(index < 11) %>%
+  ggplot(aes(x = index, y = p_var)) +
+  geom_bar(stat = 'identity') +
+  scale_y_continuous(label = scales::percent) +
+  scale_x_continuous(breaks = 1:10)
+
+pDat_mono %>%
+  select(Tissue, contains('PC')) %>%
+  pivot_longer(cols = -Tissue,
+               names_to = 'PC',
+               values_to = 'Coordinates',
+               names_prefix = 'PC') %>%
+  mutate(PC = forcats::as_factor(PC),
+         Tissue = factor(Tissue, levels = 
+                           c('maternal blood monocytes', 'cord blood monocytes', 
+                             'decidual macrophages', 'villous macrophages', 'Hofbauer'))) %>%
+  ggplot(aes(x = Coordinates, y = Tissue, fill = Tissue)) +
+  geom_density_ridges(alpha = 0.5,
+                      jittered_points = TRUE,
+                      position = position_points_jitter(width = 0.05, height = 0),
+                      point_shape = '|', point_size = 3) +
+  facet_wrap(~PC)
+
+
+
+pDat_mono %>%
+  ggplot(aes(x = PC1, y = PC2, color = Tissue)) +
+  geom_point()
+
+pDat_mono %>%
+  ggplot(aes(x = PC1, y = PC2, color = Tissue)) +
+  geom_point()
+```
+
+## Clustering
+
+```{r}
+var <- tibble(cpg = rownames(na.omit(betas_mono)),
+       sd = apply(na.omit(betas_mono), 1, FUN = sd))
+
+mostvar1000 <- var %>% arrange(desc(sd)) %>%
+  dplyr::slice(1:1000) %>%
+  pull(cpg)
+
+annotation <- pDat_mono %>% 
+  mutate(Trimester = ifelse(is.na(Trimester), 'Third', Trimester)) %>%
+  select(Tissue, Trimester) %>% 
+  as.data.frame()
+rownames(annotation) <- pDat_mono$Sample_Name
+
+annotation_colors <-
+  list(Tissue = c('Bcell' = '#300E9E',
+                  'CD4T' = '#1FAE1B',
+                  'CD8T' = '#185A30',
+                  'Gran' = '#EBCD45',
+                  'Hofbauer' = '#1565C0',
+                  'Mono' = '#219ABC',
+                  'NK' = '#E0855D',
+                  'nRBC' = '#8A2121',
+                  'WBC' = '#D4C2BE'))
+
+out <- pheatmap(betas_mono[mostvar1000,]*100,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation,
+         color = inferno(100),
+         breaks = seq(0,100, 1),
+         annotation_names_col = FALSE)
+out
+```
+
 # Limma
 
 ## STB vs troph/villi
