@@ -140,7 +140,225 @@ p1 <- densities_high_res %>%
 ```{r}
 imprint_density <- readRDS(here::here(base_path, '2_12_imprint_density.rds'))
 imprint_density_allele <- readRDS(here::here(base_path, '2_12_imprint_density_allele.rds'))
+```
 
+## other and placental-specific
+
+```{r}
+p1a <- imprint_density %>%
+  filter(imprint_tissue_specificity == 'other') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 0.75,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue,  Trimester, 
+                          imprint_tissue_specificity, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE,
+                size = 2.5) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                                     .rows = function(x)ifelse(x == 'First', 
+                                                               paste0(x, ' Trimester'),
+                                                               'Term')),
+                 switch = 'y') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0),
+                         limits = c(0,3.75)) +
+      scale_x_continuous(#limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('0', '', '50%', '', '100%')) +
+      theme_bw(base_size = fontsize) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '', 
+           title = 'Regions imprinted in multiple tissues')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p1a # h: 2, w: 5.75
+
+p1b <- imprint_density %>%
+  filter(imprint_tissue_specificity == 'placental-specific') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 0.75) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue,  Trimester, 
+                          imprint_tissue_specificity, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE,
+                size = 2.5) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                                     .rows = function(x)ifelse(x == 'First', 
+                                                               paste0(x, ' Trimester'),
+                                                               'Term')),
+                 switch = 'y') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0)) +
+      scale_x_continuous(#limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('0', '', '50%', '', '100%')) +
+      theme_bw(base_size = fontsize) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '', 
+           title = 'Regions imprinted only in placenta')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p1b # h: 2, w: 5.75
+```
+
+## Imprints by methylated allele
+
+```{r}
+p2a <- imprint_density_allele %>%
+  filter(imprint_methylated_allele == 'M') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 0.75) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(-x, -y) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                size = 2.5,
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                   .rows = function(x)gsub(
+                     'Third', 'Term', gsub(
+                       'First', "First Trimester", x))),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0), limits = c(0,4.9)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = fontsize) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', title = 'Maternal (# CpGs = 895)', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p2a
+
+p2b <- imprint_density_allele %>%
+  filter(imprint_methylated_allele == 'P') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 0.75) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(-x,-y) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                size = 2.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                   .rows = function(x)gsub(
+                     'Third', 'Term', gsub(
+                       'First', "First Trimester", x))),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0), limits = c(0,4.9)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = fontsize) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', title = 'Paternal\n(# CpGs = 190)', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p2b
+
+```
+
+## Oldcode 
+
+```{r}
 
 p_i1 <- imprint_density %>%
   {
