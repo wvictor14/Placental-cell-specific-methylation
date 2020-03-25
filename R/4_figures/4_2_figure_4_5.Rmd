@@ -429,14 +429,14 @@ p2b <- imprint_density_allele %>%
 
 ```
 
-## Oldcode 
+## just by trimester
 
 ```{r}
-
 p_i1 <- imprint_density %>%
+  filter(Trimester == 'Third') %>%
   {
     ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
-      geom_line(size = 1,) +
+      geom_line(size = 0.75) +
       geom_area(data = . %>%
                   filter(x < 0.75, x > 0.25),
                 aes(fill = Tissue, color = NULL),
@@ -454,8 +454,8 @@ p_i1 <- imprint_density %>%
                  rows = vars(imprint_tissue_specificity),
                  labeller = labeller(
                    .cols = function(x)gsub(' cs', '', x),        
-                   .rows = c('other' = 'Ubiquitous\n(# CpGs = 1085)',
-                             'placental-specific' = 'Placental-specific\n(# CpGs = 981)')),
+                   .rows = c('other' = 'Imprinted in\nmultiple tissues\n(# CpGs = 1085)',
+                             'placental-specific' = 'Imprinted in\nplacenta\n(# CpGs = 981)')),
                  switch = 'y') +
       scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
                          na.value = '#636363',
@@ -480,18 +480,19 @@ p_i1 <- imprint_density %>%
             axis.title.y = element_text(angle = 0, vjust = 0.5)) +
       labs(x = 'DNA methylation', y = '', fill = '')+
       annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
-  };p_i1# h: 2.15, w: 5.5
+  };p_i1## h: 2, w: 6
 
-p_i2 <- imprint_density_allele %>%
+p_i1b <- imprint_density %>%
+  filter(Trimester == 'First') %>%
   {
     ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
-      geom_line(size = 1,) +
+      geom_line(size = 0.75) +
       geom_area(data = . %>%
                   filter(x < 0.75, x > 0.25),
                 aes(fill = Tissue, color = NULL),
                 alpha = 0.35) +
       geom_text(data = . %>%
-                   select(Tissue, imprint_methylated_allele, contains('p')) %>%
+                   select(Tissue, imprint_tissue_specificity, contains('p')) %>%
                    distinct() %>%
                    mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
                  x = 0.5,
@@ -500,11 +501,12 @@ p_i2 <- imprint_density_allele %>%
                  show.legend = FALSE,
                 size = 2.5) +
       facet_grid(cols = vars(Tissue), 
-                 rows = vars(imprint_methylated_allele),
-                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
-                                     .rows = c('M' = 'Maternal\n(# CpGs = 895)', 
-                                               'P' = 'Paternal\n(# CpGs = 190)')),
-                 switch = 'y') +
+                 rows = vars(imprint_tissue_specificity),
+                 labeller = labeller(
+                   .cols = function(x)gsub(' cs', '', x),        
+                   .rows = c('other' = 'Ubiquitous\n(# CpGs = 1085)',
+                             'placental-specific' = 'Placental-specific\n(# CpGs = 981)')),
+                 switch = 'both') +
       scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
                          na.value = '#636363',
                          guide = 'none') +
@@ -512,7 +514,7 @@ p_i2 <- imprint_density_allele %>%
                          na.value = '#636363',
                          labels = function(x)gsub(' cs', '', x),
                         guide = 'none') +
-      scale_y_continuous(expand = c(0,0), limits = c(0,4.9)) +
+      scale_y_continuous(expand = c(0,0)) +
       scale_x_continuous(limits = c(0,1), 
                          expand = c(0,0), 
                          breaks = c(0, 0.25, 0.5, 0.75, 1), 
@@ -526,9 +528,9 @@ p_i2 <- imprint_density_allele %>%
             strip.text.y = element_text(angle = 180),
             axis.line = element_line(),
             axis.title.y = element_text(angle = 0, vjust = 0.5)) +
-      labs(x = 'DNA methylation', y = 'Methylated\nallele', fill = '')+
+      labs(x = 'DNA methylation', y = '', fill = '')+
       annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
-  };p_i2 # h: 2.15, w: 6
+  };p_i1b# h: 2.15, w: 6
 ```
 
 # PMD regions
