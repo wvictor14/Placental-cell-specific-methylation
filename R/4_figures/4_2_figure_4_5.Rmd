@@ -1340,8 +1340,8 @@ p_re_5 <- global_data %>%
               size = 0.25,
               scale = 'width') +
   geom_jitter(alpha = 1, 
-              size = 0.2,
-              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.05))+
+              size = 0.1,
+              position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.075))+
   geom_signif(color = 'black',
               textsize = 2,
               size = 0.25,
@@ -1375,7 +1375,7 @@ p_re_5 <- global_data %>%
         axis.line = element_line(),
         axis.ticks = element_blank(),
         panel.grid.minor = element_blank(),
-        panel.grid.major.x = element_blank());p_re_5  #h:1.75, w:4.5
+        panel.grid.major.x = element_blank());p_re_5  #h:1.75, w:5.75
 
 # just first trim, Figure S3
 p_re_6 <- global_data %>%
