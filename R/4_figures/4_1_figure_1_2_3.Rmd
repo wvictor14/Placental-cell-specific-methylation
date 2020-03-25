@@ -537,22 +537,24 @@ plot_object <- dmcs_sig %>%
                names_to = 'direction',
                values_to = 'n') %>%
   separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>% {
+    
     ggplot(data = ., aes(x = Celltype)) +
-      geom_bar(stat = 'identity', aes(y = n, fill = direction)) +
+      geom_bar(stat = 'identity', aes(y = n, fill = direction),
+               color = 'black') +
       geom_text(data = select(., Trimester:all) %>%
                   distinct(),
-                aes(label = scales::number(all), y = all),
+                aes(label = scales::comma(all), y = all),
                 direction = 'y',
                 size = 2.5,
-                nudge_y = 15000,
+                nudge_y = 30000,
                 hjust = 'inward') +
       facet_wrap(~Trimester, ncol = 1, labeller = 'label_both') +
       scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
       scale_y_continuous(labels = scales::number_format(), 
                          expand = c(0, 0),
-                         limits = c(0, 160000)) +
+                         limits = c(0, 200000)) +
       scale_fill_manual(values = c('hyper' = '#e6e6e6', 'hypo' = 'grey'), 
-                        labels = c('Hypo-', 'Hyper-'),
+                        labels = c('Less methylated', 'More methylated'),
                         breaks = c('hypo', 'hyper'),
                         guide = guide_legend(override.aes = list(size = 1))) +
       guides(fill = guide_legend(override.aes = list(size = 0.1)))+
@@ -568,8 +570,7 @@ plot_object <- dmcs_sig %>%
             legend.margin=margin(0,0,0,0),
             legend.key.size = unit('0.4', 'cm')) +
       coord_flip() +
-      labs(x = '', y = '', fill = '') 
-    };plot_object #h: 2.75, w: 3
+      labs(x = '', y = '', fill = '') };plot_object #h: 2.75, w: 3
 
 dmcs_sig %>% 
   # calculate proportions
