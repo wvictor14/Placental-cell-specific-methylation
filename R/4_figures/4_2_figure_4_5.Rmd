@@ -65,7 +65,78 @@ f1 <- 8
 e1 <- TRUE
 ```
 
+
 # PMD intervals
+
+## together
+
+
+```{r, fig.height = 7}
+p1 <- densities_high_res %>%
+  
+  # extract data
+  filter(filt == 'filtered', 
+         array == 'EPIC',
+         Trimester != 'Second') %>%
+  
+  # remove density coords
+  select(Trimester, Celltype, range, prop) %>%
+  distinct() %>%
+  
+  # widen
+  pivot_wider(id_cols = c(Trimester, Celltype),
+              names_from = range,
+              values_from = prop) %>%
+  # sum intervals
+  mutate(`(0, 0.2]` = `(-Inf,0.1]` + `(0.1,0.2]`,
+         `(0.2, 0.4]` = `(0.2,0.3]` + `(0.3,0.4]`,
+         `(0.4, 0.6]` =  `(0.4,0.5]` + `(0.5,0.6]`,
+         `(0.6, 0.8]` = `(0.6,0.7]` + `(0.7,0.8]`,
+         `(0.8, 1]` =  `(0.8,0.9]` + `(0.9, Inf]`) %>%
+  select(Trimester, Celltype, `(0, 0.2]`:`(0.8, 1]`) %>%
+  pivot_longer(cols = c(`(0, 0.2]`:`(0.8, 1]`),
+               names_to = 'range',
+               values_to = 'prop') %>%
+  
+  {
+    ggplot(data = ., aes(x = Trimester, y = prop, col = Celltype)) +
+      geom_point(size = 0.9) +
+      geom_line(aes(group = Celltype), show.legend = FALSE) +
+      facet_wrap(~range, ncol = 5,
+                 labeller = labeller(
+                   range = c('(0, 0.2]' = '0-20',
+                             '(0.2, 0.4]' = '20-40',
+                             '(0.4, 0.6]' = '40-60',
+                             '(0.6, 0.8]' = '60-80',
+                             '(0.8, 1]' = '80-100')
+                 )) +
+      scale_color_manual(values= color_code_tissue[unique(.$Celltype)],
+                         labels = function(x)gsub(' cs', '', x),
+                         guide = guide_legend(override.aes = list(size = 2))) +
+      scale_x_discrete(labels = c('1', '3')) +
+      scale_y_continuous(expand = c(0, 0), 
+                         limits = c(0, 0.56), 
+                         breaks = seq(0,1, by = 0.1), 
+                         labels = function(x)percent(x, accuracy = 1)) +
+      labs(color = '', 
+           #title = 'Percent of total CpGs',
+           #subtitle = 'in different methylation intervals',
+           y = '') +
+      theme(legend.position = 'right',
+            legend.text = element_text(size = 6),
+            legend.spacing.y = unit(0.1, 'mm'),
+            legend.key.size = unit(0.5, 'lines'),
+            axis.ticks.x = element_blank(),
+            strip.background = element_blank(),
+            strip.text = element_text(face = 'bold', size = 6),
+            panel.grid = element_blank(),
+            
+            panel.border = element_blank(),
+            axis.line = element_line(color = 'black'))
+  };p1 # h: 2.25, w: 2.75
+```
+
+## by trimester
 
 ```{r, fig.height = 7}
 p1 <- densities_high_res %>%
@@ -104,9 +175,11 @@ p1 <- densities_high_res %>%
   
   {
     ggplot(data = ., aes(x = range_num, y = prop, col = Celltype)) +
-      geom_point(size = 0.9) +
-      geom_line(aes(group = Celltype), show.legend = FALSE) +
-      facet_wrap(vars(Trimester), ncol = 1, labeller = 'label_both') +
+      geom_point(size = 1) +
+      geom_line(aes(group = Celltype), show.legend = FALSE, size = 0.5) +
+      facet_wrap(vars(Trimester), ncol = 1, 
+                 labeller = labeller(Trimester = c('First' = 'First trimester',
+                                                   'Third' = 'Term'))) +
       scale_color_manual(values= color_code_tissue[unique(.$Celltype)],
                          labels = function(x)gsub(' cs', '', x),
                          guide = guide_legend(override.aes = list(size = 2))) +
