@@ -25,6 +25,7 @@ I previously looked at imprinting, but not in great detail. I also have since th
 
 ```r
 # libraries and data
+library(annotatr)
 library(tidyverse)
 library(scales)
 library(here)
@@ -85,9 +86,10 @@ Calculate density
 
 
 ```r
+# subset to imprinted cpgs
 imprint_cpgs <- anno %>%
   filter(!is.na(imprint_sources)) %>%
-  select(cpg, imprint_tissue_specificity)
+  select(cpg, imprint_tissue_specificity, imprint_methylated_allele)
 
 imprint_cpgs %>%
   count(imprint_tissue_specificity)
@@ -102,7 +104,21 @@ imprint_cpgs %>%
 ```
 
 ```r
-# Create data
+imprint_cpgs %>%
+  count(imprint_tissue_specificity, imprint_methylated_allele)
+```
+
+```
+## # A tibble: 3 x 3
+##   imprint_tissue_specificity imprint_methylated_allele     n
+##   <chr>                      <chr>                     <int>
+## 1 other                      M                           895
+## 2 other                      P                           190
+## 3 placental-specific         M                           981
+```
+
+```r
+# to calculate density we need betas and groups + cpg annotations
 imprint_df <- betas_filt[imprint_cpgs$cpg,] %>%
   
   #tidy
@@ -121,11 +137,15 @@ imprint_df <- betas_filt[imprint_cpgs$cpg,] %>%
   left_join(imprint_cpgs) %>% 
   
   # add pData
-  left_join(pDat_filt %>% select(Sample_Name, Tissue))
+  left_join(pDat_filt %>% select(Sample_Name, Tissue, Trimester)) 
 ```
 
 ```
-## Joining, by = "cpg"Joining, by = "Sample_Name"
+## Joining, by = "cpg"
+```
+
+```
+## Joining, by = "Sample_Name"
 ```
 
 ```
@@ -134,10 +154,10 @@ imprint_df <- betas_filt[imprint_cpgs$cpg,] %>%
 ```
 
 ```r
-# calculate densities
+# calculate densities for ubiqutous vs placental
 imprint_density <- imprint_df %>%
-  group_by(imprint_tissue_specificity, Tissue ) %>% 
-  select(-cpg) %>%
+  group_by(imprint_tissue_specificity, Tissue, Trimester) %>% 
+  select(-cpg, -imprint_methylated_allele) %>%
   summarize(p_25_75 = sum(beta > 0.25 & beta < 0.75)/length(beta),
             p_0_25 = sum(beta < 0.25)/length(beta),
             p_75_100 = sum(beta > 0.75)/length(beta),
@@ -149,35 +169,76 @@ imprint_density <- imprint_df %>%
          x = map(densities, 'x'),
          y = map(densities, 'y')) %>%
  # remove input data
-  select( Tissue, x, y, contains('p')) %>%
+  select( Tissue, Trimester, x, y, contains('p')) %>%
   unnest(cols = c(x, y))
 
 imprint_density
 ```
 
 ```
-## # A tibble: 5,120 x 7
-## # Groups:   imprint_tissue_specificity [2]
-##    Tissue              x       y imprint_tissue_specifi~ p_25_75 p_0_25 p_75_100
-##    <chr>           <dbl>   <dbl> <chr>                     <dbl>  <dbl>    <dbl>
-##  1 Endothelial ~ -0.0660 0.00141 other                     0.717  0.211   0.0724
-##  2 Endothelial ~ -0.0638 0.00193 other                     0.717  0.211   0.0724
-##  3 Endothelial ~ -0.0616 0.00262 other                     0.717  0.211   0.0724
-##  4 Endothelial ~ -0.0594 0.00352 other                     0.717  0.211   0.0724
-##  5 Endothelial ~ -0.0572 0.00473 other                     0.717  0.211   0.0724
-##  6 Endothelial ~ -0.0550 0.00633 other                     0.717  0.211   0.0724
-##  7 Endothelial ~ -0.0528 0.00838 other                     0.717  0.211   0.0724
-##  8 Endothelial ~ -0.0506 0.0110  other                     0.717  0.211   0.0724
-##  9 Endothelial ~ -0.0484 0.0143  other                     0.717  0.211   0.0724
-## 10 Endothelial ~ -0.0462 0.0184  other                     0.717  0.211   0.0724
-## # ... with 5,110 more rows
+## # A tibble: 10,240 x 8
+## # Groups:   imprint_tissue_specificity, Tissue [10]
+##    Tissue   Trimester       x       y imprint_tissue_sp~ p_25_75 p_0_25 p_75_100
+##    <chr>    <chr>       <dbl>   <dbl> <chr>                <dbl>  <dbl>    <dbl>
+##  1 Endothe~ First     -0.0762 0.00145 other                0.749  0.190   0.0606
+##  2 Endothe~ First     -0.0740 0.00189 other                0.749  0.190   0.0606
+##  3 Endothe~ First     -0.0718 0.00247 other                0.749  0.190   0.0606
+##  4 Endothe~ First     -0.0696 0.00322 other                0.749  0.190   0.0606
+##  5 Endothe~ First     -0.0674 0.00416 other                0.749  0.190   0.0606
+##  6 Endothe~ First     -0.0652 0.00533 other                0.749  0.190   0.0606
+##  7 Endothe~ First     -0.0630 0.00677 other                0.749  0.190   0.0606
+##  8 Endothe~ First     -0.0608 0.00854 other                0.749  0.190   0.0606
+##  9 Endothe~ First     -0.0586 0.0108  other                0.749  0.190   0.0606
+## 10 Endothe~ First     -0.0564 0.0135  other                0.749  0.190   0.0606
+## # ... with 10,230 more rows
+```
+
+```r
+# calculate densities for ubiqutous (mat) vs ubiquitous (pat)
+imprint_density_allele <- imprint_df %>%
+  filter(imprint_tissue_specificity == 'other') %>%
+  group_by(imprint_methylated_allele, Tissue, Trimester) %>% 
+  select(-cpg, -imprint_tissue_specificity) %>%
+  summarize(p_25_75 = sum(beta > 0.25 & beta < 0.75)/length(beta),
+            p_0_25 = sum(beta < 0.25)/length(beta),
+            p_75_100 = sum(beta > 0.75)/length(beta),
+            beta = list(beta)) %>% 
+  
+  # get sample names for each tissue
+  mutate(
+         densities = map(beta, ~ density(.)),
+         x = map(densities, 'x'),
+         y = map(densities, 'y')) %>%
+ # remove input data
+  select( Tissue, Trimester, x, y, contains('p')) %>%
+  unnest(cols = c(x, y))
+imprint_density_allele
+```
+
+```
+## # A tibble: 10,240 x 8
+## # Groups:   imprint_methylated_allele, Tissue [10]
+##    Tissue   Trimester       x       y imprint_methylate~ p_25_75 p_0_25 p_75_100
+##    <chr>    <chr>       <dbl>   <dbl> <chr>                <dbl>  <dbl>    <dbl>
+##  1 Endothe~ First     -0.0867 0.00183 M                    0.726  0.216   0.0585
+##  2 Endothe~ First     -0.0844 0.00235 M                    0.726  0.216   0.0585
+##  3 Endothe~ First     -0.0822 0.00299 M                    0.726  0.216   0.0585
+##  4 Endothe~ First     -0.0799 0.00378 M                    0.726  0.216   0.0585
+##  5 Endothe~ First     -0.0777 0.00475 M                    0.726  0.216   0.0585
+##  6 Endothe~ First     -0.0754 0.00593 M                    0.726  0.216   0.0585
+##  7 Endothe~ First     -0.0732 0.00742 M                    0.726  0.216   0.0585
+##  8 Endothe~ First     -0.0710 0.00923 M                    0.726  0.216   0.0585
+##  9 Endothe~ First     -0.0687 0.0114  M                    0.726  0.216   0.0585
+## 10 Endothe~ First     -0.0665 0.0140  M                    0.726  0.216   0.0585
+## # ... with 10,230 more rows
 ```
 
 Plot
 
 
 ```r
-p <- imprint_density %>%
+p1a <- imprint_density %>%
+  filter(Trimester == 'Third') %>%
   {
     ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
       geom_line(size = 1,) +
@@ -185,43 +246,1330 @@ p <- imprint_density %>%
                   filter(x < 0.75, x > 0.25),
                 aes(fill = Tissue, color = NULL),
                 alpha = 0.35) +
-      geom_label(data = . %>%
+      geom_text(data = . %>%
                    select(Tissue, imprint_tissue_specificity, contains('p')) %>%
                    distinct() %>%
                    mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
                  x = 0.5,
-                 y = 3,
+                 y = 3.5,
                  aes(label = p_25_75),
                  show.legend = FALSE) +
       facet_grid(cols = vars(Tissue), 
                  rows = vars(imprint_tissue_specificity),
-                 labeller = labeller(.cols = function(x)gsub(' cs', '', x))) +
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x)),
+                 switch = 'both') +
       scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
                          na.value = '#636363',
                          guide = 'none') +
       scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
                          na.value = '#636363',
                          labels = function(x)gsub(' cs', '', x),
-                        guide = guide_legend(override.aes = list(alpha = 1))) +
-      scale_x_continuous(limits = c(0,1), breaks = c( 0, 0.5, 1), labels = scales::percent) +
-      theme_bw(base_size = 6) +
-      theme(axis.ticks = element_blank(),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 12) +
+      theme(panel.border = element_blank(),
             panel.grid = element_blank(),
-            panel.spacing.x = unit(0.5, "mm"),
-            strip.background = element_blank()) +
-      labs(x = 'DNA methylation', y = 'Density', fill = '')
-  };p
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p1a
 ```
 
 ```
-## Warning: Removed 245 rows containing missing values (geom_path).
+## Warning: Removed 253 rows containing missing values (geom_path).
 ```
 
 ![](2_12_imprinting_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
 
+```r
+p1b <- imprint_density %>%
+  filter(Trimester == 'First') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue, imprint_tissue_specificity, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(imprint_tissue_specificity),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x)),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 12) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p1b
+```
+
+```
+## Warning: Removed 293 rows containing missing values (geom_path).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
+
+Put other by itself, and placental-sepcific by itself. Also divide by trimester
+
+
+```r
+imprint_density %>%
+  filter(imprint_tissue_specificity == 'other') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue, Trimester, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(
+                   .cols = function(x)gsub(' cs', '', x),
+                   .rows = function(x)gsub(
+                     'Third', 'Term', gsub(
+                       'First', "First Trimester", x))),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(limits = c(0, 4), expand = c(0,0)) +
+      scale_x_continuous(#limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 12) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  }
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+
+```r
+imprint_density %>%
+  filter(imprint_tissue_specificity == 'placental-specific') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(Tissue, Trimester, contains('p')) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                   .rows = function(x)gsub(
+                     'Third', 'Term', gsub(
+                       'First', "First Trimester", x))),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(limits = c(0, 8), expand = c(0,0)) +
+      scale_x_continuous(#limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 12) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  }
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
+
+## by mat pat allele
+
+
+```r
+imprint_density_allele$imprint_methylated_allele %>% unique
+```
+
+```
+## [1] "M" "P"
+```
+
+```r
+p2a <- imprint_density_allele %>%
+  filter(imprint_methylated_allele == 'M') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(-x, -y) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                   .rows = function(x)gsub(
+                     'Third', 'Term', gsub(
+                       'First', "First Trimester", x))),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0), limits = c(0,4.9)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 12) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', title = 'Maternal (# CpGs = 895)', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p2a
+```
+
+```
+## Warning: Removed 369 rows containing missing values (geom_path).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+
+```r
+p2b <- imprint_density_allele %>%
+  filter(imprint_methylated_allele == 'P') %>%
+  {
+    ggplot(data = ., aes(x = x, y = y, color = Tissue)) +
+      geom_line(size = 1,) +
+      geom_area(data = . %>%
+                  filter(x < 0.75, x > 0.25),
+                aes(fill = Tissue, color = NULL),
+                alpha = 0.35) +
+      geom_text(data = . %>%
+                   select(-x,-y) %>%
+                   distinct() %>%
+                   mutate(p_25_75 = scales::percent(p_25_75, accuracy = 1)),
+                 x = 0.5,
+                 y = 3.5,
+                 aes(label = p_25_75),
+                 show.legend = FALSE) +
+      facet_grid(cols = vars(Tissue), 
+                 rows = vars(Trimester),
+                 labeller = labeller(.cols = function(x)gsub(' cs', '', x),
+                   .rows = function(x)gsub(
+                     'Third', 'Term', gsub(
+                       'First', "First Trimester", x))),
+                 switch = 'both') +
+      scale_color_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         guide = 'none') +
+      scale_fill_manual(values = color_code_tissue[unique(imprint_density$Tissue)], 
+                         na.value = '#636363',
+                         labels = function(x)gsub(' cs', '', x),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0,0), limits = c(0,4.9)) +
+      scale_x_continuous(limits = c(0,1), 
+                         expand = c(0,0), 
+                         breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                         labels = c('', '', '50%', '', '100%')) +
+      theme_bw(base_size = 12) +
+      theme(panel.border = element_blank(),
+            panel.grid = element_blank(),
+            panel.spacing.x = unit(2, "mm"),
+            strip.background = element_blank(),
+            strip.placement = 'outside',
+            strip.text.y = element_text(angle = 180),
+            axis.line = element_line(),
+            axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+      labs(x = 'DNA methylation', title = 'Paternal\n(# CpGs = 190)', y = '', fill = '')+
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
+  };p2b
+```
+
+```
+## Warning: Removed 266 rows containing missing values (geom_path).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+
+# select imprints
+
+## setup igv function
+
+
+```r
+#ect annotations for intersection with regions
+# Note inclusion of custom annotation, and use of shortcuts
+annots <- c('hg19_cpgs', 'hg19_basicgenes', 'hg19_genes_intergenic',
+           'hg19_genes_intronexonboundaries')
+
+# Build the annotations (a single GRanges object)
+annotations <- build_annotations(genome = 'hg19', annotations = annots)
+```
+
+```
+## Loading required package: GenomicFeatures
+```
+
+```
+## Loading required package: BiocGenerics
+```
+
+```
+## Loading required package: parallel
+```
+
+```
+## 
+## Attaching package: 'BiocGenerics'
+```
+
+```
+## The following objects are masked from 'package:parallel':
+## 
+##     clusterApply, clusterApplyLB, clusterCall, clusterEvalQ,
+##     clusterExport, clusterMap, parApply, parCapply, parLapply,
+##     parLapplyLB, parRapply, parSapply, parSapplyLB
+```
+
+```
+## The following objects are masked from 'package:dplyr':
+## 
+##     combine, intersect, setdiff, union
+```
+
+```
+## The following objects are masked from 'package:stats':
+## 
+##     IQR, mad, sd, var, xtabs
+```
+
+```
+## The following objects are masked from 'package:base':
+## 
+##     anyDuplicated, append, as.data.frame, basename, cbind, colnames,
+##     dirname, do.call, duplicated, eval, evalq, Filter, Find, get, grep,
+##     grepl, intersect, is.unsorted, lapply, Map, mapply, match, mget,
+##     order, paste, pmax, pmax.int, pmin, pmin.int, Position, rank,
+##     rbind, Reduce, rownames, sapply, setdiff, sort, table, tapply,
+##     union, unique, unsplit, which, which.max, which.min
+```
+
+```
+## Loading required package: S4Vectors
+```
+
+```
+## Loading required package: stats4
+```
+
+```
+## 
+## Attaching package: 'S4Vectors'
+```
+
+```
+## The following objects are masked from 'package:dplyr':
+## 
+##     first, rename
+```
+
+```
+## The following object is masked from 'package:tidyr':
+## 
+##     expand
+```
+
+```
+## The following object is masked from 'package:base':
+## 
+##     expand.grid
+```
+
+```
+## Loading required package: IRanges
+```
+
+```
+## 
+## Attaching package: 'IRanges'
+```
+
+```
+## The following objects are masked from 'package:dplyr':
+## 
+##     collapse, desc, slice
+```
+
+```
+## The following object is masked from 'package:purrr':
+## 
+##     reduce
+```
+
+```
+## The following object is masked from 'package:grDevices':
+## 
+##     windows
+```
+
+```
+## Loading required package: GenomeInfoDb
+```
+
+```
+## Loading required package: GenomicRanges
+```
+
+```
+## Loading required package: AnnotationDbi
+```
+
+```
+## Loading required package: Biobase
+```
+
+```
+## Welcome to Bioconductor
+## 
+##     Vignettes contain introductory material; view with
+##     'browseVignettes()'. To cite Bioconductor, see
+##     'citation("Biobase")', and for packages 'citation("pkgname")'.
+```
+
+```
+## 
+## Attaching package: 'AnnotationDbi'
+```
+
+```
+## The following object is masked from 'package:dplyr':
+## 
+##     select
+```
+
+```
+## 
+```
+
+```
+## 'select()' returned 1:1 mapping between keys and columns
+```
+
+```
+## Building promoters...
+```
+
+```
+## Building 1to5kb upstream of TSS...
+```
+
+```
+## Building intergenic...
+```
+
+```
+## Building 5UTRs...
+```
+
+```
+## Building 3UTRs...
+```
+
+```
+## Building exons...
+```
+
+```
+## Building introns...
+```
+
+```
+## Building intron exon boundaries...
+```
+
+```
+## snapshotDate(): 2019-10-29
+```
+
+```
+## Building CpG islands...
+```
+
+```
+## loading from cache
+```
+
+```
+## Building CpG shores...
+```
+
+```
+## Building CpG shelves...
+```
+
+```
+## Building inter-CpG-islands...
+```
+
+```r
+annotations <- annotations %>%
+  as_tibble() %>%
+  mutate(type = gsub('genes_', '',
+                     gsub('hg19_', '', type)),
+         type = fct_relevel(type,
+                            c('1to5kb', 'promoters', '5UTRs', 
+                              'exons', 'introns', 'intronexonboundaries', 
+                              '3UTRs',
+                              'cpg_islands', 'cpg_shores', 'cpg_shelves', 'cpg_inter'))) 
+
+anno <- anno %>%
+  filter(cpg %in% rownames(betas_filt))
+
+font_size <- 12
+igv <- function(gene_name = NULL, 
+                
+                chr = NULL,
+                start = NULL,
+                end = NULL,
+                
+                start_extend = 2500, # how far to extend the plot left, in genomic coordinates 
+                end_extend = 2500,   # how far to extend right
+                
+                show_transcript_gene = TRUE, # show transcripts associated gene symbol
+                breaks_width = 15000, # determines the spacing of x axis breaks
+                
+                highlight_region = NULL, # a df with start end columns, indicating regions to highlight
+                
+                trimester = 'Third', # can be Third, First, or Both
+                sex = 'Both', # can be Male, Female, or Both
+                
+                plot_sizes = c(3,1), # a 2-element numeric vector indicating the relative plot heights 
+                                    # of the methylation plot to the transcript plot
+                transcript_height = 1 # scale factor for height of transcript elements. e.g. 1.1 = 110%
+                
+                # required components:
+                # pDat_filt with columns Sample_Name, Trimester, Sex, and Tissue
+                # betas_filt data.frame with column names == pDat$Sample_Name
+                # anno data frame that is contains a column cpg, genes_symbol, chr, start, end
+                # the cpgs in anno and betas_filt need to be exactly the same, and same order
+                # annotation data.frame that I built from annotatr, and slightly cleaned
+                # colors, a named vector corresponding to the color codes for each celltype
+                ) {
+  
+  # subset to relevant samples
+  if (trimester %in% c('Third', 'First')) {
+    pDat_filt <- pDat_filt %>%
+      filter(Trimester == trimester)
+  }
+  
+  if (!trimester %in% c('Third', 'First', 'Both')) {
+    stop('trimester must be set to one of "Third", "First", or "Both"')
+  }
+  
+  if (sex %in% c('Male', 'Female')) {
+    pDat_filt <- pDat_filt %>%
+      filter(Sex == sex)
+  }
+  
+  if (!sex %in% c('Male', 'Female', 'Both')) {
+    stop('sex must be set to one of "Male", "Female", or "Both"')
+  }
+  
+   
+  # subset to cpgs associated with gene or region
+  
+  if (!is.null(gene_name)){
+    anno_subset <- anno %>%
+      filter(grepl(paste0('\\<', gene_name, '\\>'), genes_symbol)) %>% 
+      dplyr::select(chr, start, end) 
+    
+      c <- unique(anno_subset$chr)
+      s <- min(anno_subset$start) # first cpg
+      e <- max(anno_subset$start) # last cpg
+      s_extend <- s - start_extend
+      e_extend <- e + end_extend
+  
+  
+  } else if (!is.null(chr) & !is.null(start) & !is.null(end)) {
+    anno_subset <- anno %>%
+      filter(chr == chr, start > start, end < end)
+    
+    c <- chr
+    s <- start 
+    e <- end 
+    s_extend <- s - start_extend
+    e_extend <- e + end_extend
+  } else {
+    stop('Input either a gene symbol, or a chromosome, start and end positions')
+  }
+  
+  region_of_interest <- anno %>%
+    filter(chr == c, start >= s_extend, end <= e_extend)
+  
+  # subset betas
+  b <- betas_filt[region_of_interest$cpg, pDat_filt$Sample_Name] %>%
+    as.data.frame() %>%
+    bind_cols(cpg = rownames(.), .) %>%
+    pivot_longer(cols = -cpg,
+                 names_to = 'Sample_Name',
+                 values_to = 'beta') %>%
+    left_join(anno, by = 'cpg') %>% 
+    right_join(pDat_filt, by = 'Sample_Name') 
+  
+  
+  p1 <- b %>%
+    
+    # calculate mean beta for each cpg for each tissue
+    group_by(cpg, Tissue) %>%
+    summarize(mean = mean(beta), start = dplyr::first(start)) %>%
+    
+    # plot methylation means
+    ggplot(aes(x = start)) +
+    geom_linerange(ymin = 0, aes(ymax = mean, color = Tissue)) +
+    
+    facet_wrap(vars(Tissue), ncol = 1, strip.position = 'left',
+               labeller = labeller(Tissue = function(x)gsub(' cs', '', x))) +
+    
+    theme_bw(base_size = font_size) +
+    theme(strip.background = element_blank(),
+          strip.text.y = element_text(angle = 180, hjust = 1),
+          strip.placement = 'outside',
+          axis.ticks = element_blank(),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.line = element_line(size = 0.5),
+          panel.border = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.spacing = unit(0, 'lines'),
+          #panel.grid = element_blank()
+          ) +
+    scale_y_continuous(limits = c(0,1), breaks = c(0,1), 
+                       expand = c(0,0), labels = NULL) +
+    scale_x_continuous(limits = c(s_extend, e_extend), expand = c(0,0), 
+                       breaks = breaks_width(breaks_width),
+                       labels = scales::number) +
+    scale_color_manual(values = color_code_tissue, guide = 'none') +
+    labs(y = '', x = '', 
+         title = ifelse(!is.null(gene_name), 
+                        gene_name,
+                        paste0(c, ':', s_extend, '-', e_extend)))
+  
+  p2 <- annotations %>%
+    filter(seqnames == as.character(c), start > s_extend, end < e_extend,
+           type %in% c('exons', 'introns', 'promoters')) %>%
+    
+    mutate(symbol = ifelse(is.na(symbol), '', symbol)) %>%
+    ggplot(aes(x = start, xend = end)) +
+    geom_segment(y= 0.5, yend = 0.5, aes(size = type, color = type)) +
+    theme_bw(base_size = font_size)+
+    theme(strip.background = element_blank(),
+          strip.text.y  = element_text(angle = 180),
+          strip.placement = 'outside',
+          legend.position = 'bottom',
+          plot.title =  element_blank(),
+          plot.subtitle = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.line = element_line(size = 0.5),
+          panel.spacing = unit(0, 'lines'),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.border = element_blank(),
+          legend.key.size = unit(0.5, 'cm'),
+          legend.spacing = unit(0.25, 'cm')) +
+    scale_size_manual(values = c('exons' = 3, 'introns' = 1, 'intronexonboundaries' = 3,
+                                 '5UTRs' = 5, '3UTRs' = 6,
+                                 '1to5kb' = 2,
+                                 'promoters' = 2,
+                                 
+                                 'cpg_inter' = 1,
+                                 'cpg_islands' = 5,
+                                 'cpg_shores' = 4,
+                                 'cpg_shelves' = 3)*transcript_height) +
+    scale_color_manual(values = c('exons' = 'black', 
+                                  'introns' = 'black', 
+                                  'intronexonboundaries' = 'black',
+                                 '5UTRs' = 'grey', '3UTRs' = 'grey',
+                                 '1to5kb' = 'grey',
+                                 'promoters' = 'forestgreen',
+                                 
+                                 'cpg_inter' = 1,
+                                 'cpg_islands' = 5,
+                                 'cpg_shores' = 4,
+                                 'cpg_shelves' = 3)) +
+    scale_x_continuous(limits = c(s_extend, e_extend), 
+                       expand = c(0,0), 
+                       labels = scales::number,
+                       breaks = breaks_width(breaks_width)) +
+    scale_y_continuous(expand = c(0,0)) +
+    labs(x = 'position', size = '', color = '')
+  
+  if (show_transcript_gene) {
+    p2 <- p2 + 
+      facet_wrap(~symbol + tx_id, ncol = 1, strip.position = 'left') 
+  } else if (show_transcript_gene == FALSE) {
+    p2 <- p2 + 
+      facet_wrap(~tx_id, ncol = 1, strip.position = 'left') 
+  }
+  
+  if (!is.logical(show_transcript_gene)) {
+    stop('show_transcript_gene must be set to TRUE or FALSE')
+  }
+  
+  if (!is.null(highlight_region)) {
+    p1 <- p1 + 
+      geom_rect(data = highlight_region,
+                aes(xmin = start, xmax = end),
+                ymin = 0, ymax = 1,
+                alpha = 0.1)
+    p2 <- p2 + 
+      geom_rect(data = highlight_region,
+                aes(xmin = start, xmax = end),
+                ymin = 0, ymax = 1,
+                alpha = 0.1)
+  }
+  egg::ggarrange(p1,p2, ncol = 1, heights = plot_sizes) #H:4.25, #w: 3.25
+
+}
+```
+
+## C19mc
+
+
+```r
+igv(chr = 'chr19', start = 54150515+15000, end = 54155608,
+    start_extend = 20000, end_extend = 30000,
+    highlight_region = data.frame(start = 54150515, end = 54155608))
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+
+```r
+anno_c19mc <- anno %>% 
+  filter(chr == 'chr19', start >= 54150515, end <= 54155608)
+
+
+betas_gene <- t(betas_filt[anno_c19mc$cpg,,drop = FALSE]*100) %>% as_tibble %>% 
+    mutate(Sample_Name = colnames(betas_filt)) %>%
+    
+    # reshape into longer format
+    pivot_longer(cols = -Sample_Name,
+                 names_to = 'cpg', 
+                 values_to = 'beta')  %>%
+    
+    # add tissue and trimester info
+    left_join(pDat_filt %>% dplyr::select(Sample_Name, Trimester, Tissue), 
+              by = 'Sample_Name') %>%
+    
+    # calculate mean and sd for each cpg for each group
+    group_by(Tissue, Trimester, cpg) %>%
+    summarize(mean = mean(beta),
+              sd = sd(beta)) %>%
+    mutate(lower = mean-sd, upper = mean+sd) %>%
+    
+    # add cpg info
+    left_join(anno_c19mc, by = 'cpg') %>%
+    
+    # order on cpg position
+    ungroup() %>%
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           Trimester_Tissue = paste0(Trimester, ' - ', Tissue)) %>%
+    filter(Trimester == 'Third')
+  
+  ##### GENERATE INDIVIDUAL PLOT TRACKS #####
+  point_size <- 1.5
+  
+  # Generate  methylation track
+  p1 <- betas_gene %>%
+    ggplot() +
+    
+    # geom_ribbon is to generate the alternating shaded background
+    geom_ribbon(aes(x = as.numeric(cpg), ymin = 0, ymax = 25),
+                fill = 'grey', alpha = 0.25)+
+    geom_ribbon(aes(x = as.numeric(cpg), ymin = 50, ymax = 75),
+                fill = 'grey', alpha = 0.25)+
+    
+    # geom_linerange and geom_point is for the actual methylation data
+    geom_linerange(alpha = 0.5, size = point_size, 
+                   aes(x = cpg, ymin =lower, ymax = upper, color = Tissue),
+                   show.legend = FALSE) +
+    geom_point(alpha = 0.75, aes(x = cpg, y = mean, color = Tissue), 
+               size = point_size*2) +
+    geom_line(aes(x = cpg, y = mean, color = Tissue, group = Tissue),
+              show.legend = FALSE) +
+    
+    # we want to facet by trimester
+    facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+    
+    # cosmetics
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+          axis.text.y = element_text(size = font_size-2),
+          axis.ticks = element_blank(),
+          axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0, 
+                                      size = font_size),
+          
+          legend.text = element_text(),
+          legend.key.size = unit(0, 'lines'),
+          
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.spacing.y = unit(0.5, 'cm'),
+          panel.border = element_blank(),
+          axis.line = element_line(color = 'black', size = 0.5, linetype = 'solid'),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0),
+          
+          plot.margin=margin(l=-0.1, unit="cm")) +
+    scale_y_continuous(limits = c(0, 100), 
+                       expand = c(0, 0), 
+                       breaks = c(0, 50, 100),
+                       labels = function(x)paste0(x, '%')) +
+    scale_x_discrete(expand = c(0.01,0.01))+
+    scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)],
+                       guide = guide_legend(override.aes = list(size = point_size*2)),
+                       labels = function(x)gsub(' cs', '', x)) +
+    labs(y = 'DNA\nmethylation', 
+         x = '', 
+         color = '', 
+         title = 'C19MC cpgs') ;p1
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-9-2.png)<!-- -->
+
+C19MC
+
+s <- 54150515
+e <- 54155608
+s_ext <- s - 20000
+e_ext <- e + 20000
+anno_c19mc <- anno %>% 
+  filter(chr == 'chr19', start >= s_ext, end <= e_ext)
+  
+intersect(rownames(betas_filt), anno_c19mc$cpg)
+
+betas_filt[rownames(betas_filt), ]
+
+  # subset betas
+b <- betas_filt[region_of_interest$cpg, pDat_filt$Sample_Name] %>%
+    as.data.frame() %>%
+    bind_cols(cpg = rownames(.), .) %>%
+    pivot_longer(cols = -cpg,
+                 names_to = 'Sample_Name',
+                 values_to = 'beta') %>%
+    left_join(anno, by = 'cpg') %>% 
+    right_join(pDat_filt, by = 'Sample_Name') 
+    
+## define gene function
+
+PEG10, MCCC1
+
+```r
+anno
+```
+
+```
+## # A tibble: 737,050 x 23
+##    cpg   chr    start    end cpg_id cpg_width enhancers_id enhancers_width
+##    <chr> <chr>  <dbl>  <dbl> <chr>  <chr>     <chr>        <chr>          
+##  1 cg00~ chr16 5.35e7 5.35e7 shore  2000      <NA>         <NA>           
+##  2 cg00~ chr3  1.72e8 1.72e8 sea    398648    <NA>         <NA>           
+##  3 cg00~ chr7  2.59e6 2.59e6 sea    3182      <NA>         <NA>           
+##  4 cg00~ chr9  9.50e7 9.50e7 sea    143935    <NA>         <NA>           
+##  5 cg00~ chr1  9.12e7 9.12e7 shore  2000      <NA>         <NA>           
+##  6 cg00~ chr17 5.45e7 5.45e7 sea    656815    <NA>         <NA>           
+##  7 cg00~ chr8  4.23e7 4.23e7 sea    10587     <NA>         <NA>           
+##  8 cg00~ chr14 6.93e7 6.93e7 shore  2000      <NA>         <NA>           
+##  9 cg00~ chr16 2.89e7 2.89e7 shore  2000      <NA>         <NA>           
+## 10 cg00~ chr8  4.12e7 4.12e7 shore  2000      <NA>         <NA>           
+## # ... with 737,040 more rows, and 15 more variables: genes_gene_id <chr>,
+## #   genes_id <chr>, genes_symbol <chr>, genes_tx_id <chr>, genes_width <chr>,
+## #   group <int>, pmd_width <int>, pmd_id <chr>,
+## #   imprint_tissue_specificity <chr>, imprint_methylated_allele <chr>,
+## #   imprint_sources <chr>, imprint_region <chr>, repeat_name <chr>,
+## #   repeat_class <chr>, repeat_family <chr>
+```
+
+```r
+igv(gene_name = 'PEG10', start_extend = 50, end_extend = 500)
+```
+
+```
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+
+## Warning in min(diff(sort(x))): no non-missing arguments to min; returning Inf
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
+
+```r
+gene_name <- 'PEG10'
+
+plot_cpgs <- function(gene_name = NULL) {
+  anno_subset <- anno %>%
+      filter(grepl(paste0('\\<', gene_name, '\\>'), genes_symbol)) 
+
+anno_subset <- anno %>%
+      filter(chr == unique(anno_subset$chr),
+             start > min(anno_subset$start)-2500,
+             end < max(anno_subset$end) + 2500) 
+
+betas_gene <- t(betas_filt[anno_subset$cpg,,drop = FALSE]*100) %>% as_tibble %>% 
+    mutate(Sample_Name = colnames(betas_filt)) %>%
+    
+    # reshape into longer format
+    pivot_longer(cols = -Sample_Name,
+                 names_to = 'cpg', 
+                 values_to = 'beta')  %>%
+    
+    # add tissue and trimester info
+    left_join(pDat_filt %>% dplyr::select(Sample_Name, Trimester, Tissue), 
+              by = 'Sample_Name') %>%
+    
+    # calculate mean and sd for each cpg for each group
+    group_by(Tissue, Trimester, cpg) %>%
+    summarize(mean = mean(beta),
+              sd = sd(beta)) %>%
+    mutate(lower = mean-sd, upper = mean+sd) %>%
+    
+    # add cpg info
+    left_join(anno_subset, by = 'cpg') %>%
+    
+    # order on cpg position
+    ungroup() %>%
+    arrange(start) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           Trimester_Tissue = paste0(Trimester, ' - ', Tissue)) %>%
+    filter(Trimester == 'Third')
+  
+  ##### GENERATE INDIVIDUAL PLOT TRACKS #####
+  point_size <- 1
+  font_size <- 10
+  
+  # Generate  methylation track
+  p1 <- betas_gene %>%
+    ggplot() +
+    
+    # geom_ribbon is to generate the alternating shaded background
+    geom_ribbon(aes(x = as.numeric(cpg), ymin = 0, ymax = 25),
+                fill = 'grey', alpha = 0.25)+
+    geom_ribbon(aes(x = as.numeric(cpg), ymin = 50, ymax = 75),
+                fill = 'grey', alpha = 0.25)+
+    
+    # geom_linerange and geom_point is for the actual methylation data
+    geom_linerange(alpha = 0.5, size = point_size, 
+                   aes(x = cpg, ymin =lower, ymax = upper, color = Tissue),
+                   show.legend = FALSE) +
+    geom_point(alpha = 0.75, aes(x = cpg, y = mean, color = Tissue), 
+               size = point_size*2) +
+    
+    # we want to facet by trimester
+    facet_wrap(vars(Trimester), ncol = 1, labeller = label_both) +
+    
+    # cosmetics
+    theme_bw(base_size = font_size) +
+    theme(#axis.text.x = element_text(angle = 90, vjust = 0.5, size = font_size-2),
+      axis.text.x = element_blank(),
+          axis.text.y = element_text(size = font_size-2),
+          axis.ticks = element_blank(),
+          axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0, 
+                                      size = font_size),
+          
+          legend.text = element_text(),
+          legend.key.size = unit(0, 'lines'),
+          
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.spacing.y = unit(0.5, 'cm'),
+          panel.border = element_blank(),
+          axis.line = element_line(color = 'black', size = 0.5, linetype = 'solid'),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0),
+          
+          plot.margin=margin(l=-0.1, unit="cm")) +
+    scale_y_continuous(limits = c(0, 100), 
+                       expand = c(0, 0), 
+                       breaks = c(0, 50, 100),
+                       labels = function(x)paste0(x, '%')) +
+    scale_x_discrete(expand = c(0.01,0.01))+
+    scale_color_manual(values= color_code_tissue[unique(betas_gene$Tissue)],
+                       guide = guide_legend(override.aes = list(size = point_size*2)),
+                       labels = function(x)gsub(' cs', '', x)) +
+    labs(y = 'DNA\nmethylation', 
+         x = '', 
+         color = '', 
+         title = gene_name) 
+  
+  # plot cpg annotations
+  p2 <- betas_gene %>% 
+    
+    # First we need to process the annotation data
+    mutate(# absent/presence for different genomic elements
+           enhancer = !is.na(enhancers_id),
+           pmd = !is.na(pmd_id),
+           imprinted_dmr_general = 
+             !is.na(imprint_tissue_specificity) & imprint_tissue_specificity == 'other',
+           imprinted_dmr_placenta = 
+             !is.na(imprint_tissue_specificity) & imprint_tissue_specificity ==
+             'placental-specific')%>%
+    
+    dplyr::select(cpg, enhancer, pmd, 
+           imprinted_dmr_general, imprinted_dmr_placenta, cpg_id, start) %>%
+    mutate_if(is.logical, as.character) %>%
+    
+    # reshape
+    pivot_longer(cols = c(-cpg, -start),
+               names_to = 'cpg_element', 
+               values_to = 'presence') %>%
+    distinct() %>%
+    
+    # arrange plot orde for each track
+    arrange(desc(start)) %>%
+    mutate(cpg = factor(cpg, levels = unique(cpg)),
+           cpg_element = factor(cpg_element, 
+                                levels = c('enhancer', 'pmd', 'imprinted_dmr_general',
+                                           'imprinted_dmr_placenta', 'cpg_id')),
+           presence = factor(ifelse(presence == "TRUE", 'Present',
+                                    ifelse(presence == "FALSE", 'Absent', presence)),
+                             levels = c('sea', 'shelf', 'shore', 'island',
+                                        'Present', 'Absent', ' ', '  ')),
+           # for facet label
+           group = 'Annotations') %>%
+    
+    # plot code
+    ggplot(aes(x = cpg, y = cpg_element, fill = presence)) +
+    geom_tile(color = '#fcfcfc') +
+    guides(fill=guide_legend(ncol=3, override.aes = list(colour = 'black'))) +
+    facet_wrap(vars(group), ncol = 1) +
+    theme_bw(base_size = font_size) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text.y = element_text(vjust = 0.5),
+          
+          legend.text = element_text(),
+          legend.key.height = unit(0.25, 'cm'),
+          legend.key.width = unit(0.25, 'cm'),
+          
+          plot.margin = margin(l=-0.1,unit="cm"),
+          panel.border = element_blank(),
+          axis.line.y = element_line(color = 'black', size = 0.5, linetype = 'solid'),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0)) +
+    scale_fill_manual(values = c('Present' = '#cccccc', 'Absent' = '#f7f7f7', 
+                                 ' ' = 'white', '  ' = 'white',
+                                 'sea' = '#ffffcc', 'shelf' = '#a1dab4', 'shore' = '#41b6c4',
+                                 'island' = '#225ea8'), drop = F,
+                      labels = stringr::str_to_title) +
+    scale_y_discrete(expand = c(0,0),
+                     labels = function(x)gsub('cpg_id', 'Relation to CpG Islands',
+                       gsub('imprinted_dmr_placenta', 'Imprinted DMR (Placenta)',
+                       gsub('imprinted_dmr_general', 'Imprinted DMR (General)',
+                       gsub('pmd', 'Placental PMD',
+                       gsub('enhancer', 'Enhancer', 
+                            x)))))) +
+    scale_x_discrete(expand = c(0,0)) +
+    guides(fill=guide_legend(ncol=2, override.aes = list(colour = 'white'))) +
+    labs(x = '', y = '', fill = '') 
+  
+   p3 <- betas_gene %>% 
+    dplyr::select(cpg, end, genes_id, genes_tx_id, genes_symbol) %>%
+    distinct() %>%
+    
+    # split comma separate list and put each entry into a new row
+    mutate(genes_tx_id = str_split(genes_tx_id, ', '),
+           genes_id = str_split(genes_id, ', '),
+           genes_symbol = str_split(genes_symbol, ', ')) %>%
+    unnest(c(genes_tx_id, genes_id, genes_symbol)) %>%
+    
+    # paste together transcript ID and genes symbol
+    mutate(genes_tx_id_symbol = if_else(genes_symbol != 'no_associated_gene', 
+                                        paste0(genes_tx_id, ' (', genes_symbol, ')'),
+                                        genes_tx_id)) %>%
+    
+    ### ORDER TRANSCRIPTS IN PLOT 
+    #
+    # note that the first level appears on the bottom of the graph (y = 0 if it was continuous)
+    
+    # calculate earliest end of each symbol
+    group_by(genes_symbol) %>%
+    mutate(genes_symbol_end = min(end)) %>%
+    ungroup() %>%
+    
+    # reorder gene symbols by their earliest end position
+    mutate(genes_symbol = fct_reorder(genes_symbol, genes_symbol_end)) %>%
+    
+    # reorder transcripts based on gene symbol levels and then by their end position
+    arrange(genes_symbol, end) %>%
+    mutate(genes_tx_id_symbol = 
+             factor(genes_tx_id_symbol, levels = unique(genes_tx_id_symbol)) %>%
+             fct_explicit_na()) %>%
+    
+    ####
+    # fill all combinations of cpg and gene_tx_id with NA if missing, so that they show in plot
+    complete(cpg, genes_tx_id_symbol) %>%
+    
+    # filter out to unique mappings using the priority described above
+    # strategy is to order by factor level and take the first occurence
+    mutate(genes_id = factor(genes_id, 
+                             levels = c('1to5kb', 'promoter', '5UTR', '3UTR', 'exon',
+                                        'intron', 'intronexonboundary', 'intergenic'))) %>%
+    
+    group_by(cpg, genes_tx_id_symbol) %>%
+    arrange(genes_id)  %>%
+    dplyr::slice(1) %>%
+    
+    # reorder factor levels for appearance in plot legend
+    mutate(genes_id = factor(genes_id, 
+                             levels = c('1to5kb', 'promoter', '5UTR', 'exon', 'intron',
+                                        'intronexonboundary', '3UTR', 'intergenic')),
+           group = 'Transcripts') %>%
+    
+    #plot
+    ggplot(aes(x = cpg, y = genes_tx_id_symbol, fill = genes_id)) +
+    geom_tile(color = '#fcfcfc', alpha = 0.6) +
+    facet_wrap(vars(group), ncol = 1) +
+    guides(fill=guide_legend(ncol=2, override.aes = list(alpha=0.7, 
+                                                         color = 'black'))) +
+    theme_bw(base_size = font_size) +
+    theme(
+      axis.text.x = element_blank(),
+          axis.text.y = element_text(vjust = 0.5),
+          axis.ticks = element_blank(),
+          
+          plot.margin = margin(l=-0.1,unit="cm"),
+          
+          legend.text = element_text(margin = margin(t = -1, b = -1)),
+          legend.key.height = unit(0.25, 'cm'),
+          legend.key.width = unit(0.25, 'cm'),
+          
+          panel.grid = element_blank(),
+          panel.border = element_blank(),
+          axis.line = element_line(color = 'black'),
+          axis.line.y = element_line(color = 'black', size = 0.5, linetype = 'solid'),
+          
+          strip.background = element_blank(),
+          strip.text = element_text(face = 'bold', hjust = 0)) +
+    scale_fill_brewer(na.value = '#f7f7f7', breaks = c('1to5kb', 'promoter', '5UTR', 'exon', 
+                                                        'intron', 'intronexonboundary', '3UTR',
+                                                        'intergenic'),
+                      palette = 'Paired', direction = -1) +
+    scale_y_discrete(expand = c(0,0), 
+                     labels = function(x)(if_else(x == '(Missing)', '', x))) +
+    scale_x_discrete(expand = c(0,0)) +
+    guides(fill=guide_legend(override.aes = list(colour = 'white'))) +
+    labs(x = 'CpG', y = '', fill = '')
+
+egg::ggarrange(p1, p2, p3, heights = c(4, 1, 1))
+  
+}
+
+plot_cpgs('PEG10')
+```
+
+```
+## Warning: Removed 1 rows containing missing values (geom_linerange).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-10-2.png)<!-- -->
+
+## MCCC1
+
+
+```r
+plot_cpgs('MCCC1')
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
+
+```r
+plot_cpgs('LIN28B')
+```
+
+```
+## Warning: Removed 4 rows containing missing values (geom_linerange).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-2.png)<!-- -->
+
+```r
+plot_cpgs('AGBL3')
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-3.png)<!-- -->
+
+```r
+plot_cpgs('GLIS3')
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-4.png)<!-- -->
+
+```r
+plot_cpgs('DCAF10')
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-5.png)<!-- -->
+
+```r
+plot_cpgs('DOCK1')
+```
+
+```
+## Warning: Removed 4 rows containing missing values (geom_linerange).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-6.png)<!-- -->
+
+```r
+plot_cpgs('ZC3H12C')
+```
+
+```
+## Warning: Removed 2 rows containing missing values (geom_linerange).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-7.png)<!-- -->
+
+```r
+plot_cpgs('N4BP2L1')
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-8.png)<!-- -->
+
+```r
+plot_cpgs('FAM20A')
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-9.png)<!-- -->
+
+```r
+plot_cpgs('ZNF396')
+```
+
+```
+## Warning: Removed 1 rows containing missing values (geom_linerange).
+```
+
+![](2_12_imprinting_files/figure-html/unnamed-chunk-11-10.png)<!-- -->
 # Save
 
 
 ```r
 saveRDS(imprint_density, here::here(base_path, '2_12_imprint_density.rds'))
+imprint_density_allele %>% 
+  saveRDS(here::here(base_path, '2_12_imprint_density_allele.rds'))
 ```
