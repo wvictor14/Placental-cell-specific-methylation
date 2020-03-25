@@ -539,22 +539,24 @@ plot_region <- function(c, s, e, span = 0.1, cpg_size = NULL,
     
     # methylation track
     geom_line(stat = 'smooth', span = span, method = 'loess', se = FALSE,
-              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group)) +
+              aes(x = pos, y = beta, color = Tissue, alpha = alpha_group),
+              size = 0.6) +
     
     theme(panel.grid = element_blank(),
           panel.border = element_blank(),
-          axis.line = element_line(color = 'black')) +
+          axis.line = element_line(color = 'black'),
+          axis.ticks.x =element_blank()) +
     scale_color_manual(values= color_code_tissue[unique(region1_data$Tissue)],
                        labels = function(x)gsub(' cs', '', x),
                        guide = FALSE) +
     scale_y_continuous(expand = c(0,0), 
                        limits = c(0, 1), 
-                       breaks = c(0, 0.25, 0.5, 0.75, 1), 
+                       breaks = c(0, 0.5, 1), 
                        labels = function(x)percent(x, accuracy = 1)) +
     scale_x_continuous(limits = c(s, e), labels = function(x){x/10^6},
                        expand = c(0, 0)) +
     scale_alpha_identity() +
-    labs(x = 'Position (Mbp)', y = 'DNA methylation',
+    labs(x = 'Position (Mbp)', y = 'DNAm',
          title = c, color = '')
 }
 
@@ -562,7 +564,7 @@ p3 <- plot_region(c = 'chr4', s = 1500000, e = 8500000,
             span = 0.07, filtered = FALSE, array = 'EPIC')
 
 p2 <- plot_region(c = 'chr21', s = 25000000, e = 47000000, span = 0.05, filtered = T, #cpg_size = 5000,
-            array = 'EPIC') #h:1.25, w: 2.75
+            array = 'EPIC') #h:1.1, w: 2.75
 ```
 
 # Repetitive elements & global
