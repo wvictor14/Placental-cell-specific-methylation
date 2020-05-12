@@ -263,8 +263,8 @@ geno_df <- geno_df %>%
 Now we can apply PCA to the genotype matrix
 
 ```{r}
-pca <- prcomp(na.omit(geno_df))
-pcs <- pca$rotation[,1:20] %>%
+pca <- prcomp(t(na.omit(geno_df)))
+pcs <- pca$x[,1:20] %>%
   as.data.frame() %>%
   mutate(sample_id = rownames(.),
          case_id = gsub('_.*', '', sample_id),
@@ -294,7 +294,8 @@ pcs_eth %>%
   theme_classic() +
   labs(x = paste0('PC1 (', prop_var$p_variance[1] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC2 (', prop_var$p_variance[2] %>% scales::percent(accuracy = 0.1),')'),
-       color = 'PLANET-predicted\nethnicity')
+       color = 'PLANET-predicted\nethnicity') +
+  coord_equal()
 
 pcs_eth %>%
   ggplot(aes(x = PC3, y = PC4, color = Predicted_ethnicity)) +
@@ -302,7 +303,8 @@ pcs_eth %>%
   theme_classic() +
   labs(x = paste0('PC3 (', prop_var$p_variance[3] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC4 (', prop_var$p_variance[4] %>% scales::percent(accuracy = 0.1),')'),
-       color = 'PLANET-predicted\nethnicity')
+       color = 'PLANET-predicted\nethnicity')+
+  coord_equal()
 
 ```
 
