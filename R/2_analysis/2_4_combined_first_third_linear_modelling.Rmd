@@ -874,14 +874,22 @@ dmcs2 <- dmcs %>%
 # one file for each trimester
 dmcs2 %>%
   select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
-  filter(Trimester == 'First') %>%
-  write_csv(here('outs', '2_4_cell_dmcs_first.csv'))
+  filter(Trimester == 'Third') %>%
+  write_csv(here('outs', '2_4_cell_dmcs_third.csv'))
 
 
 dmcs2 %>%
   select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
   filter(Trimester == 'First') %>%
-  write_csv(here('outs', '2_4_cell_dmcs_third.csv'))
+  write_csv(here('outs', '2_4_cell_dmcs_first.csv'))
+
+dmcs_3 <- read_csv(here('outs', '2_4_cell_dmcs_third.csv'))
+dmcs_1 <- read_csv(here('outs', '2_4_cell_dmcs_first.csv'))
+
+dmcs <- bind_rows(dmcs_1, dmcs_3) %>%
+  filter(mean_difference_bval > 0.25, bonferroni < 0.01)
+
+dmcs %>% write_csv(here('outs', '2_4_dmcs.csv'))
 ```
 
 # SessionInfo
