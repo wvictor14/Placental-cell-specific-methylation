@@ -49,6 +49,14 @@ pDat <- pDat %>%
     TRUE ~ Tissue
   )) 
 
+# update ga
+new_ga <- readRDS(here::here('data', 'main', 'interim', '0_3_pDat.rds'))
+
+pDat <- pDat %>%
+  # update ga
+  select(-GA) %>%
+  left_join(new_ga %>% select(Sample_Name, GA))
+
 # raw methylation data
 betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 mset <- readRDS(here(base_path, '1_4_mset_noob.rds' ))
@@ -68,6 +76,7 @@ color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, gsub(' cs', '',color_code$label))
 
 color_code_tissue <- c(color_code_tissue, 'nRBC' = 'grey')
+color_code_tissue <- c(color_code_tissue, 'Syncytiotrophoblast' = '#f4702e')
 
 # ancestry information
 ancestry <- readRDS(here(base_path, '2_11_ancestry.rds'))
@@ -1065,6 +1074,38 @@ epidish_results %>%
 
 ```{r}
 # apply deconvolution and process results
+houseman_estimates_third <- minfi:::projectCellType(
+  getBeta(mset_test)[rownames(coefs_combined_third)
+                                ,pData(mset_test)$Trimester == 'Third'],
+  pl_cell_cpgs_third,
+  lessThanOne = TRUE)
+
+houseman_estimates_third <- houseman_estimates_third %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'Houseman')
+
+houseman_estimates_first <- minfi:::projectCellType(
+  getBeta(mset_test)[rownames(coefs_combined_third)
+                                ,pData(mset_test)$Trimester == 'First'],
+  pl_cell_cpgs_first,
+  lessThanOne = TRUE)
+
+houseman_estimates_first <- houseman_estimates_first %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'Houseman')
+
 epidish_res111 <- epidish(
   beta.m = getBeta(mset_test)[rownames(coefs_combined_third)
                                 ,pData(mset_test)$Trimester == 'Third'],
@@ -1097,7 +1138,8 @@ epidish_res1111 <- epidish_res1111$estF %>%
   ) %>%
   mutate(algorithm = 'epidish (RPC)')
 
-epidish_rpc <- bind_rows(epidish_res111, epidish_res1111) %>%
+epidish_rpc <- bind_rows(houseman_estimates_first, houseman_estimates_third,
+                         epidish_res111, epidish_res1111) %>%
   dplyr::rename(Sample_Name = Sample_Names) %>%
   left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue, GA))  %>%
   distinct() 
@@ -1108,7 +1150,8 @@ epidish_rpc <- bind_rows(epidish_res111, epidish_res1111) %>%
 ```{r}
 # analyze
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
   pivot_wider(id_cols = -c(component, percent),
               names_from = 'component',
               values_from = 'percent') %>%
@@ -1126,9 +1169,32 @@ epidish_rpc %>%
         strip.background = element_blank(),
         strip.text = element_text(hjust =0)) +
   scale_y_continuous(expand = c(0,0), labels = percent) +
-  labs(x = '', y = '', fill = '') +
-  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') +
-  geom_text(aes(label = number(GA)), y = 0.1)
+  labs(x = '', y = '', fill = '', title = 'epidish (RPC)') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') 
+
+# analyze
+epidish_rpc %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'Houseman') %>%
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
+  pivot_longer(cols = Trophoblasts:nRBC,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                    na.value = '#636363') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border= element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust =0)) +
+  scale_y_continuous(expand = c(0,0), labels = percent) +
+  labs(x = '', y = '', fill = '',  title = 'Houseman') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') 
 
 epidish_rpc %>%
   filter(Tissue == 'Villi') %>%
@@ -1148,9 +1214,15 @@ epidish_rpc %>%
   labs(x = '', color = '', y = '') 
 
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
   group_by(Trimester, component) %>%
-  summarize(mean = mean(percent))
+  summarize(mean = mean(percent),
+            sd = sd(percent)) %>% 
+  pivot_wider(id_cols = component, names_from = c('Trimester'), values_from = c('mean', 'sd')) %>%
+  mutate(diff = mean_Third-mean_First) %>%
+  arrange(desc(component)) %>%
+  select(component, contains('First'), contains('Third'), diff)
 ```
 
 ### Stats n stuff
@@ -1287,7 +1359,7 @@ pDat_filt <- pDat_filt %>%
   )
 
 pDat_ga_comp <- pDat_filt %>% 
-  filter(Trimester == 'First', Tissue == 'Villi') %>%
+  filter( Tissue == 'Villi') %>%
   select(Sample_Name, Trimester, Tissue, contains('ga'), contains('epidish')) %>%
   pivot_longer(cols = contains('epidish'),
                names_to = 'component',
@@ -1304,20 +1376,30 @@ pDat_ga_comp <- pDat_filt %>%
 stats_by_ga <- pDat_ga_comp %>%
   filter(component != 'n_rbc',
          ga %in% c('reported', 'rpc')) %>%
-  nest(data = -c(component, ga)) %>%
+  nest(data = -c(Trimester, component, ga)) %>%
   mutate(lm = map(data, ~lm(proportion ~ weeks, .)),
          glanced = map(lm, glance)) %>%
   select(-data, -lm)  %>%
   unnest(cols = c(glanced)) %>%
-  select(component, ga, r.squared, p.value) %>%
+  select(Trimester, component, ga, r.squared, p.value) %>%
   mutate(adj_p = p.adjust(p.value, method = 'fdr'),
-         p_value = pvalue(p.value, 0.01) %>%
+         p_value = pvalue(adj_p, 0.01) %>%
            ifelse(. < 0.05, 'p<0.05', .),
          component = str_to_sentence(component) ); stats_by_ga
 
+pDat_ga_comp %>%
+  pivot_wider(id_cols = -ga,
+              names_from = 'ga',
+              values_from = 'weeks') %>%
+  ggplot(aes(x= reported, y = rpc)) +
+  geom_point() +
+  geom_smooth(method ='lm') +
+  facet_wrap(vars(Trimester), scales = 'free')
+
 pDat_ga_comp %>% 
   filter(component != 'n_rbc',
-         ga %in% c('reported', 'rpc')) %>%
+         ga %in% c('reported', 'rpc'),
+        Trimester == 'Third') %>%
   mutate(component = str_to_sentence(component)) %>%
   {
     ggplot(data = ., aes(x = weeks, y = proportion, color = component)) +
@@ -1328,9 +1410,155 @@ pDat_ga_comp %>%
       scale_color_manual(values = color_code_tissue[unique(.$component)], 
                        na.value = '#636363',
                        guide = 'none')  +
-      theme(panel.grid = element_blank())
+      theme(panel.grid = element_blank()) +
+      labs(title= 'within-trimester association with gestational age')
   }
   
+```
+
+# try villi again
+
+amy reports that she gets nRBCs estimated on her villi samples. Let's try again...
+
+```{r}
+library(planet)
+pDat_villi <- pDat_filt %>%
+  filter(Tissue == 'Villi')
+
+
+houseman_estimates <- minfi:::projectCellType(
+  getBeta(mset)[rownames(pl_cell_cpgs_third),pDat_villi$Sample_Name],
+  pl_cell_cpgs_third,
+  lessThanOne = FALSE)
+
+houseman_estimates %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Name = rownames(.),.) %>%
+  pivot_longer(cols =-Sample_Name,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  left_join(pDat_villi %>% select(Sample_Name, Trimester)) %>%
+  ggplot(aes(x = Sample_Name, y = proportion, fill = component)) +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~Trimester, ncol = 2, scales = 'free') +
+  scale_fill_brewer(palette = 'Accent') +
+  scale_y_continuous(limits = c(-0.1,1.1), breaks = c(0, 0.5, 1), labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  coord_cartesian(ylim = c(0,1)) +
+  labs(x = '', fill = '')
+  
+```
+
+# Add STB
+
+```{r}
+
+# combine nrbc to placenta data
+mset_combined_stb <- combineArrays(nrbc_noob, 
+                               mset[,pData(mset)$CellType %in% c('Trophoblasts', 'Stromal', 
+                                                                 'Hofbauer', 'Endothelial',
+                                                                 'Syncytiotrophoblast')])
+mset_combined_stb
+
+pData(mset_combined_stb) <- pData(mset_combined_stb) %>% as.data.frame() %>%
+  select(Sample_Name, Sex, Trimester, Tissue, Study) %>% 
+  mutate(Tissue = gsub(' cs', '', Tissue),
+         CellType = Tissue) %>% DataFrame()
+  
+pData(mset_combined_stb) 
+pDat_combined_stb <- pData(mset_combined_stb) %>%
+  as_tibble() 
+  
+
+# pick probes
+probes_third_stb <- minfi:::pickCompProbes(
+  mset_combined_stb[, pData(mset_combined_stb)$Trimester == 'Third'], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC', 'Syncytiotrophoblast'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+probes_first_stb <- minfi:::pickCompProbes(
+  mset_combined_stb[, pData(mset_combined_stb)$Trimester == 'First' |
+             pData(mset_combined_stb)$CellType %in% c('nRBC', 'Syncytiotrophoblast')], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC', 'Syncytiotrophoblast'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+# extract coefficients
+coefs_combined_third_stb <- probes_third_stb$coefEsts
+coefs_combined_first_stb <- probes_first_stb$coefEsts
+```
+
+## Heatmap
+
+```{r}
+pheatmap(coefs_combined_third_stb, cluster_cols = FALSE, cluster_rows = TRUE,
+         show_rownames = FALSE) 
+```
+## apply to villi
+
+```{r}
+epidish_res_stb <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_third_stb)
+                                ,pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_combined_third_stb,
+  method = 'RPC')
+
+epidish_res_stb_first <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_third_stb)
+                                ,pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_combined_third_stb,
+  method = 'RPC')
+
+# combine
+epidish_res_stb <- epidish_res_stb$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_res_stb_first <- epidish_res_stb_first$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_rpc_stb <- bind_rows(epidish_res_stb, epidish_res_stb_first) %>%
+  dplyr::rename(Sample_Name = Sample_Names) %>%
+  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue, GA))  %>%
+  distinct() 
+
+# plots
+epidish_rpc_stb %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = color_code_tissue[unique(epidish_rpc_stb$component)], 
+                    na.value = '#636363') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border= element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust =0)) +
+  scale_y_continuous(expand = c(0,0), labels = percent) +
+  labs(x = '', y = '', fill = '', title = 'epidish (RPC)') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') 
 ```
 
 # Save
@@ -1339,7 +1567,7 @@ Join to pDat_filt and save
 
 ```{r eval = F}
 
-epidish_rpc %>%
+epidish_rpc_stb %>%
   pivot_wider(id_cols = Sample_Name,
               names_from = c('algorithm', 'component'),
               values_from = 'percent') %>%
@@ -1369,7 +1597,11 @@ epidish_rpc %>%
   saveRDS(here(base_path, '2_14_deconvolution_results.rds'))
 
 # save statistical testing
-bind_rows(stats_by_sex, stats_by_ancestry) %>%
+stats_by_ga %>%
+  mutate(ga = ifelse(ga == 'rpc', 'estimated', as.character(ga))) %>%
+  mutate(testing_variable = paste('within ', Trimester, ' trimester-', ga, ' - ga', sep = '')) %>%
+  select(-Trimester, -ga)  %>%
+  bind_rows(., stats_by_sex, stats_by_ancestry) %>%
   write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry.csv'))
 
 # in silico stuff
