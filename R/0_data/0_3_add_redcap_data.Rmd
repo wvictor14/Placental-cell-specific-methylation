@@ -1,0 +1,85 @@
+---
+title: "0_3_add_redcap_data"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+library(tidyverse)
+library(here)
+library(readxl)
+```
+
+
+```{r}
+base_path <- file.path("data", "main", "interim")
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+term_ga <- read_xlsx(here('data', 'main', 'raw', 'term_ga.xlsx'))
+```
+
+# add ga info
+
+```{R}
+pDat <- pDat %>%
+  arrange(Case_ID) %>%
+  left_join(
+    term_ga %>%
+      select(study_id, update_ga),
+    by = c('Case_ID' = 'study_id')) %>%
+  rename(old_ga = GA) %>%
+  mutate(GA = coalesce(update_ga, old_ga)) %>%
+  select(-update_ga, -old_ga)
+
+saveRDS(pDat, here::here('data', 'main', 'interim', '0_3_pDat.rds'))
+```
+
+
+code below is using old redcap data
+```{r}
+# how many samples in redcap report are in my project
+sum(rc$study_id %in% pDat$Case_ID)
+
+# what samples in my project are not in the redcap report
+setdiff(pDat$Case_ID, rc$study_id) 
+
+rc_filt <- rc %>% 
+  filter(study_id %in% pDat$Case_ID)
+
+rc_filt %>% filter(is.na(del_ga))
+
+rc_filt %>%
+  filter(!is.na(del_ga),
+         !study_id %in% c('PM77','PM139')) %>%
+  summarize(ga_mean = mean(del_ga),
+            ga_min = min(del_ga),
+            ga_max = max(del_ga),
+            ga_sd = sd(del_ga))
+
+
+rc_filt %>% 
+  select(study_id, del_ga) %>%
+  write_csv(here('outs', 'term_ga.csv'))
+
+s <- pDat %>% filter(Trimester == 'Third', Tissue == 'Villi') %>%
+  arrange(Sample_Name) %>%
+  pull(Case_ID) %>% unique
+
+length(s) # 22
+
+unique(s)
+s %in% rc_filt$study_id
+length(rc_filt$study_id)
+
+
+
+```
