@@ -454,6 +454,8 @@ plot_bar <- function(x){
               label = '*') +
     
     facet_grid(genomic_feature_category~ Direction , 
+               labeller = labeller(Direction = c('Hyper' = 'More methylated',
+                                                 'Hypo' = 'Less methylated')),
                scales = 'free', space = 'free', drop = TRUE) +
     coord_flip() +
     theme_bw(base_size = font_size+1) + 
@@ -500,7 +502,7 @@ p2 <- tests %>%
          genomic_feature_category %in% c('pmd', 'gene', 'enhancer', 'cpg_island')) %>%
   arrange(genomic_feature_category, genomic_feature) %>%
   mutate(genomic_feature = as_factor(genomic_feature)) %>%
-  plot_bar()
+  plot_bar() 
 ```
 
 
@@ -1839,8 +1841,9 @@ pDat %>% dplyr::count(Trimester, Tissue)
 p_sd_pca <- pDat %>% 
   filter(Trimester != 'Second',
          !Tissue %in% c('Villi maternal',  'Dead Cells and Lymphocytes')) %>%
-  mutate(Tissue = ifelse(Tissue %in% c('Syncytiotrophoblast'),
+  mutate(Tissue = ifelse(Tissue %in% c('Syncytiotrophoblast', 'Villi', 'Trophoblasts'),
                          Tissue, NA)) %>%
+  arrange(desc(Tissue)) %>%
   ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue)) +
   geom_point(alpha = 0.9, size = 0.75) +
   theme_bw(base_size = font_size) +
@@ -1852,13 +1855,13 @@ p_sd_pca <- pDat %>%
         axis.line = element_line(color = 'black'),
         plot.title = element_blank(),
         plot.subtitle = element_blank(),
-        legend.position = 'top',
-        legend.spacing.x = unit(-0.1, 'cm'),
-        legend.spacing.y = unit(-0.2, 'cm')) +
+        legend.position = 'top',        
+        legend.key.size = unit(0.35, 'cm'),
+        legend.spacing = unit(0, 'cm')) +
   scale_x_continuous(breaks = c(-100, 0, 100)) +
   scale_y_continuous(breaks = c(-100, 0, 100)) +
   scale_color_manual(values = colors,
-                     breaks = c('Syncytiotrophoblast'),
+                     breaks = c('Syncytiotrophoblast', 'Villi', 'Trophoblasts'),
                      na.value = 'grey',
                      guide = guide_legend(override.aes = list(size = 3, alpha = 1),
                                           ncol = 1),
@@ -1866,7 +1869,7 @@ p_sd_pca <- pDat %>%
   scale_shape_manual(values = c(19, 3)) +
   guides(shape = guide_legend(override.aes = list(size = 1))) +
   labs(x = 'PC1 (41%)', y = 'PC2 (23%)', color = '') +
-  coord_equal();p_sd_pca #h: 1.75, w: 2.75
+  coord_equal();p_sd_pca #h: 2.5, w: 2.75
 
 
 #just for the legend
@@ -1916,7 +1919,7 @@ p_std <- stb_troph_dens %>%
   ggplot(aes(y = label, x = beta, fill = Tissue)) +
   geom_density_ridges(alpha = 0.75, color = 'white', panel_scaling = FALSE, size = 0.5) +
   facet_grid(rows = vars(gene), 
-             scales = 'free_y', 
+             scales = 'free_y',
              switch = 'y',
              space = 'free') +
   scale_fill_manual(values = colors) +
@@ -1930,7 +1933,7 @@ p_std <- stb_troph_dens %>%
         axis.text.y = element_text(size = font_size-2),
         strip.placement = 'outside',
         strip.background = element_blank(),
-        strip.text.y = element_text(angle = 180),
+        strip.text.y.left = element_text(angle = 0),
         legend.position = 'top',
         legend.key.size = unit(0.35, 'cm'),
         legend.spacing = unit(0, 'cm'),

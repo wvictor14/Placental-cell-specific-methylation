@@ -1580,8 +1580,9 @@ p7 <- prop_var %>%
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         panel.border = element_blank(),
+        axis.ticks = element_blank(),
         axis.line = element_line()) +
-  scale_y_continuous(expand = c(0,0), limits = c(0, 0.5), labels = scales::percent) +
+  scale_y_continuous(expand = c(0,0), labels = scales::percent) +
   labs(y = '', title = 'Percent variance explained');p7 #h:2.5, w:6
 
 p8 <- pcs_eth %>%
@@ -1589,23 +1590,31 @@ p8 <- pcs_eth %>%
   geom_point(size = 1, alpha = 0.75) +
   theme_classic(base_size = fontsize) +
   theme(legend.spacing.y = unit(0, 'cm'),
-        legend.key.size = unit(0, 'cm'))+
+        legend.key.size = unit(0, 'cm'),
+        legend.position = 'none')+
   guides(color = guide_legend(override.aes = list(size = 3))) +
+  scale_color_brewer(breaks = c('Ambiguous', 'Asian', 'Caucasian'), type = 'qual',
+                     palette = 2,
+                     na.value = 'grey') +
   labs(x = paste0('PC1 (', prop_var$p_variance[1] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC2 (', prop_var$p_variance[2] %>% scales::percent(accuracy = 0.1),')'),
-       color = 'PLANET-predicted\nethnicity');p8 # h:2.5, w: 2.5
+       color = 'PLANET-predicted\nethnicity');p8 # h:2.5, w: 2
 
 p9 <- pcs_eth %>%
   ggplot(aes(x = PC3, y = PC4, color = Predicted_ethnicity)) +
   geom_point(size = 1, alpha = 0.75) +
   theme_classic(base_size = fontsize) +
   theme(legend.spacing.y = unit(0, 'cm'),
-        legend.key.size = unit(0, 'cm'))+
+        legend.key.size = unit(0, 'cm'),
+        legend.position = 'none')+
+  scale_color_brewer(breaks = c('Ambiguous', 'Asian', 'Caucasian'), type = 'qual',
+                     palette = 2,
+                     na.value = 'grey') +
   guides(color = guide_legend(override.aes = list(size = 3))) +
   labs(x = paste0('PC3 (', prop_var$p_variance[3] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC4 (', prop_var$p_variance[4] %>% scales::percent(accuracy = 0.1),')'),
        color = 'PLANET-predicted\nethnicity') +
-  coord_equal();p9 # h:2.5, w: 3
+  coord_equal();p9 # h:2.5, w: 2
 
 p9b <- pcs_eth %>%
   ggplot(aes(x = PC5, y = PC6, color = Predicted_ethnicity)) +
@@ -1613,11 +1622,14 @@ p9b <- pcs_eth %>%
   theme_classic(base_size = fontsize) +
   theme(legend.spacing.y = unit(0, 'cm'),
         legend.key.size = unit(0, 'cm'))+
+  scale_color_brewer(breaks = c('Ambiguous', 'Asian', 'Caucasian'), type = 'qual',
+                     palette = 2,
+                     na.value = 'grey') +
   guides(color = guide_legend(override.aes = list(size = 3))) +
   labs(x = paste0('PC5 (', prop_var$p_variance[5] %>% scales::percent(accuracy = 0.1),')'),
        y = paste0('PC6 (', prop_var$p_variance[6] %>% scales::percent(accuracy = 0.1),')'),
        color = 'PLANET-predicted\nethnicity') +
-  coord_equal();p9b# h:2.5, w: 3
+  coord_equal();p9b# h:2.5, w: 2
 ```
 
 # filtering / processing
