@@ -286,6 +286,24 @@ tests %>%
        subtitle = 'Odds ratios for PE-associated CpGs')
 ```
 
+## simple enrichment
+
+```{r}
+# number of PE cpgs in filterd data
+npe <- pe_hits %>% filter(probe %in% dmcs$gene)%>% nrow
+
+dmcs %>% 
+  filter(bonferroni < 0.01, abs(delta_b) >0.25) %>%
+  filter(grepl('Third', Group1)) %>%
+  group_by(Group1) %>%
+  summarize(total = n(),
+            n_pe = sum(pe), # number of PE hits that are cell dmcs
+            p_pe = n_pe/npe) #proportion out of total # PE hits in filtered data
+
+npe / (nrow(dmcs)/8)
+
+```
+
 # Plot some PE-associated CpGs
 
 Here I plot 36 of the 540 PE-associated CpGs by celltype.
@@ -496,4 +514,6 @@ betas_pe %>%
        title = 'Cell-specific DNA methylation', 
        subtitle = 'that are also PE-associated CpGs')
 ```
+
+
 
