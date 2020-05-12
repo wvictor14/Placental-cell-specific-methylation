@@ -1,0 +1,264 @@
+---
+title: "5_1_dbGap_prepare_files"
+author: "Victor Yuan"
+date: "09/04/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+here I prepare files for dbgap submission
+
+# libraries
+
+```{r}
+library(here)
+library(tidyverse)
+```
+
+# phenotype data
+
+```{r}
+base_path <- file.path('data', 'main', 'interim')
+
+# pData
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast', 'Mixture')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# filter out samples
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 
+                        'Dead Cells and Lymphocytes cs',
+                        'Mixture'),
+         Trimester != 'Second')
+
+pDat_filt %>% count(Case_ID) %>% as.data.frame
+pDat_filt %>% count(Tissue) %>% as.data.frame
+
+# filter out columns
+pDat_filt %>%
+  select(Sample_Name, Case_ID, 
+         Sex, GA, Trimester, Tissue, 
+         Sentrix_ID, Sentrix_Position, Chip_number, Well) %>%
+  rename(Celltype = Tissue, Gestational_age = GA)
+```
+
+# Create deidentified IDs
+
+```{r}
+#subject IDs
+sub_id <-pDat_filt %>%
+  group_by(Case_ID) %>%
+  summarize %>%
+  mutate(SUBJECT_ID = as.character(1001:(1000+n())))
+
+pDat_filt <- pDat_filt %>%
+  arrange(Case_ID) %>%
+  left_join(sub_id) %>%
+  mutate(SAMPLE_ID = paste0('S', 1:n()))
+
+pDat_filt %>%
+  select(Case_ID, Sample_Name, SUBJECT_ID, SAMPLE_ID)  %>%
+  write_delim(here('dbGap submission', '0_roblab_to_dbGap_sample_id_mapping.txt'), delim = '\t')
+```
+
+
+
+# 2a_SubjectConsent_DS.txt and 2b_SubjectConsent_DD.xlsx
+
+**Subject consent DS** must contain columns:
+
+- SUBJECT_ID, unique deidentified identifier for each individual	
+- CONSENT
+
+
+```{r}
+pDat_filt %>% 
+  group_by(SUBJECT_ID) %>% 
+  summarize(CONSENT = 1) %>% 
+  write_delim(here('dbGap submission', '2a_SubjectConsent_DS.txt'), delim = '\t')
+```
+
+# 3a_SSM_DS
+
+subject sample mapping 
+
+- SUBJECT_ID
+- SAMPLE_ID
+
+```{r}
+pDat_filt %>% 
+  select(SUBJECT_ID, SAMPLE_ID) %>%
+  arrange(SUBJECT_ID, SAMPLE_ID) %>%
+  write_delim(here('dbGap submission', '3a_SSM_DS.txt'), delim = '\t')
+```
+
+#5a_SubjectPhenotypes_DS.txt
+
+- SUBJECT_ID
+- phenotype variables
+
+## add redcap ga info
+
+```{r}
+rc <- read_csv(here('data', 'main', 'raw',
+                    'RobLabPMCaseDatabase-Victorcellspmsamples_DATA_2020-03-18_1502.csv'))
+rc_filt <- rc %>% 
+  filter(study_id %in% pDat_filt$Case_ID)
+
+rc_filt %>% filter(is.na(del_ga))
+
+rc_filt %>%
+  filter(!is.na(del_ga),
+         !study_id %in% c('PM77','PM139')) %>%
+  summarize(ga_mean = mean(del_ga),
+            ga_min = min(del_ga),
+            ga_max = max(del_ga),
+            ga_sd = sd(del_ga))
+```
+
+```{r}
+ethnicity <- rc_filt %>%
+  select(study_id, contains('eth')) %>%
+  pivot_longer(cols = -c(study_id,  eth_mother_type, eth_father_type),
+               names_to = 'eth',
+               values_to = 'yes') %>%
+  mutate(ethnicity = case_when(
+    grepl('0$', eth) ~ 'Caucasian',
+    grepl('1$', eth) ~ 'East Asian',
+    grepl('2$', eth) ~ 'South Asian',
+    grepl('3$', eth) ~ 'First Nation',
+    grepl('4$', eth) ~ 'Middle Eastern',
+    grepl('5$', eth) ~ 'Latin American',
+    grepl('6$', eth) ~ 'African',
+    grepl('7$', eth) ~ 'Mixed Ethnicity',
+    grepl('98$', eth) ~ 'Other',
+    grepl('99$', eth) ~ 'Unknown',
+    
+  )) %>%
+  mutate(parent = if_else(grepl('mother', eth), 'eth_mother', 'eth_father')) %>%
+  filter(yes == 1) %>%
+  select(-eth, -yes) %>%
+  pivot_wider(id_cols = c(study_id, contains('type')),
+              names_from = 'parent',
+              values_from = 'ethnicity',
+              values_fn = list(ethnicity = function(x)paste0(x, collapse = ', '))) %>% # View here
+  
+  # remove extraneous info, summarize child's ethnicity
+  select(-contains('type')) %>%
+  mutate(ETHNICITY = ifelse(eth_mother != eth_father, 
+                            paste0(eth_mother, '/', eth_father),
+                            eth_mother))%>%
+  
+  # save
+  rename(Case_ID = study_id) %>%
+  select(Case_ID, ETHNICITY)
+
+
+pDat_filt %>%
+  select(Case_ID, SUBJECT_ID, Sex, Trimester) %>%
+  rename(SEX = Sex,
+         GESTATIONAL_AGE_CAT = Trimester) %>%
+  mutate(GESTATIONAL_AGE_CAT = ifelse(GESTATIONAL_AGE_CAT == 'Third', 'Term', GESTATIONAL_AGE_CAT)) %>%
+  unique() %>%
+  arrange(SUBJECT_ID) %>% 
+  left_join(ethnicity) %>%
+  select(-Case_ID) %>%
+  write_delim(here('dbGap submission', '5a_SubjectPhenotypes_DS.txt'), delim = '\t')
+
+```
+
+# 6a_SampleAttributes_DS.txt
+
+- SAMPLE_ID
+- BODY_SITE
+- ANALYTE_TYPE
+- HISTOLOGICAL_TYPE
+- IS_TUMOUR
+
+```{r}
+pDat_filt %>%
+  select(SAMPLE_ID, Tissue) %>%
+  rename(HISTOLOGICAL_TYPE = Tissue) %>%
+  mutate(BODY_SITE = 'Placenta',
+         HISTOLOGICAL_TYPE = case_when(
+           HISTOLOGICAL_TYPE == 'Villi' ~ 'Chorionic Villi',
+           HISTOLOGICAL_TYPE == 'Endothelial cs' ~ 'Endothelial Cells',
+           HISTOLOGICAL_TYPE == 'Stromal cs' ~ 'Stromal Cells',
+           HISTOLOGICAL_TYPE == 'Trophoblasts cs' ~ 'Trophoblasts',
+           HISTOLOGICAL_TYPE == 'Hofbauer cs' ~ 'Hofbauer Cells'
+         ),
+         ANALYTE_TYPE = 'DNA',
+         IS_TUMOUR = 'no') %>%
+  write_delim(here('dbGap submission', '6a_SampleAttributes_DS.txt'), delim = '\t')
+```
+
+# processed methylation data
+
+```{r}
+# processed methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+dim(betas)
+betas_filt <- betas[,pDat_filt$Sentrix]
+dim(betas_filt)
+
+colnames(betas_filt) <- pDat_filt$SAMPLE_ID
+
+write_tsv(as.data.frame(betas_filt), here('dbGap submission', 'processed_methylation_data.tsv'))
+```
+
+# raw methylation data
+
+move idats of the 131 samples to raw data folder
+
+## FSM
+
+create file sample mapping 
+
+```{r}
+FSM <- pDat_filt %>%
+  select(SUBJECT_ID, SAMPLE_ID, Sentrix) %>%
+  mutate(FILE1 = paste0(Sentrix, '_Grn.idat'),
+         FILE2 = paste0(Sentrix, '_Red.idat')) %>%
+  select(-Sentrix) 
+
+FSM %>%
+  write_delim(here('dbGap submission', 'methylation data', 'raw_data_FSM.txt'), delim ='\t')
+```
+
+## copy files over
+
+```{r}
+filepaths <- 
+  
+  tibble(filepath = list.files(path = 'Z:/ROBLAB6 InfiniumSequenom/EPIC Raw data/NIH EPIC Batch 2',
+                             recursive = TRUE, full.names = TRUE)) %>%
+  filter(grepl('.idat', filepath)) %>%
+  
+  # get basename
+  mutate(Sentrix = str_extract(filepath, '[0-9]+_[A-z0-9]{1,6}(?=_[GrnRed]{3}\\.idat)')) %>%
+   
+   # remove duplicates
+   distinct() %>%
+  
+  filter(Sentrix %in% pDat_filt$Sentrix) %>%
+  select(Sentrix, everything()) %>%
+  
+  # make destination filepaths
+  mutate(destination = paste0(here('dbGap submission', 'raw data', basename(filepath))))
+
+file.copy(filepaths$filepath, filepaths$destination, overwrite = TRUE, recursive = TRUE)
+```
+
+
+
+
