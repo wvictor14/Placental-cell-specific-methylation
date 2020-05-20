@@ -33,6 +33,7 @@ theme_set(theme_bw())
 library(EpiDISH)
 library(yardstick)
 library(ggbeeswarm)
+library(planet)
 ```
 
 ## Data
@@ -50,6 +51,20 @@ pDat <- pDat %>%
     TRUE ~ Tissue
   )) 
 
+# update ga
+new_ga <- readRDS(here::here('data', 'main', 'interim', '0_3_pDat.rds'))
+
+pDat <- pDat %>%
+  # update ga
+  select(-GA) %>%
+  left_join(new_ga %>% select(Sample_Name, GA))
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+```r
 # raw methylation data
 betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 mset <- readRDS(here(base_path, '1_4_mset_noob.rds' ))
@@ -69,6 +84,7 @@ color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, gsub(' cs', '',color_code$label))
 
 color_code_tissue <- c(color_code_tissue, 'nRBC' = 'grey')
+color_code_tissue <- c(color_code_tissue, 'Syncytiotrophoblast' = '#f4702e')
 
 # ancestry information
 ancestry <- readRDS(here(base_path, '2_11_ancestry.rds'))
@@ -288,6 +304,10 @@ mixture_results %>%
   scale_color_manual(values = color_code_tissue[unique(mixture_results$component)], 
                          na.value = '#636363',
                          guide = 'none') 
+```
+
+```
+## `geom_smooth()` using formula 'y ~ x'
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
@@ -787,6 +807,10 @@ mixture_results_all %>%
   labs(x = 'Actual', y = 'Predicted')
 ```
 
+```
+## `geom_smooth()` using formula 'y ~ x'
+```
+
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
 
 # Heatmap of deconvolution probes
@@ -906,6 +930,10 @@ facs_results %>%
   plot_scatter()
 ```
 
+```
+## `geom_smooth()` using formula 'y ~ x'
+```
+
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
 
 ```r
@@ -919,6 +947,7 @@ facs_results %>%
 ```
 ## Scale for 'y' is already present. Adding another scale for 'y', which will
 ## replace the existing scale.
+## `geom_smooth()` using formula 'y ~ x'
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-9-2.png)<!-- -->
@@ -928,6 +957,10 @@ facs_results %>%
   filter(FACS == 'FACS',
          component == 'Stromal')  %>%
   plot_scatter()
+```
+
+```
+## `geom_smooth()` using formula 'y ~ x'
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-9-3.png)<!-- -->
@@ -1008,6 +1041,10 @@ facs_results %>%
   scale_y_continuous(limits = c(0, 120),labels = function(x)paste0(x, '%')) +
   labs(x = 'Actual', y = 'Predicted') + 
   coord_equal()
+```
+
+```
+## `geom_smooth()` using formula 'y ~ x'
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-9-4.png)<!-- -->
@@ -1147,7 +1184,7 @@ mixture_results_all %>%
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-10-4.png)<!-- -->
 
-# Add nRBC to deconvolution
+# Add nRBC + nRBC to deconvolution
 
 and apply to villi
 
@@ -1165,7 +1202,7 @@ mset_filt
 ## rowData names(0):
 ## colnames: NULL
 ## colData names(68): Sample_Name Chip_number ...
-##   maternal_contamination_norm maternal_contamination_norm_flip
+##   maternal_contamination_norm_flip GA
 ## Annotation
 ##   array: IlluminaHumanMethylationEPIC
 ##   annotation: ilm10b4.hg19
@@ -1178,10 +1215,10 @@ mset_filt
 ```r
 nrbc_noob <- readRDS(here::here(base_path, '2_14_nrbc_noob.rds'))
 
-pData(mset_filt)$Study <- 'Yuan'
+pData(mset)$Study <- 'Yuan'
 
 # combine nrbc to placenta data
-mset_combined <- combineArrays(nrbc_noob, mset_filt)
+mset_combined <- combineArrays(nrbc_noob, mset)
 ```
 
 ```
@@ -1198,15 +1235,14 @@ mset_combined
 
 ```
 ## class: MethylSet 
-## dim: 452567 149 
+## dim: 452567 203 
 ## metadata(0):
 ## assays(2): Meth Unmeth
 ## rownames(452567): cg00212031 cg00213748 ... ch.22.47579720R
 ##   ch.22.48274842R
 ## rowData names(0):
 ## colnames: NULL
-## colData names(70): Sample_Name Tissue ...
-##   maternal_contamination_norm_flip ArrayTypes
+## colData names(23): Sample_Name Tissue ... CellType ArrayTypes
 ## Annotation
 ##   array: IlluminaHumanMethylation450k
 ##   annotation: ilmn12.hg19
@@ -1226,33 +1262,33 @@ pData(mset_combined)
 ```
 
 ```
-## DataFrame with 149 rows and 6 columns
-##                  Sample_Name         Sex   Trimester      Tissue       Study
-##                  <character> <character> <character> <character> <character>
-## 1                   BakFW001           M       Third        nRBC    Bakulski
-## 2                   BakFW007           F       Third        nRBC    Bakulski
-## 3                   BakFW002           F       Third        nRBC    Bakulski
-## 4                   BakFW016           F       Third        nRBC    Bakulski
-## 5   nRBC_stringent_FACS_ind6           F       Third        nRBC     deGoede
-## ...                      ...         ...         ...         ...         ...
-## 145            PM367_endo_cs           F       Third Endothelial        Yuan
-## 146            PM376_endo_cs           F       Third Endothelial        Yuan
-## 147           PM364_strom_cs           M       Third     Stromal        Yuan
-## 148                  PL295_v           F       First       Villi        Yuan
-## 149            PM374_hofb_cs           M       Third    Hofbauer        Yuan
-##        CellType
-##     <character>
-## 1          nRBC
-## 2          nRBC
-## 3          nRBC
-## 4          nRBC
-## 5          nRBC
-## ...         ...
-## 145 Endothelial
-## 146 Endothelial
-## 147     Stromal
-## 148       Villi
-## 149    Hofbauer
+## DataFrame with 203 rows and 6 columns
+##                  Sample_Name         Sex   Trimester                     Tissue
+##                  <character> <character> <character>                <character>
+## 1                   BakFW001           M       Third                       nRBC
+## 2                   BakFW007           F       Third                       nRBC
+## 3                   BakFW002           F       Third                       nRBC
+## 4                   BakFW016           F       Third                       nRBC
+## 5   nRBC_stringent_FACS_ind6           F       Third                       nRBC
+## ...                      ...         ...         ...                        ...
+## 199                 PL149_vc           F      Second                      Villi
+## 200              PM366_vc_R2           F       Third                      Villi
+## 201                  PL295_v           F       First                      Villi
+## 202         PM372_discard_cs           M       Third Dead Cells and Lymphocytes
+## 203            PM374_hofb_cs           M       Third                   Hofbauer
+##           Study                   CellType
+##     <character>                <character>
+## 1      Bakulski                       nRBC
+## 2      Bakulski                       nRBC
+## 3      Bakulski                       nRBC
+## 4      Bakulski                       nRBC
+## 5       deGoede                       nRBC
+## ...         ...                        ...
+## 199        Yuan                      Villi
+## 200        Yuan                      Villi
+## 201        Yuan                      Villi
+## 202        Yuan Dead Cells and Lymphocytes
+## 203        Yuan                   Hofbauer
 ```
 
 ```r
@@ -1260,19 +1296,19 @@ pDat_combined <- pData(mset_combined) %>%
   as_tibble() 
   
 # subset to reference
-mset_combined_ref <- mset_combined[,pData(mset_combined)$CellType %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC')]
+mset_combined_ref <- mset_combined[,pData(mset_combined)$CellType %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC', 'Syncytiotrophoblast')]
 
 # pick probes
 probes_third_nrbc <- minfi:::pickCompProbes(
   mset_combined_ref[, pData(mset_combined_ref)$Trimester == 'Third'], 
-  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC', 'Syncytiotrophoblast'),
   compositeCellType = 'Placenta',
   probeSelect = "both")
 
 probes_first_nrbc <- minfi:::pickCompProbes(
   mset_combined_ref[, pData(mset_combined_ref)$Trimester == 'First' |
-             pData(mset_combined_ref)$CellType == 'nRBC'], 
-  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+             pData(mset_combined_ref)$CellType %in% c('Syncytiotrophoblast', 'nRBC')], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC',  'Syncytiotrophoblast'),
   compositeCellType = 'Placenta',
   probeSelect = "both")
 
@@ -1290,6 +1326,13 @@ pheatmap(coefs_combined_third, cluster_cols = FALSE, cluster_rows = TRUE,
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
+
+```r
+pheatmap(coefs_combined_first, cluster_cols = FALSE, cluster_rows = TRUE,
+         show_rownames = FALSE) 
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-12-2.png)<!-- -->
 
 
 ## Generate in silico mixtures
@@ -1327,24 +1370,24 @@ getBeta(mset_combined_coefs) %>%
 ```
 
 ```
-## # A tibble: 149 x 7
-##    Sample_Name             Sex   Trimester Tissue Study   CellType          data
-##    <chr>                   <chr> <chr>     <chr>  <chr>   <chr>    <list<df[,2]>
-##  1 BakFW001                M     Third     nRBC   Bakuls~ nRBC         [874 x 2]
-##  2 BakFW007                F     Third     nRBC   Bakuls~ nRBC         [874 x 2]
-##  3 BakFW002                F     Third     nRBC   Bakuls~ nRBC         [874 x 2]
-##  4 BakFW016                F     Third     nRBC   Bakuls~ nRBC         [874 x 2]
-##  5 nRBC_stringent_FACS_in~ F     Third     nRBC   deGoede nRBC         [874 x 2]
-##  6 nRBC_stringent_FACS_in~ M     Third     nRBC   deGoede nRBC         [874 x 2]
-##  7 nRBC_stringent_FACS_in~ M     Third     nRBC   deGoede nRBC         [874 x 2]
-##  8 nRBC_stringent_FACS_in~ F     Third     nRBC   deGoede nRBC         [874 x 2]
-##  9 nRBC_stringent_FACS_in~ F     Third     nRBC   deGoede nRBC         [874 x 2]
-## 10 nRBC_stringent_FACS_in~ F     Third     nRBC   deGoede nRBC         [874 x 2]
-## # ... with 139 more rows
+## # A tibble: 203 x 7
+##    Sample_Name           Sex   Trimester Tissue Study   CellType data           
+##    <chr>                 <chr> <chr>     <chr>  <chr>   <chr>    <list>         
+##  1 BakFW001              M     Third     nRBC   Bakuls~ nRBC     <tibble [1,050~
+##  2 BakFW007              F     Third     nRBC   Bakuls~ nRBC     <tibble [1,050~
+##  3 BakFW002              F     Third     nRBC   Bakuls~ nRBC     <tibble [1,050~
+##  4 BakFW016              F     Third     nRBC   Bakuls~ nRBC     <tibble [1,050~
+##  5 nRBC_stringent_FACS_~ F     Third     nRBC   deGoede nRBC     <tibble [1,050~
+##  6 nRBC_stringent_FACS_~ M     Third     nRBC   deGoede nRBC     <tibble [1,050~
+##  7 nRBC_stringent_FACS_~ M     Third     nRBC   deGoede nRBC     <tibble [1,050~
+##  8 nRBC_stringent_FACS_~ F     Third     nRBC   deGoede nRBC     <tibble [1,050~
+##  9 nRBC_stringent_FACS_~ F     Third     nRBC   deGoede nRBC     <tibble [1,050~
+## 10 nRBC_stringent_FACS_~ F     Third     nRBC   deGoede nRBC     <tibble [1,050~
+## # ... with 193 more rows
 ```
 
 ```r
-# generate beta matrices
+# generate beta matrices for each trimester + cell type
 b_3_troph <- 
   getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
                                  pData(mset_combined_coefs)$CellType == 'Trophoblasts']
@@ -1360,6 +1403,9 @@ b_3_hofb <-
 b_3_nrbc <- 
   getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
                                  pData(mset_combined_coefs)$CellType == 'nRBC']
+b_3_stb <- 
+  getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
+                                 pData(mset_combined_coefs)$CellType == 'Syncytiotrophoblast']
 
 b_1_troph <- 
   getBeta(mset_combined_coefs)[,pData(mset_combined_coefs)$Trimester == 'Third' &
@@ -1375,14 +1421,16 @@ b_1_hofb <-
                                  pData(mset_combined_coefs)$CellType == 'Hofbauer']
 
 # generate coefficients
+set.seed(1993)
 n <- 250
 a <- runif(n = n)
 b <- runif(n = n, min = 0, max = 1-a)
 c <- runif(n = n, min = 0, max = 1-(b + a))
 d <- runif(n = n, min = 0, max = 1-(c + b + a))
-e <- 1-(a+b+c+d)
+e <- runif(n = n, min = 0, max = 1-(d + c + b + a))
+f <- 1-(a+b+c+d+e)
 
-all(a + b + c + d + e== 1)
+all(a + b + c + d + e + f == 1)
 ```
 
 ```
@@ -1390,15 +1438,17 @@ all(a + b + c + d + e== 1)
 ```
 
 ```r
-props <- tibble(a = a, b=b, c=c, d=d, e=e)
+# put coefficients into one table
+props <- tibble(a = a, b=b, c=c, d=d, e=e, f=f)
 props <- props %>%
   as.matrix() %>%
-  rbind(., .[,c(2:5,1)], 
-        .[,c(3:5,1:2)], 
-        .[,c(4:5,1:3)], 
-        .[,c(5,1:4)]) %>%
+  rbind(., .[,c(2:6,1)], 
+        .[,c(3:6,1:2)], 
+        .[,c(4:6,1:3)], 
+        .[,c(5:6,1:4)], 
+        .[,c(6,1:5)]) %>%
   as_tibble() %>%
-  mutate(sample = 1:(n*5))
+  mutate(sample = 1:(n*6))
 
 # generate mixtures
 set.seed(1)
@@ -1409,16 +1459,19 @@ silico_mix <- props %>%
            b*b_3_strom[,sample(1:ncol(b_3_strom),1)] +
            c*b_3_endo[,sample(1:ncol(b_3_endo),1)] +
            d*b_3_hofb[,sample(1:ncol(b_3_hofb),1)] +
-           e*b_3_nrbc[,sample(1:ncol(b_3_nrbc),1)]),
+           e*b_3_nrbc[,sample(1:ncol(b_3_nrbc),1)] +
+           f*b_3_stb[,sample(1:ncol(b_3_stb),1)]),
          mix1 = list(
            a*b_1_troph[,sample(1:ncol(b_1_troph),1)] + 
            b*b_1_strom[,sample(1:ncol(b_1_strom),1)] +
            c*b_1_endo[,sample(1:ncol(b_1_endo),1)] +
            d*b_1_hofb[,sample(1:ncol(b_1_hofb),1)] +
-           e*b_3_nrbc[,sample(1:ncol(b_3_nrbc),1)]),
+           e*b_3_nrbc[,sample(1:ncol(b_3_nrbc),1)] +
+           f*b_3_stb[,sample(1:ncol(b_3_stb),1)]),
          
          cpg= list(rownames(mset_combined_coefs))) %>% ungroup()
 
+# process results
 silico_pDat <- silico_mix %>%
   select(a:sample) %>%
   mutate(mix3 = 'mix3', mix1 = 'mix1') %>%
@@ -1451,7 +1504,7 @@ Check composition distribution
 
 ```r
 silico_pDat %>%
-  pivot_longer(cols = a:e,
+  pivot_longer(cols = a:f,
                names_to = 'component',
                values_to = 'proportion') %>%
   mutate(component = case_when(
@@ -1460,6 +1513,7 @@ silico_pDat %>%
     component == 'c' ~ 'Endothelial',
     component == 'd' ~ 'Hofbauer',
     component == 'e' ~ 'nRBC',
+    component == 'f' ~ 'Syncytiotrophoblast'
   )) %>% {
     ggplot(data =., aes(x = proportion, color = component)) +
   geom_density() +
@@ -11541,6 +11595,2006 @@ epidish_res333 <- epidish(
 ## 2500
 ```
 
+```
+## 2501
+```
+
+```
+## 2502
+```
+
+```
+## 2503
+```
+
+```
+## 2504
+```
+
+```
+## 2505
+```
+
+```
+## 2506
+```
+
+```
+## 2507
+```
+
+```
+## 2508
+```
+
+```
+## 2509
+```
+
+```
+## 2510
+```
+
+```
+## 2511
+```
+
+```
+## 2512
+```
+
+```
+## 2513
+```
+
+```
+## 2514
+```
+
+```
+## 2515
+```
+
+```
+## 2516
+```
+
+```
+## 2517
+```
+
+```
+## 2518
+```
+
+```
+## 2519
+```
+
+```
+## 2520
+```
+
+```
+## 2521
+```
+
+```
+## 2522
+```
+
+```
+## 2523
+```
+
+```
+## 2524
+```
+
+```
+## 2525
+```
+
+```
+## 2526
+```
+
+```
+## 2527
+```
+
+```
+## 2528
+```
+
+```
+## 2529
+```
+
+```
+## 2530
+```
+
+```
+## 2531
+```
+
+```
+## 2532
+```
+
+```
+## 2533
+```
+
+```
+## 2534
+```
+
+```
+## 2535
+```
+
+```
+## 2536
+```
+
+```
+## 2537
+```
+
+```
+## 2538
+```
+
+```
+## 2539
+```
+
+```
+## 2540
+```
+
+```
+## 2541
+```
+
+```
+## 2542
+```
+
+```
+## 2543
+```
+
+```
+## 2544
+```
+
+```
+## 2545
+```
+
+```
+## 2546
+```
+
+```
+## 2547
+```
+
+```
+## 2548
+```
+
+```
+## 2549
+```
+
+```
+## 2550
+```
+
+```
+## 2551
+```
+
+```
+## 2552
+```
+
+```
+## 2553
+```
+
+```
+## 2554
+```
+
+```
+## 2555
+```
+
+```
+## 2556
+```
+
+```
+## 2557
+```
+
+```
+## 2558
+```
+
+```
+## 2559
+```
+
+```
+## 2560
+```
+
+```
+## 2561
+```
+
+```
+## 2562
+```
+
+```
+## 2563
+```
+
+```
+## 2564
+```
+
+```
+## 2565
+```
+
+```
+## 2566
+```
+
+```
+## 2567
+```
+
+```
+## 2568
+```
+
+```
+## 2569
+```
+
+```
+## 2570
+```
+
+```
+## 2571
+```
+
+```
+## 2572
+```
+
+```
+## 2573
+```
+
+```
+## 2574
+```
+
+```
+## 2575
+```
+
+```
+## 2576
+```
+
+```
+## 2577
+```
+
+```
+## 2578
+```
+
+```
+## 2579
+```
+
+```
+## 2580
+```
+
+```
+## 2581
+```
+
+```
+## 2582
+```
+
+```
+## 2583
+```
+
+```
+## 2584
+```
+
+```
+## 2585
+```
+
+```
+## 2586
+```
+
+```
+## 2587
+```
+
+```
+## 2588
+```
+
+```
+## 2589
+```
+
+```
+## 2590
+```
+
+```
+## 2591
+```
+
+```
+## 2592
+```
+
+```
+## 2593
+```
+
+```
+## 2594
+```
+
+```
+## 2595
+```
+
+```
+## 2596
+```
+
+```
+## 2597
+```
+
+```
+## 2598
+```
+
+```
+## 2599
+```
+
+```
+## 2600
+```
+
+```
+## 2601
+```
+
+```
+## 2602
+```
+
+```
+## 2603
+```
+
+```
+## 2604
+```
+
+```
+## 2605
+```
+
+```
+## 2606
+```
+
+```
+## 2607
+```
+
+```
+## 2608
+```
+
+```
+## 2609
+```
+
+```
+## 2610
+```
+
+```
+## 2611
+```
+
+```
+## 2612
+```
+
+```
+## 2613
+```
+
+```
+## 2614
+```
+
+```
+## 2615
+```
+
+```
+## 2616
+```
+
+```
+## 2617
+```
+
+```
+## 2618
+```
+
+```
+## 2619
+```
+
+```
+## 2620
+```
+
+```
+## 2621
+```
+
+```
+## 2622
+```
+
+```
+## 2623
+```
+
+```
+## 2624
+```
+
+```
+## 2625
+```
+
+```
+## 2626
+```
+
+```
+## 2627
+```
+
+```
+## 2628
+```
+
+```
+## 2629
+```
+
+```
+## 2630
+```
+
+```
+## 2631
+```
+
+```
+## 2632
+```
+
+```
+## 2633
+```
+
+```
+## 2634
+```
+
+```
+## 2635
+```
+
+```
+## 2636
+```
+
+```
+## 2637
+```
+
+```
+## 2638
+```
+
+```
+## 2639
+```
+
+```
+## 2640
+```
+
+```
+## 2641
+```
+
+```
+## 2642
+```
+
+```
+## 2643
+```
+
+```
+## 2644
+```
+
+```
+## 2645
+```
+
+```
+## 2646
+```
+
+```
+## 2647
+```
+
+```
+## 2648
+```
+
+```
+## 2649
+```
+
+```
+## 2650
+```
+
+```
+## 2651
+```
+
+```
+## 2652
+```
+
+```
+## 2653
+```
+
+```
+## 2654
+```
+
+```
+## 2655
+```
+
+```
+## 2656
+```
+
+```
+## 2657
+```
+
+```
+## 2658
+```
+
+```
+## 2659
+```
+
+```
+## 2660
+```
+
+```
+## 2661
+```
+
+```
+## 2662
+```
+
+```
+## 2663
+```
+
+```
+## 2664
+```
+
+```
+## 2665
+```
+
+```
+## 2666
+```
+
+```
+## 2667
+```
+
+```
+## 2668
+```
+
+```
+## 2669
+```
+
+```
+## 2670
+```
+
+```
+## 2671
+```
+
+```
+## 2672
+```
+
+```
+## 2673
+```
+
+```
+## 2674
+```
+
+```
+## 2675
+```
+
+```
+## 2676
+```
+
+```
+## 2677
+```
+
+```
+## 2678
+```
+
+```
+## 2679
+```
+
+```
+## 2680
+```
+
+```
+## 2681
+```
+
+```
+## 2682
+```
+
+```
+## 2683
+```
+
+```
+## 2684
+```
+
+```
+## 2685
+```
+
+```
+## 2686
+```
+
+```
+## 2687
+```
+
+```
+## 2688
+```
+
+```
+## 2689
+```
+
+```
+## 2690
+```
+
+```
+## 2691
+```
+
+```
+## 2692
+```
+
+```
+## 2693
+```
+
+```
+## 2694
+```
+
+```
+## 2695
+```
+
+```
+## 2696
+```
+
+```
+## 2697
+```
+
+```
+## 2698
+```
+
+```
+## 2699
+```
+
+```
+## 2700
+```
+
+```
+## 2701
+```
+
+```
+## 2702
+```
+
+```
+## 2703
+```
+
+```
+## 2704
+```
+
+```
+## 2705
+```
+
+```
+## 2706
+```
+
+```
+## 2707
+```
+
+```
+## 2708
+```
+
+```
+## 2709
+```
+
+```
+## 2710
+```
+
+```
+## 2711
+```
+
+```
+## 2712
+```
+
+```
+## 2713
+```
+
+```
+## 2714
+```
+
+```
+## 2715
+```
+
+```
+## 2716
+```
+
+```
+## 2717
+```
+
+```
+## 2718
+```
+
+```
+## 2719
+```
+
+```
+## 2720
+```
+
+```
+## 2721
+```
+
+```
+## 2722
+```
+
+```
+## 2723
+```
+
+```
+## 2724
+```
+
+```
+## 2725
+```
+
+```
+## 2726
+```
+
+```
+## 2727
+```
+
+```
+## 2728
+```
+
+```
+## 2729
+```
+
+```
+## 2730
+```
+
+```
+## 2731
+```
+
+```
+## 2732
+```
+
+```
+## 2733
+```
+
+```
+## 2734
+```
+
+```
+## 2735
+```
+
+```
+## 2736
+```
+
+```
+## 2737
+```
+
+```
+## 2738
+```
+
+```
+## 2739
+```
+
+```
+## 2740
+```
+
+```
+## 2741
+```
+
+```
+## 2742
+```
+
+```
+## 2743
+```
+
+```
+## 2744
+```
+
+```
+## 2745
+```
+
+```
+## 2746
+```
+
+```
+## 2747
+```
+
+```
+## 2748
+```
+
+```
+## 2749
+```
+
+```
+## 2750
+```
+
+```
+## 2751
+```
+
+```
+## 2752
+```
+
+```
+## 2753
+```
+
+```
+## 2754
+```
+
+```
+## 2755
+```
+
+```
+## 2756
+```
+
+```
+## 2757
+```
+
+```
+## 2758
+```
+
+```
+## 2759
+```
+
+```
+## 2760
+```
+
+```
+## 2761
+```
+
+```
+## 2762
+```
+
+```
+## 2763
+```
+
+```
+## 2764
+```
+
+```
+## 2765
+```
+
+```
+## 2766
+```
+
+```
+## 2767
+```
+
+```
+## 2768
+```
+
+```
+## 2769
+```
+
+```
+## 2770
+```
+
+```
+## 2771
+```
+
+```
+## 2772
+```
+
+```
+## 2773
+```
+
+```
+## 2774
+```
+
+```
+## 2775
+```
+
+```
+## 2776
+```
+
+```
+## 2777
+```
+
+```
+## 2778
+```
+
+```
+## 2779
+```
+
+```
+## 2780
+```
+
+```
+## 2781
+```
+
+```
+## 2782
+```
+
+```
+## 2783
+```
+
+```
+## 2784
+```
+
+```
+## 2785
+```
+
+```
+## 2786
+```
+
+```
+## 2787
+```
+
+```
+## 2788
+```
+
+```
+## 2789
+```
+
+```
+## 2790
+```
+
+```
+## 2791
+```
+
+```
+## 2792
+```
+
+```
+## 2793
+```
+
+```
+## 2794
+```
+
+```
+## 2795
+```
+
+```
+## 2796
+```
+
+```
+## 2797
+```
+
+```
+## 2798
+```
+
+```
+## 2799
+```
+
+```
+## 2800
+```
+
+```
+## 2801
+```
+
+```
+## 2802
+```
+
+```
+## 2803
+```
+
+```
+## 2804
+```
+
+```
+## 2805
+```
+
+```
+## 2806
+```
+
+```
+## 2807
+```
+
+```
+## 2808
+```
+
+```
+## 2809
+```
+
+```
+## 2810
+```
+
+```
+## 2811
+```
+
+```
+## 2812
+```
+
+```
+## 2813
+```
+
+```
+## 2814
+```
+
+```
+## 2815
+```
+
+```
+## 2816
+```
+
+```
+## 2817
+```
+
+```
+## 2818
+```
+
+```
+## 2819
+```
+
+```
+## 2820
+```
+
+```
+## 2821
+```
+
+```
+## 2822
+```
+
+```
+## 2823
+```
+
+```
+## 2824
+```
+
+```
+## 2825
+```
+
+```
+## 2826
+```
+
+```
+## 2827
+```
+
+```
+## 2828
+```
+
+```
+## 2829
+```
+
+```
+## 2830
+```
+
+```
+## 2831
+```
+
+```
+## 2832
+```
+
+```
+## 2833
+```
+
+```
+## 2834
+```
+
+```
+## 2835
+```
+
+```
+## 2836
+```
+
+```
+## 2837
+```
+
+```
+## 2838
+```
+
+```
+## 2839
+```
+
+```
+## 2840
+```
+
+```
+## 2841
+```
+
+```
+## 2842
+```
+
+```
+## 2843
+```
+
+```
+## 2844
+```
+
+```
+## 2845
+```
+
+```
+## 2846
+```
+
+```
+## 2847
+```
+
+```
+## 2848
+```
+
+```
+## 2849
+```
+
+```
+## 2850
+```
+
+```
+## 2851
+```
+
+```
+## 2852
+```
+
+```
+## 2853
+```
+
+```
+## 2854
+```
+
+```
+## 2855
+```
+
+```
+## 2856
+```
+
+```
+## 2857
+```
+
+```
+## 2858
+```
+
+```
+## 2859
+```
+
+```
+## 2860
+```
+
+```
+## 2861
+```
+
+```
+## 2862
+```
+
+```
+## 2863
+```
+
+```
+## 2864
+```
+
+```
+## 2865
+```
+
+```
+## 2866
+```
+
+```
+## 2867
+```
+
+```
+## 2868
+```
+
+```
+## 2869
+```
+
+```
+## 2870
+```
+
+```
+## 2871
+```
+
+```
+## 2872
+```
+
+```
+## 2873
+```
+
+```
+## 2874
+```
+
+```
+## 2875
+```
+
+```
+## 2876
+```
+
+```
+## 2877
+```
+
+```
+## 2878
+```
+
+```
+## 2879
+```
+
+```
+## 2880
+```
+
+```
+## 2881
+```
+
+```
+## 2882
+```
+
+```
+## 2883
+```
+
+```
+## 2884
+```
+
+```
+## 2885
+```
+
+```
+## 2886
+```
+
+```
+## 2887
+```
+
+```
+## 2888
+```
+
+```
+## 2889
+```
+
+```
+## 2890
+```
+
+```
+## 2891
+```
+
+```
+## 2892
+```
+
+```
+## 2893
+```
+
+```
+## 2894
+```
+
+```
+## 2895
+```
+
+```
+## 2896
+```
+
+```
+## 2897
+```
+
+```
+## 2898
+```
+
+```
+## 2899
+```
+
+```
+## 2900
+```
+
+```
+## 2901
+```
+
+```
+## 2902
+```
+
+```
+## 2903
+```
+
+```
+## 2904
+```
+
+```
+## 2905
+```
+
+```
+## 2906
+```
+
+```
+## 2907
+```
+
+```
+## 2908
+```
+
+```
+## 2909
+```
+
+```
+## 2910
+```
+
+```
+## 2911
+```
+
+```
+## 2912
+```
+
+```
+## 2913
+```
+
+```
+## 2914
+```
+
+```
+## 2915
+```
+
+```
+## 2916
+```
+
+```
+## 2917
+```
+
+```
+## 2918
+```
+
+```
+## 2919
+```
+
+```
+## 2920
+```
+
+```
+## 2921
+```
+
+```
+## 2922
+```
+
+```
+## 2923
+```
+
+```
+## 2924
+```
+
+```
+## 2925
+```
+
+```
+## 2926
+```
+
+```
+## 2927
+```
+
+```
+## 2928
+```
+
+```
+## 2929
+```
+
+```
+## 2930
+```
+
+```
+## 2931
+```
+
+```
+## 2932
+```
+
+```
+## 2933
+```
+
+```
+## 2934
+```
+
+```
+## 2935
+```
+
+```
+## 2936
+```
+
+```
+## 2937
+```
+
+```
+## 2938
+```
+
+```
+## 2939
+```
+
+```
+## 2940
+```
+
+```
+## 2941
+```
+
+```
+## 2942
+```
+
+```
+## 2943
+```
+
+```
+## 2944
+```
+
+```
+## 2945
+```
+
+```
+## 2946
+```
+
+```
+## 2947
+```
+
+```
+## 2948
+```
+
+```
+## 2949
+```
+
+```
+## 2950
+```
+
+```
+## 2951
+```
+
+```
+## 2952
+```
+
+```
+## 2953
+```
+
+```
+## 2954
+```
+
+```
+## 2955
+```
+
+```
+## 2956
+```
+
+```
+## 2957
+```
+
+```
+## 2958
+```
+
+```
+## 2959
+```
+
+```
+## 2960
+```
+
+```
+## 2961
+```
+
+```
+## 2962
+```
+
+```
+## 2963
+```
+
+```
+## 2964
+```
+
+```
+## 2965
+```
+
+```
+## 2966
+```
+
+```
+## 2967
+```
+
+```
+## 2968
+```
+
+```
+## 2969
+```
+
+```
+## 2970
+```
+
+```
+## 2971
+```
+
+```
+## 2972
+```
+
+```
+## 2973
+```
+
+```
+## 2974
+```
+
+```
+## 2975
+```
+
+```
+## 2976
+```
+
+```
+## 2977
+```
+
+```
+## 2978
+```
+
+```
+## 2979
+```
+
+```
+## 2980
+```
+
+```
+## 2981
+```
+
+```
+## 2982
+```
+
+```
+## 2983
+```
+
+```
+## 2984
+```
+
+```
+## 2985
+```
+
+```
+## 2986
+```
+
+```
+## 2987
+```
+
+```
+## 2988
+```
+
+```
+## 2989
+```
+
+```
+## 2990
+```
+
+```
+## 2991
+```
+
+```
+## 2992
+```
+
+```
+## 2993
+```
+
+```
+## 2994
+```
+
+```
+## 2995
+```
+
+```
+## 2996
+```
+
+```
+## 2997
+```
+
+```
+## 2998
+```
+
+```
+## 2999
+```
+
+```
+## 3000
+```
+
 ```r
 epidish_res333 <- epidish_res333$estF %>%
   as.data.frame() %>%
@@ -11557,7 +13611,7 @@ epidish_results <- bind_rows(epidish_res111, epidish_res222, epidish_res333,
                              houseman_silico) %>%
   dplyr::rename(sample_name = Sample_Names) %>%
   left_join(silico_pDat %>%
-              pivot_longer(cols = a:e,
+              pivot_longer(cols = a:f,
                            names_to ='component',
                            values_to = 'actual') %>%
               mutate(component = case_when(
@@ -11565,7 +13619,8 @@ epidish_results <- bind_rows(epidish_res111, epidish_res222, epidish_res333,
                     component == 'b' ~ 'Stromal',
                     component == 'c' ~ 'Endothelial',
                     component == 'd' ~ 'Hofbauer',
-                    component == 'e' ~ 'nRBC'))) %>%
+                    component == 'e' ~ 'nRBC',
+                    component == 'f' ~ 'Syncytiotrophoblast'))) %>%
   dplyr::rename(estimated = percent)
 ```
 
@@ -11621,10 +13676,10 @@ stats %>%
 ## # A tibble: 4 x 4
 ##   algorithm       rmse   rsq    mae
 ##   <chr>          <dbl> <dbl>  <dbl>
-## 1 epidish (CBS) 0.0458 0.962 0.0264
-## 2 epidish (CP)  0.0461 0.962 0.0274
-## 3 epidish (RPC) 0.0450 0.963 0.0263
-## 4 Houseman (CP) 0.0463 0.962 0.0275
+## 1 epidish (CBS) 0.0447 0.960 0.0235
+## 2 epidish (CP)  0.0459 0.957 0.0246
+## 3 epidish (RPC) 0.0442 0.960 0.0232
+## 4 Houseman (CP) 0.0459 0.957 0.0245
 ```
 
 ```r
@@ -11661,7 +13716,7 @@ epidish_results %>%
 ```
 
 ```
-## Warning: Removed 3582 rows containing non-finite values (stat_density).
+## Warning: Removed 4383 rows containing non-finite values (stat_density).
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
@@ -11671,6 +13726,38 @@ epidish_results %>%
 
 ```r
 # apply deconvolution and process results
+houseman_estimates_third <- minfi:::projectCellType(
+  getBeta(mset_test)[rownames(coefs_combined_third)
+                                ,pData(mset_test)$Trimester == 'Third'],
+  coefs_combined_third,
+  lessThanOne = TRUE)
+
+houseman_estimates_third <- houseman_estimates_third %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'Houseman')
+
+houseman_estimates_first <- minfi:::projectCellType(
+  getBeta(mset_test)[rownames(coefs_combined_third)
+                                ,pData(mset_test)$Trimester == 'First'],
+  coefs_combined_first,
+  lessThanOne = TRUE)
+
+houseman_estimates_first <- houseman_estimates_first %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'Houseman')
+
 epidish_res111 <- epidish(
   beta.m = getBeta(mset_test)[rownames(coefs_combined_third)
                                 ,pData(mset_test)$Trimester == 'Third'],
@@ -11703,9 +13790,10 @@ epidish_res1111 <- epidish_res1111$estF %>%
   ) %>%
   mutate(algorithm = 'epidish (RPC)')
 
-epidish_rpc <- bind_rows(epidish_res111, epidish_res1111) %>%
+epidish_rpc <- bind_rows(houseman_estimates_first, houseman_estimates_third,
+                         epidish_res111, epidish_res1111) %>%
   dplyr::rename(Sample_Name = Sample_Names) %>%
-  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue))  %>%
+  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue, GA))  %>%
   distinct() 
 ```
 
@@ -11719,12 +13807,13 @@ epidish_rpc <- bind_rows(epidish_res111, epidish_res1111) %>%
 ```r
 # analyze
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
   pivot_wider(id_cols = -c(component, percent),
               names_from = 'component',
               values_from = 'percent') %>%
   mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
-  pivot_longer(cols = Trophoblasts:nRBC,
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
                names_to = 'component',
                values_to = 'percent') %>%
   ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
@@ -11737,11 +13826,39 @@ epidish_rpc %>%
         strip.background = element_blank(),
         strip.text = element_text(hjust =0)) +
   scale_y_continuous(expand = c(0,0), labels = percent) +
-  labs(x = '', y = '', fill = '') +
-  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free')
+  labs(x = '', y = '', fill = '', title = 'epidish (RPC)') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') 
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
+
+```r
+# analyze
+epidish_rpc %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'Houseman') %>%
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                    na.value = '#636363') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border= element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust =0)) +
+  scale_y_continuous(expand = c(0,0), labels = percent) +
+  labs(x = '', y = '', fill = '',  title = 'Houseman') +
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free') 
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-17-2.png)<!-- -->
 
 ```r
 epidish_rpc %>%
@@ -11762,30 +13879,31 @@ epidish_rpc %>%
   labs(x = '', color = '', y = '') 
 ```
 
-![](2_14_deconvolution_files/figure-html/unnamed-chunk-17-2.png)<!-- -->
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-17-3.png)<!-- -->
 
 ```r
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
   group_by(Trimester, component) %>%
-  summarize(mean = mean(percent))
+  summarize(mean = mean(percent),
+            sd = sd(percent)) %>% 
+  pivot_wider(id_cols = component, names_from = c('Trimester'), values_from = c('mean', 'sd')) %>%
+  mutate(diff = mean_Third-mean_First) %>%
+  arrange(desc(component)) %>%
+  select(component, contains('First'), contains('Third'), diff)
 ```
 
 ```
-## # A tibble: 10 x 3
-## # Groups:   Trimester [2]
-##    Trimester component      mean
-##    <chr>     <chr>         <dbl>
-##  1 First     Endothelial  0.0212
-##  2 First     Hofbauer     0.0600
-##  3 First     nRBC         0     
-##  4 First     Stromal      0.403 
-##  5 First     Trophoblasts 0.515 
-##  6 Third     Endothelial  0.0497
-##  7 Third     Hofbauer     0.0167
-##  8 Third     nRBC         0     
-##  9 Third     Stromal      0.0597
-## 10 Third     Trophoblasts 0.874
+## # A tibble: 6 x 6
+##   component           mean_First sd_First mean_Third sd_Third    diff
+##   <chr>                    <dbl>    <dbl>      <dbl>    <dbl>   <dbl>
+## 1 Trophoblasts            0.156    0.117      0.201    0.0553  0.0444
+## 2 Syncytiotrophoblast     0.348    0.0868     0.577    0.0832  0.229 
+## 3 Stromal                 0.433    0.132      0.124    0.0344 -0.309 
+## 4 nRBC                    0        0          0        0       0     
+## 5 Hofbauer                0.0339   0.0206     0.0234   0.0141 -0.0105
+## 6 Endothelial             0.0285   0.0208     0.0745   0.0145  0.0460
 ```
 
 ### Stats n stuff
@@ -11794,7 +13912,7 @@ epidish_rpc %>%
 ```r
 # between trimester
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   nest(data = -component) %>%
   mutate(lm = map(data, ~lm(percent ~ Trimester, .)),
          glanced = map(lm, glance)) %>%
@@ -11806,20 +13924,21 @@ epidish_rpc %>%
 ```
 
 ```
-## # A tibble: 5 x 5
-##   component    r.squared    p.value      adj_p p_value
-##   <chr>            <dbl>      <dbl>      <dbl> <chr>  
-## 1 Trophoblasts     0.771   3.87e- 9   1.55e- 8 <0.001 
-## 2 Stromal          0.830   1.02e-10   4.07e-10 <0.001 
-## 3 Hofbauer         0.668   3.44e- 7   1.37e- 6 <0.001 
-## 4 Endothelial      0.362   1.15e- 3   4.62e- 3 0.005  
-## 5 nRBC           NaN     NaN        NaN        <NA>
+## # A tibble: 6 x 5
+##   component           r.squared   p.value     adj_p p_value
+##   <chr>                   <dbl>     <dbl>     <dbl> <chr>  
+## 1 Trophoblasts           0.0685   1.96e-1   9.82e-1 0.982  
+## 2 Stromal                0.794    1.02e-9   5.08e-9 <0.001 
+## 3 Hofbauer               0.0848   1.49e-1   7.45e-1 0.745  
+## 4 Endothelial            0.629    1.34e-6   6.71e-6 <0.001 
+## 5 nRBC                 NaN      NaN       NaN       <NA>   
+## 6 Syncytiotrophoblast    0.613    2.27e-6   1.13e-5 <0.001
 ```
 
 ```r
 # between sex
 stats_by_sex <- epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third', component != 'nRBC') %>%
   nest(data = -component) %>%
   mutate(lm = map(data, ~lm(percent ~ Sex, .)),
@@ -11833,18 +13952,19 @@ stats_by_sex <- epidish_rpc %>%
 ```
 
 ```
-## # A tibble: 4 x 6
-##   component    r.squared p.value adj_p p_value testing_variable
-##   <chr>            <dbl>   <dbl> <dbl> <chr>   <chr>           
-## 1 Trophoblasts    0.124   0.139  0.557 0.557   Sex             
-## 2 Stromal         0.0633  0.299  1     >0.999  Sex             
-## 3 Hofbauer        0.224   0.0407 0.163 0.163   Sex             
-## 4 Endothelial     0.0730  0.263  1     >0.999  Sex
+## # A tibble: 5 x 6
+##   component           r.squared p.value adj_p p_value testing_variable
+##   <chr>                   <dbl>   <dbl> <dbl> <chr>   <chr>           
+## 1 Trophoblasts           0.0103  0.679  1     >0.999  Sex             
+## 2 Stromal                0.0553  0.333  1     >0.999  Sex             
+## 3 Hofbauer               0.199   0.0555 0.277 0.277   Sex             
+## 4 Endothelial            0.0549  0.334  1     >0.999  Sex             
+## 5 Syncytiotrophoblast    0.0789  0.244  1     >0.999  Sex
 ```
 
 ```r
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third', component !='nRBC') %>%
   ggplot(aes(x = component, y = percent, color = Sex)) +
   geom_beeswarm(dodge.width = 0.75, cex = 1.5) +
@@ -11864,7 +13984,7 @@ epidish_rpc %>%
 
 ```r
 epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third') %>%
   select(Sample_Name, Sex) %>%
   distinct() %>%
@@ -11882,7 +14002,7 @@ epidish_rpc %>%
 ```r
 # between ancestry
 epidish_rpc  %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third') %>%
   left_join(ancestry) %>%
   ggplot(aes(x = PC1_geno, y = PC2_geno, color = Predicted_ethnicity)) +
@@ -11898,7 +14018,7 @@ epidish_rpc  %>%
 ```r
 epidish_rpc %>%
   left_join(ancestry) %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
   ggplot(aes(x = component, y = percent, color = Predicted_ethnicity)) +
   geom_beeswarm(dodge.width = 0.75,size = 0.9) +
@@ -11924,7 +14044,7 @@ epidish_rpc %>%
 ```r
 stats_by_ancestry <- epidish_rpc %>%
   left_join(ancestry) %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
   nest(data = -component) %>%
   mutate(lm = map(data, ~lm(percent ~ Predicted_ethnicity, .)),
@@ -11942,19 +14062,20 @@ stats_by_ancestry <- epidish_rpc %>%
 ```
 
 ```
-## # A tibble: 4 x 6
-##   component    r.squared p.value adj_p p_value testing_variable
-##   <chr>            <dbl>   <dbl> <dbl> <chr>   <chr>           
-## 1 Trophoblasts   0.0110    0.689     1 >0.999  ancestry        
-## 2 Stromal        0.0121    0.674     1 >0.999  ancestry        
-## 3 Hofbauer       0.00409   0.807     1 >0.999  ancestry        
-## 4 Endothelial    0.0305    0.502     1 >0.999  ancestry
+## # A tibble: 5 x 6
+##   component           r.squared p.value adj_p p_value testing_variable
+##   <chr>                   <dbl>   <dbl> <dbl> <chr>   <chr>           
+## 1 Trophoblasts         0.0594     0.346     1 >0.999  ancestry        
+## 2 Stromal              0.00807    0.732     1 >0.999  ancestry        
+## 3 Hofbauer             0.000931   0.907     1 >0.999  ancestry        
+## 4 Endothelial          0.0285     0.517     1 >0.999  ancestry        
+## 5 Syncytiotrophoblast  0.0531     0.373     1 >0.999  ancestry
 ```
 
 ```r
 epidish_rpc %>%
   left_join(ancestry) %>%
-  filter(Tissue == 'Villi') %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
   select(Sample_Name, Predicted_ethnicity) %>%
   distinct() %>%
   dplyr::count(Predicted_ethnicity)
@@ -11974,8 +14095,220 @@ epidish_rpc %>%
 ## 4 <NA>                    7
 ```
 
+# estimate GA
+
+We want to find any association with gestational age and cell composition.
+
+Here I predict Ga using planet
+
+
+```r
+?pl_infer_age()
+```
+
+```
+## starting httpd help server ... done
+```
+
+```r
+ga <- tibble(Sample_Name = colnames(mset_test),
+  ga_rpc = pl_infer_age(getBeta(mset_test), 'RPC'),
+  ga_cpc = pl_infer_age(getBeta(mset_test), 'CPC'),
+  ga_rrpc = pl_infer_age(getBeta(mset_test), 'RRPC')
+)
+```
+
+```
+## [1] "558 of 558 predictors present."
+## [1] "546 of 546 predictors present."
+## [1] "395 of 395 predictors present."
+```
+
+```r
+# join ga to pDat
+pDat_filt <- pDat_filt %>%
+  left_join(ga)
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+```r
+# join deconv estimates to pDat
+pDat_filt <- pDat_filt %>%
+  left_join(
+    by = c('Sample_Name' = 'sample_name'),
+    epidish_rpc %>%
+      pivot_wider(id_cols = Sample_Name,
+                  names_from = c('algorithm', 'component'),
+                  values_from = 'percent') %>%
+      clean_names() 
+  )
+
+pDat_ga_comp <- pDat_filt %>% 
+  filter( Tissue == 'Villi') %>%
+  select(Sample_Name, Trimester, Tissue, contains('ga'), contains('epidish')) %>%
+  pivot_longer(cols = contains('epidish'),
+               names_to = 'component',
+               names_prefix = 'epidish_rpc_',
+               values_to = 'proportion') %>%
+  pivot_longer(cols = contains('ga'),
+               names_to = 'ga',
+               names_prefix = 'ga_',
+               values_to = 'weeks') %>%
+  mutate(ga = ifelse(ga == 'GA', 'reported', ga) %>%
+           as.factor() %>%
+           fct_relevel(levels = c('reported')))
+
+stats_by_ga <- pDat_ga_comp %>%
+  filter(component != 'n_rbc',
+         ga %in% c('reported', 'rpc')) %>%
+  nest(data = -c(Trimester, component, ga)) %>%
+  mutate(lm = map(data, ~lm(proportion ~ weeks, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(Trimester, component, ga, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'fdr'),
+         p_value = pvalue(adj_p, 0.01) %>%
+           ifelse(. < 0.05, 'p<0.05', .),
+         component = str_to_sentence(component) ); stats_by_ga
+```
+
+```
+## # A tibble: 20 x 7
+##    Trimester component           ga       r.squared p.value  adj_p p_value
+##    <chr>     <chr>               <fct>        <dbl>   <dbl>  <dbl> <chr>  
+##  1 Third     Trophoblasts        reported    0.0415 0.418   0.446  0.45   
+##  2 Third     Trophoblasts        rpc         0.162  0.0873  0.146  0.15   
+##  3 Third     Stromal             reported    0.105  0.189   0.252  0.25   
+##  4 Third     Stromal             rpc         0.210  0.0486  0.124  0.12   
+##  5 Third     Hofbauer            reported    0.326  0.0133  0.0698 0.07   
+##  6 Third     Hofbauer            rpc         0.303  0.0145  0.0698 0.07   
+##  7 Third     Endothelial         reported    0.180  0.0792  0.144  0.14   
+##  8 Third     Endothelial         rpc         0.208  0.0496  0.124  0.12   
+##  9 Third     Syncytiotrophoblast reported    0.184  0.0754  0.144  0.14   
+## 10 Third     Syncytiotrophoblast rpc         0.396  0.00387 0.0698 0.07   
+## 11 First     Trophoblasts        reported    0.709  0.0174  0.0698 0.07   
+## 12 First     Trophoblasts        rpc         0.296  0.206   0.258  0.26   
+## 13 First     Stromal             reported    0.667  0.0250  0.0834 0.08   
+## 14 First     Stromal             rpc         0.458  0.0950  0.146  0.15   
+## 15 First     Hofbauer            reported    0.0410 0.663   0.663  0.66   
+## 16 First     Hofbauer            rpc         0.278  0.224   0.264  0.26   
+## 17 First     Endothelial         reported    0.716  0.0164  0.0698 0.07   
+## 18 First     Endothelial         rpc         0.538  0.0608  0.135  0.14   
+## 19 First     Syncytiotrophoblast reported    0.132  0.424   0.446  0.45   
+## 20 First     Syncytiotrophoblast rpc         0.360  0.154   0.220  0.22
+```
+
+```r
+pDat_ga_comp %>%
+  pivot_wider(id_cols = -ga,
+              names_from = 'ga',
+              values_from = 'weeks') %>%
+  ggplot(aes(x= reported, y = rpc)) +
+  geom_point() +
+  geom_smooth(method ='lm') +
+  facet_wrap(vars(Trimester), scales = 'free')
+```
+
+```
+## `geom_smooth()` using formula 'y ~ x'
+```
+
+```
+## Warning: Removed 6 rows containing non-finite values (stat_smooth).
+```
+
+```
+## Warning: Removed 6 rows containing missing values (geom_point).
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-19-1.png)<!-- -->
+
+```r
+pDat_ga_comp %>% 
+  filter(component != 'n_rbc',
+         ga %in% c('reported', 'rpc'),
+        Trimester == 'Third') %>%
+  mutate(component = str_to_sentence(component)) %>%
+  {
+    ggplot(data = ., aes(x = weeks, y = proportion, color = component)) +
+      geom_point() +
+      geom_smooth(method = 'lm', se = FALSE,alpha = 0.5) +
+      facet_grid(cols = vars(ga), rows = vars(component), scales = 'free_y') +
+      scale_y_continuous(labels = percent) +  
+      scale_color_manual(values = color_code_tissue[unique(.$component)], 
+                       na.value = '#636363',
+                       guide = 'none')  +
+      theme(panel.grid = element_blank()) +
+      labs(title= 'within-trimester association with gestational age')
+  }
+```
+
+```
+## `geom_smooth()` using formula 'y ~ x'
+```
+
+```
+## Warning: Removed 5 rows containing non-finite values (stat_smooth).
+```
+
+```
+## Warning: Removed 5 rows containing missing values (geom_point).
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-19-2.png)<!-- -->
+
+# try villi again
+
+amy reports that she gets nRBCs estimated on her villi samples. Let's try again...
+
+
+```r
+library(planet)
+pDat_villi <- pDat_filt %>%
+  filter(Tissue == 'Villi')
+
+
+houseman_estimates <- minfi:::projectCellType(
+  getBeta(mset)[rownames(coefs_combined_third),pDat_villi$Sample_Name],
+  coefs_combined_third,
+  lessThanOne = FALSE)
+
+houseman_estimates %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Name = rownames(.),.) %>%
+  pivot_longer(cols =-Sample_Name,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  left_join(pDat_villi %>% select(Sample_Name, Trimester)) %>%
+  ggplot(aes(x = Sample_Name, y = proportion, fill = component)) +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~Trimester, ncol = 2, scales = 'free') +
+  scale_fill_brewer(palette = 'Accent') +
+  scale_y_continuous(limits = c(-0.1,1.1), breaks = c(0, 0.5, 1), labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  coord_cartesian(ylim = c(0,1)) +
+  labs(x = '', fill = '')
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-20-1.png)<!-- -->
 
 # Save
+
+Join to pDat_filt and save
+
+
+```r
+pDat_filt %>%
+  saveRDS(here(base_path, '2_14_pDat_filt.rds'))
+```
 
 
 ```r
@@ -11998,7 +14331,11 @@ epidish_rpc %>%
   saveRDS(here(base_path, '2_14_deconvolution_results.rds'))
 
 # save statistical testing
-bind_rows(stats_by_sex, stats_by_ancestry) %>%
+stats_by_ga %>%
+  mutate(ga = ifelse(ga == 'rpc', 'estimated', as.character(ga))) %>%
+  mutate(testing_variable = paste('within ', Trimester, ' trimester-', ga, ' - ga', sep = '')) %>%
+  select(-Trimester, -ga)  %>%
+  bind_rows(., stats_by_sex, stats_by_ancestry) %>%
   write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry.csv'))
 
 # in silico stuff
