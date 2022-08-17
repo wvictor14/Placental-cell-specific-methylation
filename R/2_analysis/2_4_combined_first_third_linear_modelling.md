@@ -21,590 +21,39 @@ editor_options:
 
 ```r
 # libraries and data
-library(ggplot2)
-library(tidyverse)
-```
-
-```
-## -- Attaching packages ----------------------------------------------- tidyverse 1.2.1 --
-```
-
-```
-## v tibble  2.1.3     v purrr   0.3.2
-## v tidyr   0.8.3     v dplyr   0.8.1
-## v readr   1.3.1     v stringr 1.4.0
-## v tibble  2.1.3     v forcats 0.4.0
-```
-
-```
-## -- Conflicts -------------------------------------------------- tidyverse_conflicts() --
-## x dplyr::filter() masks stats::filter()
-## x dplyr::lag()    masks stats::lag()
-```
-
-```r
 library(ggrepel)
 library(viridis)
-```
-
-```
-## Loading required package: viridisLite
-```
-
-```r
-library(scales)
-```
-
-```
-## 
-## Attaching package: 'scales'
-```
-
-```
-## The following object is masked from 'package:viridis':
-## 
-##     viridis_pal
-```
-
-```
-## The following object is masked from 'package:purrr':
-## 
-##     discard
-```
-
-```
-## The following object is masked from 'package:readr':
-## 
-##     col_factor
-```
-
-```r
 library(RColorBrewer)
 library(pheatmap)
 library(irlba)
-```
-
-```
-## Loading required package: Matrix
-```
-
-```
-## 
-## Attaching package: 'Matrix'
-```
-
-```
-## The following object is masked from 'package:tidyr':
-## 
-##     expand
-```
-
-```r
 library(plomics) # 0.2 github/wvictor14/plomics
 library(GGally)
-```
-
-```
-## Registered S3 method overwritten by 'GGally':
-##   method from   
-##   +.gg   ggplot2
-```
-
-```
-## 
-## Attaching package: 'GGally'
-```
-
-```
-## The following object is masked from 'package:dplyr':
-## 
-##     nasa
-```
-
-```r
 library(cowplot)
-```
-
-```
-## 
-## Attaching package: 'cowplot'
-```
-
-```
-## The following object is masked from 'package:ggplot2':
-## 
-##     ggsave
-```
-
-```r
 library(umap)
 library(dendextend)
-```
-
-```
-## 
-## ---------------------
-## Welcome to dendextend version 1.12.0
-## Type citation('dendextend') for how to cite the package.
-## 
-## Type browseVignettes(package = 'dendextend') for the package vignette.
-## The github page is: https://github.com/talgalili/dendextend/
-## 
-## Suggestions and bug-reports can be submitted at: https://github.com/talgalili/dendextend/issues
-## Or contact: <tal.galili@gmail.com>
-## 
-## 	To suppress this message use:  suppressPackageStartupMessages(library(dendextend))
-## ---------------------
-```
-
-```
-## 
-## Attaching package: 'dendextend'
-```
-
-```
-## The following object is masked from 'package:stats':
-## 
-##     cutree
-```
-
-```r
 library(stringr)
 library(minfi)
-```
-
-```
-## Loading required package: BiocGenerics
-```
-
-```
-## Loading required package: parallel
-```
-
-```
-## 
-## Attaching package: 'BiocGenerics'
-```
-
-```
-## The following objects are masked from 'package:parallel':
-## 
-##     clusterApply, clusterApplyLB, clusterCall, clusterEvalQ,
-##     clusterExport, clusterMap, parApply, parCapply, parLapply,
-##     parLapplyLB, parRapply, parSapply, parSapplyLB
-```
-
-```
-## The following object is masked from 'package:Matrix':
-## 
-##     which
-```
-
-```
-## The following objects are masked from 'package:dplyr':
-## 
-##     combine, intersect, setdiff, union
-```
-
-```
-## The following objects are masked from 'package:stats':
-## 
-##     IQR, mad, sd, var, xtabs
-```
-
-```
-## The following objects are masked from 'package:base':
-## 
-##     anyDuplicated, append, as.data.frame, basename, cbind,
-##     colnames, dirname, do.call, duplicated, eval, evalq, Filter,
-##     Find, get, grep, grepl, intersect, is.unsorted, lapply, Map,
-##     mapply, match, mget, order, paste, pmax, pmax.int, pmin,
-##     pmin.int, Position, rank, rbind, Reduce, rownames, sapply,
-##     setdiff, sort, table, tapply, union, unique, unsplit, which,
-##     which.max, which.min
-```
-
-```
-## Loading required package: GenomicRanges
-```
-
-```
-## Loading required package: stats4
-```
-
-```
-## Loading required package: S4Vectors
-```
-
-```
-## 
-## Attaching package: 'S4Vectors'
-```
-
-```
-## The following object is masked from 'package:Matrix':
-## 
-##     expand
-```
-
-```
-## The following objects are masked from 'package:dplyr':
-## 
-##     first, rename
-```
-
-```
-## The following object is masked from 'package:tidyr':
-## 
-##     expand
-```
-
-```
-## The following object is masked from 'package:base':
-## 
-##     expand.grid
-```
-
-```
-## Loading required package: IRanges
-```
-
-```
-## 
-## Attaching package: 'IRanges'
-```
-
-```
-## The following objects are masked from 'package:dplyr':
-## 
-##     collapse, desc, slice
-```
-
-```
-## The following object is masked from 'package:purrr':
-## 
-##     reduce
-```
-
-```
-## The following object is masked from 'package:grDevices':
-## 
-##     windows
-```
-
-```
-## Loading required package: GenomeInfoDb
-```
-
-```
-## Loading required package: SummarizedExperiment
-```
-
-```
-## Loading required package: Biobase
-```
-
-```
-## Welcome to Bioconductor
-## 
-##     Vignettes contain introductory material; view with
-##     'browseVignettes()'. To cite Bioconductor, see
-##     'citation("Biobase")', and for packages 'citation("pkgname")'.
-```
-
-```
-## Loading required package: DelayedArray
-```
-
-```
-## Loading required package: matrixStats
-```
-
-```
-## 
-## Attaching package: 'matrixStats'
-```
-
-```
-## The following objects are masked from 'package:Biobase':
-## 
-##     anyMissing, rowMedians
-```
-
-```
-## The following object is masked from 'package:dplyr':
-## 
-##     count
-```
-
-```
-## Loading required package: BiocParallel
-```
-
-```
-## 
-## Attaching package: 'DelayedArray'
-```
-
-```
-## The following objects are masked from 'package:matrixStats':
-## 
-##     colMaxs, colMins, colRanges, rowMaxs, rowMins, rowRanges
-```
-
-```
-## The following object is masked from 'package:purrr':
-## 
-##     simplify
-```
-
-```
-## The following objects are masked from 'package:base':
-## 
-##     aperm, apply, rowsum
-```
-
-```
-## Loading required package: Biostrings
-```
-
-```
-## Loading required package: XVector
-```
-
-```
-## 
-## Attaching package: 'XVector'
-```
-
-```
-## The following object is masked from 'package:purrr':
-## 
-##     compact
-```
-
-```
-## 
-## Attaching package: 'Biostrings'
-```
-
-```
-## The following object is masked from 'package:DelayedArray':
-## 
-##     type
-```
-
-```
-## The following object is masked from 'package:dendextend':
-## 
-##     nnodes
-```
-
-```
-## The following object is masked from 'package:base':
-## 
-##     strsplit
-```
-
-```
-## Loading required package: bumphunter
-```
-
-```
-## Loading required package: foreach
-```
-
-```
-## 
-## Attaching package: 'foreach'
-```
-
-```
-## The following objects are masked from 'package:purrr':
-## 
-##     accumulate, when
-```
-
-```
-## Loading required package: iterators
-```
-
-```
-## Loading required package: locfit
-```
-
-```
-## locfit 1.5-9.1 	 2013-03-22
-```
-
-```
-## Setting options('download.file.method.GEOquery'='auto')
-```
-
-```
-## Setting options('GEOquery.inmemory.gpl'=FALSE)
-```
-
-```r
 library(ggridges)
-```
-
-```
-## 
-## Attaching package: 'ggridges'
-```
-
-```
-## The following object is masked from 'package:ggplot2':
-## 
-##     scale_discrete_manual
-```
-
-```r
 library(ggpmisc)
-```
-
-```
-## For news about 'ggpmisc', please, see https://www.r4photobiology.info/
-```
-
-```r
 library(egg)
-```
-
-```
-## Loading required package: gridExtra
-```
-
-```
-## 
-## Attaching package: 'gridExtra'
-```
-
-```
-## The following object is masked from 'package:minfi':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:Biobase':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:BiocGenerics':
-## 
-##     combine
-```
-
-```
-## The following object is masked from 'package:dplyr':
-## 
-##     combine
-```
-
-```r
 library(limma)
-```
-
-```
-## 
-## Attaching package: 'limma'
-```
-
-```
-## The following object is masked from 'package:BiocGenerics':
-## 
-##     plotMA
-```
-
-```r
 library(broom)
 library(missMethyl)
-```
-
-```
-## 
-```
-
-```
-## 
-```
-
-```r
 library(kableExtra)
-```
-
-```
-## 
-## Attaching package: 'kableExtra'
-```
-
-```
-## The following object is masked from 'package:dplyr':
-## 
-##     group_rows
-```
-
-```r
 library(DMRcate)
-```
-
-```
-## Loading required package: DSS
-```
-
-```
-## Loading required package: bsseq
-```
-
-```
-## Registered S3 method overwritten by 'R.oo':
-##   method        from       
-##   throw.default R.methodsS3
-```
-
-```
-## 
-## Attaching package: 'bsseq'
-```
-
-```
-## The following object is masked from 'package:minfi':
-## 
-##     getMeth
-```
-
-```
-## Loading required package: splines
-```
-
-```
-## Loading required package: DMRcatedata
-```
-
-```r
 library(biobroom)
-```
-
-```
-## Registered S3 methods overwritten by 'biobroom':
-##   method      from 
-##   glance.list broom
-##   tidy.list   broom
-```
-
-```r
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+library(here)
+library(tidyverse)
 ```
 
 ## Data
 
 
 ```r
-pDat <- readRDS('../../data/main/interim/2_3_pDat_contam.rds')
+base_path <- file.path('data', 'main', 'interim')
+
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
 pDat <- pDat %>%
   mutate(Tissue = case_when(
     !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
@@ -613,9 +62,9 @@ pDat <- pDat %>%
   )) 
 
 # raw methylation data
-betas <- readRDS('../../data/main/interim/1_4_betas_noob_filt.rds')
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
 
-mset_noob <- readRDS('../../data/main/interim/1_4_mset_noob.rds') # for mvals
+mset_noob <- readRDS(here(base_path, '1_4_mset_noob.rds')) # for mvals
 colnames(mset_noob) <- colnames(betas) <- pDat$Sample_Name
 mvals <- getM(mset_noob)
 
@@ -624,12 +73,12 @@ anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds
 anno <- anno %>%
   as_tibble() %>%
   filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
-probe_anno <- readRDS('../../data/main/interim/1_1_probe_anno.rds')
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
 
 # color key
-pheatmap_color_code <- readRDS('../../data/main/interim/1_1_color_code.rds')
+pheatmap_color_code <- readRDS(here(base_path, '1_1_color_code.rds'))
 
-color_code <- readRDS('../../data/main/interim/2_3_color_code.rds')
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
 ```
 
@@ -695,10 +144,24 @@ pDat %>%
 x <- pDat %>%
   group_by(Trimester, Tissue) %>%
   summarize(Before_filter = n())
+```
+
+```
+## `summarise()` has grouped output by 'Trimester'. You can override using the `.groups` argument.
+```
+
+```r
 y <- pDat %>%
   filter(maternal_contamination_norm_flip < 0.35) %>%
   group_by(Trimester, Tissue) %>%
   summarize(After_filter = n())
+```
+
+```
+## `summarise()` has grouped output by 'Trimester'. You can override using the `.groups` argument.
+```
+
+```r
 removed_df <- x %>% 
   ungroup %>%
   mutate(After_filter = y$After_filter,
@@ -885,6 +348,11 @@ sample_densities <- pDat_filt %>%
   unnest() %>%
   # add Trimester information
   left_join(pDat_filt %>% select(Sample_Name, maternal_contamination_norm_flip, Trimester)) 
+```
+
+```
+## Warning: `cols` is now required when using unnest().
+## Please use `cols = c(x, y)`
 ```
 
 ```
@@ -1114,6 +582,13 @@ scatter(x = 'PC5', y = 'PC6', fill = 'Tissue', point_size = 2) +
 
 ![](2_4_combined_first_third_linear_modelling_files/figure-html/unnamed-chunk-7-5.png)<!-- -->
 
+Save for med gen poster:
+
+plot_object <- scatter(x = 'PC1', y = 'PC2', fill = 'Tissue', point_size = 4.5) +
+  scale_fill_manual(values = color_code_tissue[unique(pDat_filt$Tissue)]) +
+  scale_shape_manual(values = c('First' = 24, 'Second' = NA, 'Third' = 21)) +
+  theme_bw(base_size = 28) 
+
 ## Pairwise Correlation
 
 
@@ -1209,6 +684,13 @@ fit_m <- lmFit(mvals_filt, design) %>%
 ## Warning: Partial NA coefficients for 737050 probe(s)
 ```
 
+```
+## Warning: `tbl_df()` was deprecated in dplyr 1.0.0.
+## Please use `tibble::as_tibble()` instead.
+## This warning is displayed once every 8 hours.
+## Call `lifecycle::last_lifecycle_warnings()` to see where this warning was generated.
+```
+
 ```r
 # add delta betas
 fit_b <- lmFit(betas_filt, design) %>%
@@ -1242,18 +724,1133 @@ Here I use dmrcate to find DMRs
 
 
 ```r
-myannotation <- cpg.annotate("array", 
+myannotation <- 
+  tibble(contrast = colnames(contMatrix)) %>%
+  mutate(cpgannotate = map(contrast, 
+                           ~ cpg.annotate(
+                             "array", 
                              mvals_filt, 
                              analysis.type="differential", 
                              what  = "M",
                              design=design,
                              contrasts = T, cont.matrix = contMatrix,
                              fdr = 0.05,
-                             coef = colnames(contMatrix)[1])
-dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, p.adjust.method = 'fdr')
+                             coef = .) ))
+```
 
-results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
-results.ranges %>% tidy()
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 234479 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 480605 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 220771 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 456552 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 451632 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 550933 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 483467 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```
+## Your contrast returned 528733 individually significant probes. We recommend the default setting of pcutoff in dmrcate().
+```
+
+```
+## Coefficients not estimable: Second.Endo_cs Second.Hofb_cs Second.Strom_cs Second.Troph_cs First.Villi Second.Villi Third.Villi
+```
+
+```
+## Warning: Partial NA coefficients for 736843 probe(s)
+```
+
+```r
+myannotation
+```
+
+```
+## # A tibble: 8 x 2
+##   contrast                                                            cpgannotate
+##   <chr>                                                               <list>     
+## 1 First.Endo_cs - (First.Hofb_cs + First.Strom_cs + First.Troph_cs)/3 <CpGnnttd> 
+## 2 First.Hofb_cs - (First.Endo_cs + First.Strom_cs + First.Troph_cs)/3 <CpGnnttd> 
+## 3 First.Strom_cs - (First.Endo_cs + First.Hofb_cs + First.Troph_cs)/3 <CpGnnttd> 
+## 4 First.Troph_cs - (First.Endo_cs + First.Hofb_cs + First.Strom_cs)/3 <CpGnnttd> 
+## 5 Third.Endo_cs - (Third.Hofb_cs + Third.Strom_cs + Third.Troph_cs)/3 <CpGnnttd> 
+## 6 Third.Hofb_cs - (Third.Endo_cs + Third.Strom_cs + Third.Troph_cs)/3 <CpGnnttd> 
+## 7 Third.Strom_cs - (Third.Endo_cs + Third.Hofb_cs + Third.Troph_cs)/3 <CpGnnttd> 
+## 8 Third.Troph_cs - (Third.Endo_cs + Third.Hofb_cs + Third.Strom_cs)/3 <CpGnnttd>
+```
+
+```r
+dmrcoutput <- myannotation %>%
+  mutate(out = map(cpgannotate, ~dmrcate(., lambda=1000, C=2)))
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```
+## Fitting chr1...
+```
+
+```
+## Fitting chr2...
+```
+
+```
+## Fitting chr3...
+```
+
+```
+## Fitting chr4...
+```
+
+```
+## Fitting chr5...
+```
+
+```
+## Fitting chr6...
+```
+
+```
+## Fitting chr7...
+```
+
+```
+## Fitting chr8...
+```
+
+```
+## Fitting chr9...
+```
+
+```
+## Fitting chr10...
+```
+
+```
+## Fitting chr11...
+```
+
+```
+## Fitting chr12...
+```
+
+```
+## Fitting chr13...
+```
+
+```
+## Fitting chr14...
+```
+
+```
+## Fitting chr15...
+```
+
+```
+## Fitting chr16...
+```
+
+```
+## Fitting chr17...
+```
+
+```
+## Fitting chr18...
+```
+
+```
+## Fitting chr19...
+```
+
+```
+## Fitting chr20...
+```
+
+```
+## Fitting chr21...
+```
+
+```
+## Fitting chr22...
+```
+
+```
+## Demarcating regions...
+```
+
+```
+## Done!
+```
+
+```r
+results.ranges <- dmrcoutput %>%
+  mutate(out_tibble = map(out, ~extractRanges(., genome = "hg19") %>% tidy()))
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## downloading 1 resources
+```
+
+```
+## retrieving 1 resource
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```
+## snapshotDate(): 2021-05-18
+```
+
+```
+## see ?DMRcatedata and browseVignettes('DMRcatedata') for documentation
+```
+
+```
+## loading from cache
+```
+
+```r
+results.ranges <- results.ranges %>%
+  mutate(contrast = gsub('_cs.*', '', contrast)) %>%
+  separate(contrast, into = c('Trimester', 'Celltype')) %>%
+  select(-cpgannotate, -out)  %>%
+  unnest(out_tibble)
+
+# sumarize
+results.ranges
+```
+
+```
+## # A tibble: 554,490 x 15
+##    Trimester Celltype     start       end width strand[,1] seqname no.cpgs
+##    <chr>     <chr>        <int>     <int> <int> <chr>      <chr>     <int>
+##  1 First     Endo       2321770   2324401  2632 *          chr11        34
+##  2 First     Endo      57581478  57583709  2232 *          chr20        29
+##  3 First     Endo      36145902  36151683  5782 *          chr20        54
+##  4 First     Endo      56405155  56409534  4380 *          chr17        21
+##  5 First     Endo      31880438  31883115  2678 *          chr12        18
+##  6 First     Endo      92921509  92932481 10973 *          chr5         31
+##  7 First     Endo      31539539  31543686  4148 *          chr6         37
+##  8 First     Endo      94825257  94829039  3783 *          chr10        14
+##  9 First     Endo      32036530  32059605 23076 *          chr6        169
+## 10 First     Endo     105452339 105455544  3206 *          chr10        14
+## # ... with 554,480 more rows, and 7 more variables: min_smoothed_fdr <dbl>,
+## #   Stouffer <dbl>, HMFDR <dbl>, Fisher <dbl>, maxdiff <dbl>, meandiff <dbl>,
+## #   overlapping.genes <chr>
+```
+
+```r
+results.ranges %>%
+  group_by(Trimester, Celltype) %>%
+  summarize(sum(min_smoothed_fdr<0.01))
+```
+
+```
+## `summarise()` has grouped output by 'Trimester'. You can override using the `.groups` argument.
+```
+
+```
+## # A tibble: 8 x 3
+## # Groups:   Trimester [2]
+##   Trimester Celltype `sum(min_smoothed_fdr < 0.01)`
+##   <chr>     <chr>                             <int>
+## 1 First     Endo                              42187
+## 2 First     Hofb                              80534
+## 3 First     Strom                             38656
+## 4 First     Troph                             75506
+## 5 Third     Endo                              72577
+## 6 Third     Hofb                              86355
+## 7 Third     Strom                             76654
+## 8 Third     Troph                             82021
 ```
 
 I skip DMRs for now
@@ -1314,6 +1911,10 @@ dmcs_sig %>%
   }
 ```
 
+```
+## Warning: `expand_scale()` is deprecated; use `expansion()` instead.
+```
+
 ![](2_4_combined_first_third_linear_modelling_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
 
 ```r
@@ -1353,56 +1954,56 @@ dmcs_sig %>%
  </thead>
 <tbody>
   <tr>
-   <td style="text-align:left;font-weight: bold;vertical-align: middle !important;" rowspan="4"> First </td>
+   <td style="text-align:left;font-weight: bold;"> First </td>
    <td style="text-align:left;"> Endothelial cs </td>
    <td style="text-align:right;"> 18867 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(68, 57, 131, 1) !important;">10088 (53%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(48, 104, 142, 1) !important;">8779 (47%)</span> </td>
   </tr>
   <tr>
-   
+   <td style="text-align:left;font-weight: bold;"> First </td>
    <td style="text-align:left;"> Hofbauer cs </td>
    <td style="text-align:right;"> 78309 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(70, 8, 91, 1) !important;">56281 (72%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(34, 140, 141, 1) !important;">22028 (28%)</span> </td>
   </tr>
   <tr>
-   
+   <td style="text-align:left;font-weight: bold;"> First </td>
    <td style="text-align:left;"> Stromal cs </td>
    <td style="text-align:right;"> 9136 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(48, 105, 142, 1) !important;">2939 (32%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(69, 56, 131, 1) !important;">6197 (68%)</span> </td>
   </tr>
   <tr>
-   
+   <td style="text-align:left;font-weight: bold;"> First </td>
    <td style="text-align:left;"> Trophoblasts cs </td>
    <td style="text-align:right;"> 117528 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(33, 144, 140, 1) !important;">13987 (12%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(68, 1, 84, 1) !important;">103541 (88%)</span> </td>
   </tr>
   <tr>
-   <td style="text-align:left;font-weight: bold;vertical-align: middle !important;" rowspan="4"> Third </td>
+   <td style="text-align:left;font-weight: bold;"> Third </td>
    <td style="text-align:left;"> Endothelial cs </td>
    <td style="text-align:right;"> 75525 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(42, 120, 142, 1) !important;">18500 (24%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(72, 37, 118, 1) !important;">57025 (76%)</span> </td>
   </tr>
   <tr>
-   
+   <td style="text-align:left;font-weight: bold;"> Third </td>
    <td style="text-align:left;"> Hofbauer cs </td>
    <td style="text-align:right;"> 130733 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(68, 1, 84, 1) !important;">96790 (74%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(33, 144, 140, 1) !important;">33943 (26%)</span> </td>
   </tr>
   <tr>
-   
+   <td style="text-align:left;font-weight: bold;"> Third </td>
    <td style="text-align:left;"> Stromal cs </td>
    <td style="text-align:right;"> 80153 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(48, 105, 142, 1) !important;">25464 (32%)</span> </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(69, 56, 130, 1) !important;">54689 (68%)</span> </td>
   </tr>
   <tr>
-   
+   <td style="text-align:left;font-weight: bold;"> Third </td>
    <td style="text-align:left;"> Trophoblasts cs </td>
    <td style="text-align:right;"> 135553 </td>
    <td style="text-align:left;"> <span style="     color: white !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(55, 91, 141, 1) !important;">52909 (39%)</span> </td>
@@ -1420,9 +2021,9 @@ dmcs_sig %>%
 ```r
 #GO testing
 gst <- dmcs %>% group_by(Group1) %>%
-  nest(.key = lm_summary) %>%
-  mutate(GO_results = map(lm_summary, . %>% 
-                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+  nest() %>%
+  mutate(GO_results = map(data, . %>% 
+                            slice_min(p.value, n = 10000) %>%
                             pull(gene) %>% 
                             gometh(all.cpg= rownames(betas), 
                                    collection = 'GO',
@@ -1431,7 +2032,39 @@ gst <- dmcs %>% group_by(Group1) %>%
                             arrange(FDR)),
          # number significnat at FDR < 0.05
          FDR05_signif = map_dbl(GO_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+```
 
+```
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+```
+
+```r
+gst
+```
+
+```
+## # A tibble: 8 x 4
+## # Groups:   Group1 [8]
+##   Group1         data                   GO_results        FDR05_signif
+##   <chr>          <list>                 <list>                   <dbl>
+## 1 First.Endo_cs  <tibble [737,050 x 8]> <df [22,569 x 7]>          275
+## 2 First.Hofb_cs  <tibble [737,050 x 8]> <df [22,569 x 7]>          313
+## 3 First.Strom_cs <tibble [737,050 x 8]> <df [22,569 x 7]>           75
+## 4 First.Troph_cs <tibble [737,050 x 8]> <df [22,569 x 7]>            0
+## 5 Third.Endo_cs  <tibble [737,050 x 8]> <df [22,569 x 7]>           19
+## 6 Third.Hofb_cs  <tibble [737,050 x 8]> <df [22,569 x 7]>          255
+## 7 Third.Strom_cs <tibble [737,050 x 8]> <df [22,569 x 7]>            8
+## 8 Third.Troph_cs <tibble [737,050 x 8]> <df [22,569 x 7]>            0
+```
+
+```r
 # process results
 gst <- gst %>%  
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
@@ -1479,9 +2112,9 @@ gst %>%
 ```r
 #KEGG testing
 kegg <- dmcs %>% group_by(Group1) %>%
-  nest(.key = lm_summary) %>%
-  mutate(KEGG_results = map(lm_summary, . %>% 
-                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+  nest() %>%
+  mutate(KEGG_results  = map(data, . %>% 
+                            slice_min(p.value, n = 10000) %>%
                             pull(gene) %>% 
                             gometh(all.cpg= rownames(betas), 
                                    collection = 'KEGG',
@@ -1490,7 +2123,39 @@ kegg <- dmcs %>% group_by(Group1) %>%
                             arrange(FDR)),
          # number significnat at FDR < 0.05
          FDR05_signif = map_dbl(KEGG_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+```
 
+```
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+## All input CpGs are used for testing.
+```
+
+```r
+kegg
+```
+
+```
+## # A tibble: 8 x 4
+## # Groups:   Group1 [8]
+##   Group1         data                   KEGG_results   FDR05_signif
+##   <chr>          <list>                 <list>                <dbl>
+## 1 First.Endo_cs  <tibble [737,050 x 8]> <df [345 x 6]>           25
+## 2 First.Hofb_cs  <tibble [737,050 x 8]> <df [345 x 6]>           13
+## 3 First.Strom_cs <tibble [737,050 x 8]> <df [345 x 6]>            9
+## 4 First.Troph_cs <tibble [737,050 x 8]> <df [345 x 6]>            1
+## 5 Third.Endo_cs  <tibble [737,050 x 8]> <df [345 x 6]>            1
+## 6 Third.Hofb_cs  <tibble [737,050 x 8]> <df [345 x 6]>            1
+## 7 Third.Strom_cs <tibble [737,050 x 8]> <df [345 x 6]>            0
+## 8 Third.Troph_cs <tibble [737,050 x 8]> <df [345 x 6]>            1
+```
+
+```r
 # process results
 kegg <- kegg %>%  
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
@@ -1662,11 +2327,7 @@ cell_calcs %>%
                            labels =scales::trans_format('log10',scales::math_format(10^.x)))
            
     }
-```
 
-![](2_4_combined_first_third_linear_modelling_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
-
-```r
 #correlogram
 cell_calcs %>%
     filter(Trimester_a == 'First', Trimester_b == 'Third') %>%
@@ -1681,19 +2342,106 @@ cell_calcs %>%
   scale_fill_viridis_c(limits = c(NA, 1)) 
 ```
 
-![](2_4_combined_first_third_linear_modelling_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
-
 # Save Data
 
 
 ```r
-saveRDS(cell_calcs, '../../data/main/interim/2_4_cell_calcs.rds')
-saveRDS(removed_df, '../../data/main/interim/2_4_removed_samples')
-saveRDS(sample_densities, '../../data/main/interim/2_4_sample_densities.rds')
-saveRDS(dmcs, '../../data/main/interim/2_4_dmcs.rds')
-saveRDS(dmcs_sig, '../../main/interim/2_4_dmcs_summary.rds')
-saveRDS(list(kegg = kegg, GO = gst, chrom = enrich_results), '../../data/main/interim/2_4_dmcs.rds')
-saveRDS(list(cell_mean_cor, cell_mean), '../../data/main/interim/2_4_cell_means.rds')
+saveRDS(pca, here(base_path, '2_4_pca.rds'))
+saveRDS(cell_calcs, here(base_path, '2_4_cell_calcs.rds'))
+saveRDS(removed_df, here(base_path, '2_4_removed_samples'))
+saveRDS(sample_densities, here(base_path, '2_4_sample_densities.rds'))
+saveRDS(dmcs, here(base_path, '2_4_dmcs.rds'))
+saveRDS(dmcs_sig, here(base_path, '2_4_dmcs_summary.rds'))
+saveRDS(list(kegg = kegg, GO = gst), here(base_path, '2_4_enrich.rds'))
+saveRDS(list(cell_mean_cor, cell_mean), here(base_path, '2_4_cell_means.rds'))
+
+kegg %>% 
+  select(Trimester, Celltype, Description:Order) %>%
+  mutate(Celltype = gsub(' cs', '', Celltype),
+         Trimester = ifelse(Trimester == 'Third', 'Term', Trimester)) %>%
+  dplyr::rename(Group = Trimester) %>%
+  write_csv(here('data', 'main', 'processed', '2_4_kegg.csv'))
+gst %>% 
+  select(Trimester, Celltype, ONTOLOGY:Order) %>%
+  mutate(Celltype = gsub(' cs', '', Celltype),
+         Trimester = ifelse(Trimester == 'Third', 'Term', Trimester)) %>%
+  dplyr::rename(Group = Trimester) %>%
+  write_csv(here('data', 'main', 'processed', '2_4_go.csv'))
+
+dmcs2 <- dmcs %>% 
+  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
+  separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
+  mutate(Celltype = case_when(
+    Celltype == 'Endo_cs' ~ 'Endothelial',
+    Celltype == 'Hofb_cs' ~ 'Hofbauer',
+    Celltype == 'Strom_cs' ~ 'Stromal',
+    Celltype == 'Troph_cs' ~ 'Trophoblasts')) %>%
+  dplyr::rename(cpg = gene,
+         mean_difference_mval = estimate,
+         p_value = p.value,
+        mean_difference_bval = delta_b) %>%
+  left_join(anno %>% select(cpg, chr, start, contains('genes'), -genes_width, -genes_gene_id)) %>%
+  select(Trimester, Celltype, cpg, chr, start, contains('genes'), 
+         contains('mean'), p_value, fdr, bonferroni, statistic, lod,
+         everything())
+
+# one file for each trimester / celltype
+dmcs_third <- dmcs2 %>%
+  select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
+  filter(Trimester == 'Third') %>%
+  select(-Trimester, -contains('genes')) %>%
+  mutate(location = paste0(chr, ':', start))  %>%
+  split(.$Celltype) %>%
+  map(~select(., -Celltype, -chr, -start, -location, -bonferroni))
+
+dmcs_third %>%
+  names(.) %>%
+  walk(~write_csv(dmcs_third[[.]], na = '', 
+                 here('outs', paste0('2_4_cell_dmcs_third_', ., '.csv' ))))
+ 
+
+dmcs_first <- dmcs2 %>%
+  select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
+  filter(Trimester == 'First') %>%
+  select(-Trimester, -contains('genes')) %>%
+  mutate(location = paste0(chr, ':', start))  %>%
+  split(.$Celltype) %>%
+  map(~select(., -Celltype, -chr, -start, -location, -bonferroni)) 
+
+dmcs_first %>%
+  names(.) %>%
+  walk(~write_csv(dmcs_first[[.]], na = '', 
+                 here('outs', paste0('2_4_cell_dmcs_first_', ., '.csv' ))))
+
+# verify counts are correct
+library(readxl)
+first_troph <- read_xlsx(sheet = 'S1 - Trophoblasts', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+first_strom <- read_xlsx(sheet = 'S1 - Stromal', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+first_endo <- read_xlsx(sheet = 'S1 - Endothelial', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+first_hofb <- read_xlsx(sheet = 'S1 - Hofbauer', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+nrow(first_troph);nrow(first_strom);nrow(first_endo);nrow(first_hofb)
+
+term_troph <- read_xlsx(sheet = 'S2 - Trophoblasts', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+term_strom <- read_xlsx(sheet = 'S2 - Stromal', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+term_endo <- read_xlsx(sheet = 'S2 - Endothelial', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+term_hofb <- read_xlsx(sheet = 'S2 - Hofbauer', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+nrow(term_troph);nrow(term_strom);nrow(term_endo);nrow(term_hofb)
+
+# File for all dmcs
+dmcs2 %>% 
+  select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
+  write_csv(here('outs', '2_4_dmcs.csv'))
+
+results.ranges %>%
+  filter(min_smoothed_fdr < 0.01, Trimester == 'First') %>%
+  select(-strand, -Trimester, -Stouffer, -(min_smoothed_fdr:overlapping.genes)) %>%
+  write_csv(na = 'NA',
+            path = here::here('outs', '2_4_dmrs_first.csv'))
+results.ranges %>%
+  filter(min_smoothed_fdr < 0.01, Trimester == 'Third') %>%
+  select(-strand, -Trimester, -Stouffer, -(min_smoothed_fdr:overlapping.genes)) %>%
+  write_csv(na = 'NA',
+            path = here::here('outs', '2_4_dmrs_term.csv'))
 ```
 
 # SessionInfo
@@ -1704,7 +2452,7 @@ sessionInfo()
 ```
 
 ```
-## R version 3.6.0 (2019-04-26)
+## R version 4.1.0 (2021-05-18)
 ## Platform: x86_64-w64-mingw32/x64 (64-bit)
 ## Running under: Windows Server x64 (build 14393)
 ## 
@@ -1716,197 +2464,152 @@ sessionInfo()
 ## [5] LC_TIME=English_Canada.1252    
 ## 
 ## attached base packages:
-##  [1] splines   stats4    parallel  stats     graphics  grDevices utils    
-##  [8] datasets  methods   base     
+## [1] stats4    parallel  stats     graphics  grDevices utils     datasets 
+## [8] methods   base     
 ## 
 ## other attached packages:
-##  [1] IlluminaHumanMethylationEPICanno.ilm10b4.hg19_0.6.0
-##  [2] biobroom_1.16.0                                    
-##  [3] DMRcate_1.20.0                                     
-##  [4] DMRcatedata_1.20.0                                 
-##  [5] DSS_2.32.0                                         
-##  [6] bsseq_1.20.0                                       
-##  [7] kableExtra_1.1.0                                   
-##  [8] missMethyl_1.18.0                                  
-##  [9] broom_0.5.2                                        
-## [10] limma_3.40.2                                       
-## [11] egg_0.4.2                                          
-## [12] gridExtra_2.3                                      
-## [13] ggpmisc_0.3.1                                      
-## [14] ggridges_0.5.1                                     
-## [15] minfi_1.30.0                                       
-## [16] bumphunter_1.26.0                                  
-## [17] locfit_1.5-9.1                                     
-## [18] iterators_1.0.10                                   
-## [19] foreach_1.4.4                                      
-## [20] Biostrings_2.52.0                                  
-## [21] XVector_0.24.0                                     
-## [22] SummarizedExperiment_1.14.0                        
-## [23] DelayedArray_0.10.0                                
-## [24] BiocParallel_1.17.18                               
-## [25] matrixStats_0.54.0                                 
-## [26] Biobase_2.44.0                                     
-## [27] GenomicRanges_1.36.0                               
-## [28] GenomeInfoDb_1.20.0                                
-## [29] IRanges_2.18.1                                     
-## [30] S4Vectors_0.22.0                                   
-## [31] BiocGenerics_0.30.0                                
-## [32] dendextend_1.12.0                                  
-## [33] umap_0.2.2.0                                       
-## [34] cowplot_0.9.4                                      
-## [35] GGally_1.4.0                                       
-## [36] plomics_0.2.0                                      
-## [37] irlba_2.3.3                                        
-## [38] Matrix_1.2-17                                      
-## [39] pheatmap_1.0.12                                    
-## [40] RColorBrewer_1.1-2                                 
-## [41] scales_1.0.0                                       
-## [42] viridis_0.5.1                                      
-## [43] viridisLite_0.3.0                                  
-## [44] ggrepel_0.8.1                                      
-## [45] forcats_0.4.0                                      
-## [46] stringr_1.4.0                                      
-## [47] dplyr_0.8.1                                        
-## [48] purrr_0.3.2                                        
-## [49] readr_1.3.1                                        
-## [50] tidyr_0.8.3                                        
-## [51] tibble_2.1.3                                       
-## [52] tidyverse_1.2.1                                    
-## [53] ggplot2_3.2.0                                      
+##  [1] DMRcatedata_2.10.0                                 
+##  [2] ExperimentHub_2.0.0                                
+##  [3] AnnotationHub_3.0.1                                
+##  [4] BiocFileCache_2.0.0                                
+##  [5] dbplyr_2.1.1                                       
+##  [6] forcats_0.5.1                                      
+##  [7] dplyr_1.0.7                                        
+##  [8] purrr_0.3.4                                        
+##  [9] readr_2.0.2                                        
+## [10] tidyr_1.1.4                                        
+## [11] tibble_3.1.5                                       
+## [12] tidyverse_1.3.1                                    
+## [13] here_1.0.1                                         
+## [14] biobroom_1.24.0                                    
+## [15] DMRcate_2.6.0                                      
+## [16] kableExtra_1.3.4                                   
+## [17] missMethyl_1.26.1                                  
+## [18] IlluminaHumanMethylationEPICanno.ilm10b4.hg19_0.6.0
+## [19] IlluminaHumanMethylation450kanno.ilmn12.hg19_0.6.0 
+## [20] broom_0.7.9                                        
+## [21] limma_3.48.3                                       
+## [22] egg_0.4.5                                          
+## [23] gridExtra_2.3                                      
+## [24] ggpmisc_0.4.3                                      
+## [25] ggpp_0.4.2                                         
+## [26] ggridges_0.5.3                                     
+## [27] minfi_1.38.0                                       
+## [28] bumphunter_1.34.0                                  
+## [29] locfit_1.5-9.4                                     
+## [30] iterators_1.0.13                                   
+## [31] foreach_1.5.1                                      
+## [32] Biostrings_2.60.2                                  
+## [33] XVector_0.32.0                                     
+## [34] SummarizedExperiment_1.22.0                        
+## [35] Biobase_2.52.0                                     
+## [36] MatrixGenerics_1.4.3                               
+## [37] matrixStats_0.61.0                                 
+## [38] GenomicRanges_1.44.0                               
+## [39] GenomeInfoDb_1.28.4                                
+## [40] IRanges_2.26.0                                     
+## [41] S4Vectors_0.30.2                                   
+## [42] BiocGenerics_0.38.0                                
+## [43] stringr_1.4.0                                      
+## [44] dendextend_1.15.1                                  
+## [45] umap_0.2.7.0                                       
+## [46] cowplot_1.1.1                                      
+## [47] GGally_2.1.2                                       
+## [48] plomics_0.2.0                                      
+## [49] irlba_2.3.3                                        
+## [50] Matrix_1.3-4                                       
+## [51] pheatmap_1.0.12                                    
+## [52] RColorBrewer_1.1-2                                 
+## [53] viridis_0.6.2                                      
+## [54] viridisLite_0.4.0                                  
+## [55] ggrepel_0.9.1                                      
+## [56] ggplot2_3.3.5                                      
 ## 
 ## loaded via a namespace (and not attached):
-##   [1] reticulate_1.12                                   
-##   [2] R.utils_2.9.0                                     
-##   [3] tidyselect_0.2.5                                  
-##   [4] htmlwidgets_1.3                                   
-##   [5] RSQLite_2.1.1                                     
-##   [6] AnnotationDbi_1.46.0                              
-##   [7] grid_3.6.0                                        
-##   [8] munsell_0.5.0                                     
-##   [9] codetools_0.2-16                                  
-##  [10] preprocessCore_1.46.0                             
-##  [11] statmod_1.4.32                                    
-##  [12] withr_2.1.2                                       
-##  [13] colorspace_1.4-1                                  
-##  [14] knitr_1.23                                        
-##  [15] rstudioapi_0.10                                   
-##  [16] labeling_0.3                                      
-##  [17] GenomeInfoDbData_1.2.1                            
-##  [18] bit64_0.9-7                                       
-##  [19] rhdf5_2.28.0                                      
-##  [20] generics_0.0.2                                    
-##  [21] xfun_0.7                                          
-##  [22] biovizBase_1.32.0                                 
-##  [23] R6_2.4.0                                          
-##  [24] illuminaio_0.26.0                                 
-##  [25] AnnotationFilter_1.8.0                            
-##  [26] bitops_1.0-6                                      
-##  [27] reshape_0.8.8                                     
-##  [28] assertthat_0.2.1                                  
-##  [29] IlluminaHumanMethylation450kanno.ilmn12.hg19_0.6.0
-##  [30] nnet_7.3-12                                       
-##  [31] gtable_0.3.0                                      
-##  [32] methylumi_2.30.0                                  
-##  [33] ensembldb_2.8.0                                   
-##  [34] rlang_0.4.0                                       
-##  [35] genefilter_1.66.0                                 
-##  [36] rtracklayer_1.44.2                                
-##  [37] lazyeval_0.2.2                                    
-##  [38] acepack_1.4.1                                     
-##  [39] GEOquery_2.52.0                                   
-##  [40] hexbin_1.27.3                                     
-##  [41] selectr_0.4-1                                     
-##  [42] dichromat_2.0-0                                   
-##  [43] checkmate_1.9.3                                   
-##  [44] reshape2_1.4.3                                    
-##  [45] yaml_2.2.0                                        
-##  [46] modelr_0.1.4                                      
-##  [47] GenomicFeatures_1.36.2                            
-##  [48] backports_1.1.4                                   
-##  [49] Hmisc_4.2-0                                       
-##  [50] tools_3.6.0                                       
-##  [51] nor1mix_1.3-0                                     
-##  [52] siggenes_1.58.0                                   
-##  [53] Rcpp_1.0.1                                        
-##  [54] plyr_1.8.4                                        
-##  [55] base64enc_0.1-3                                   
-##  [56] progress_1.2.2                                    
-##  [57] zlibbioc_1.30.0                                   
-##  [58] RCurl_1.95-4.12                                   
-##  [59] BiasedUrn_1.07                                    
-##  [60] prettyunits_1.0.2                                 
-##  [61] rpart_4.1-15                                      
-##  [62] openssl_1.4                                       
-##  [63] IlluminaHumanMethylationEPICmanifest_0.3.0        
-##  [64] cluster_2.1.0                                     
-##  [65] haven_2.1.0                                       
-##  [66] magrittr_1.5                                      
-##  [67] data.table_1.12.2                                 
-##  [68] ProtGenerics_1.16.0                               
-##  [69] hms_0.4.2                                         
-##  [70] evaluate_0.14                                     
-##  [71] xtable_1.8-4                                      
-##  [72] XML_3.98-1.20                                     
-##  [73] mclust_5.4.3                                      
-##  [74] readxl_1.3.1                                      
-##  [75] compiler_3.6.0                                    
-##  [76] biomaRt_2.40.0                                    
-##  [77] crayon_1.3.4                                      
-##  [78] R.oo_1.22.0                                       
-##  [79] htmltools_0.3.6                                   
-##  [80] Formula_1.2-3                                     
-##  [81] lubridate_1.7.4                                   
-##  [82] DBI_1.0.0                                         
-##  [83] MASS_7.3-51.4                                     
-##  [84] permute_0.9-5                                     
-##  [85] cli_1.1.0                                         
-##  [86] quadprog_1.5-7                                    
-##  [87] R.methodsS3_1.7.1                                 
-##  [88] Gviz_1.28.0                                       
-##  [89] pkgconfig_2.0.2                                   
-##  [90] GenomicAlignments_1.20.1                          
-##  [91] registry_0.5-1                                    
-##  [92] foreign_0.8-71                                    
-##  [93] IlluminaHumanMethylation450kmanifest_0.4.0        
-##  [94] xml2_1.2.0                                        
-##  [95] annotate_1.62.0                                   
-##  [96] rngtools_1.3.1.1                                  
-##  [97] pkgmaker_0.27                                     
-##  [98] multtest_2.40.0                                   
-##  [99] beanplot_1.2                                      
-## [100] webshot_0.5.1                                     
-## [101] ruv_0.9.7                                         
-## [102] bibtex_0.4.2                                      
-## [103] rvest_0.3.4                                       
-## [104] doRNG_1.7.1                                       
-## [105] scrime_1.3.5                                      
-## [106] VariantAnnotation_1.30.1                          
-## [107] digest_0.6.19                                     
-## [108] rmarkdown_1.13                                    
-## [109] base64_2.0                                        
-## [110] cellranger_1.1.0                                  
-## [111] htmlTable_1.13.1                                  
-## [112] DelayedMatrixStats_1.6.0                          
-## [113] curl_3.3                                          
-## [114] Rsamtools_2.0.0                                   
-## [115] gtools_3.8.1                                      
-## [116] nlme_3.1-140                                      
-## [117] jsonlite_1.6                                      
-## [118] Rhdf5lib_1.6.0                                    
-## [119] askpass_1.1                                       
-## [120] BSgenome_1.52.0                                   
-## [121] pillar_1.4.1                                      
-## [122] lattice_0.20-38                                   
-## [123] httr_1.4.0                                        
-## [124] survival_2.44-1.1                                 
-## [125] GO.db_3.8.2                                       
-## [126] glue_1.3.1                                        
-## [127] bit_1.1-14                                        
-## [128] stringi_1.4.3                                     
-## [129] HDF5Array_1.12.1                                  
-## [130] blob_1.1.1                                        
-## [131] org.Hs.eg.db_3.8.2                                
-## [132] latticeExtra_0.6-28                               
-## [133] memoise_1.1.0
+##   [1] rappdirs_0.3.3                SparseM_1.81                 
+##   [3] rtracklayer_1.52.1            R.methodsS3_1.8.1            
+##   [5] bit64_4.0.5                   knitr_1.36                   
+##   [7] DelayedArray_0.18.0           R.utils_2.11.0               
+##   [9] data.table_1.14.2             rpart_4.1-15                 
+##  [11] KEGGREST_1.32.0               RCurl_1.98-1.5               
+##  [13] GEOquery_2.60.0               AnnotationFilter_1.16.0      
+##  [15] generics_0.1.0                GenomicFeatures_1.44.2       
+##  [17] preprocessCore_1.54.0         RSQLite_2.2.8                
+##  [19] bit_4.0.4                     tzdb_0.1.2                   
+##  [21] lubridate_1.8.0               webshot_0.5.2                
+##  [23] xml2_1.3.2                    httpuv_1.6.3                 
+##  [25] assertthat_0.2.1              xfun_0.23                    
+##  [27] hms_1.1.1                     jquerylib_0.1.4              
+##  [29] promises_1.2.0.1              evaluate_0.14                
+##  [31] fansi_0.5.0                   restfulr_0.0.13              
+##  [33] scrime_1.3.5                  progress_1.2.2               
+##  [35] readxl_1.3.1                  DBI_1.1.1                    
+##  [37] htmlwidgets_1.5.4             reshape_0.8.8                
+##  [39] ellipsis_0.3.2                RSpectra_0.16-0              
+##  [41] backports_1.2.1               permute_0.9-5                
+##  [43] annotate_1.70.0               biomaRt_2.48.3               
+##  [45] sparseMatrixStats_1.4.2       vctrs_0.3.8                  
+##  [47] quantreg_5.86                 ensembldb_2.16.4             
+##  [49] cachem_1.0.5                  withr_2.4.2                  
+##  [51] Gviz_1.36.2                   BSgenome_1.60.0              
+##  [53] checkmate_2.0.0               GenomicAlignments_1.28.0     
+##  [55] prettyunits_1.1.1             mclust_5.4.7                 
+##  [57] svglite_2.0.0                 cluster_2.1.2                
+##  [59] lazyeval_0.2.2                crayon_1.4.1                 
+##  [61] genefilter_1.74.1             labeling_0.4.2               
+##  [63] edgeR_3.34.1                  pkgconfig_2.0.3              
+##  [65] nlme_3.1-153                  ProtGenerics_1.24.0          
+##  [67] nnet_7.3-16                   rlang_0.4.11                 
+##  [69] lifecycle_1.0.1               MatrixModels_0.5-0           
+##  [71] filelock_1.0.2                modelr_0.1.8                 
+##  [73] dichromat_2.0-0               cellranger_1.1.0             
+##  [75] rprojroot_2.0.2               rngtools_1.5.2               
+##  [77] base64_2.0                    Rhdf5lib_1.14.2              
+##  [79] reprex_2.0.1                  base64enc_0.1-3              
+##  [81] png_0.1-7                     rjson_0.2.20                 
+##  [83] bitops_1.0-7                  R.oo_1.24.0                  
+##  [85] rhdf5filters_1.4.0            blob_1.2.2                   
+##  [87] DelayedMatrixStats_1.14.3     doRNG_1.8.2                  
+##  [89] nor1mix_1.3-0                 jpeg_0.1-9                   
+##  [91] scales_1.1.1                  memoise_2.0.0                
+##  [93] magrittr_2.0.1                plyr_1.8.6                   
+##  [95] zlibbioc_1.38.0               compiler_4.1.0               
+##  [97] BiocIO_1.2.0                  illuminaio_0.34.0            
+##  [99] cli_3.0.1                     Rsamtools_2.8.0              
+## [101] DSS_2.40.0                    htmlTable_2.3.0              
+## [103] Formula_1.2-4                 MASS_7.3-54                  
+## [105] tidyselect_1.1.1              stringi_1.7.5                
+## [107] highr_0.9                     yaml_2.2.1                   
+## [109] askpass_1.1                   latticeExtra_0.6-29          
+## [111] grid_4.1.0                    sass_0.4.0                   
+## [113] VariantAnnotation_1.38.0      tools_4.1.0                  
+## [115] rstudioapi_0.13               foreign_0.8-81               
+## [117] bsseq_1.28.0                  farver_2.1.0                 
+## [119] digest_0.6.27                 BiocManager_1.30.16          
+## [121] shiny_1.7.1                   quadprog_1.5-8               
+## [123] Rcpp_1.0.7                    siggenes_1.66.0              
+## [125] later_1.3.0                   BiocVersion_3.13.1           
+## [127] org.Hs.eg.db_3.13.0           httr_1.4.2                   
+## [129] AnnotationDbi_1.54.1          biovizBase_1.40.0            
+## [131] colorspace_2.0-2              fs_1.5.0                     
+## [133] rvest_1.0.1                   XML_3.99-0.8                 
+## [135] reticulate_1.22               splines_4.1.0                
+## [137] statmod_1.4.36                conquer_1.0.2                
+## [139] multtest_2.48.0               systemfonts_1.0.3            
+## [141] xtable_1.8-4                  jsonlite_1.7.2               
+## [143] R6_2.5.1                      Hmisc_4.6-0                  
+## [145] mime_0.12                     pillar_1.6.3                 
+## [147] htmltools_0.5.2               glue_1.4.2                   
+## [149] fastmap_1.1.0                 BiocParallel_1.26.2          
+## [151] interactiveDisplayBase_1.30.0 beanplot_1.2                 
+## [153] codetools_0.2-18              utf8_1.2.2                   
+## [155] lattice_0.20-45               bslib_0.3.1                  
+## [157] BiasedUrn_1.07                curl_4.3.2                   
+## [159] gtools_3.9.2                  GO.db_3.13.0                 
+## [161] openssl_1.4.5                 survival_3.2-13              
+## [163] rmarkdown_2.11                munsell_0.5.0                
+## [165] rhdf5_2.36.0                  GenomeInfoDbData_1.2.6       
+## [167] HDF5Array_1.20.0              haven_2.4.3                  
+## [169] gtable_0.3.0
 ```
 

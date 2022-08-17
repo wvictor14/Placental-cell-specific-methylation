@@ -18,9 +18,8 @@ editor_options:
 
 ## Libraries
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
 # libraries and data
-library(tidyverse)
 library(ggrepel)
 library(viridis)
 library(RColorBrewer)
@@ -44,6 +43,7 @@ library(DMRcate)
 library(biobroom)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 library(here)
+library(tidyverse)
 ```
 
 ## Data
@@ -488,19 +488,39 @@ dmcs <- fit_m %>% left_join(fit_b)
 Here I use dmrcate to find DMRs
 
 ```{r eval = T}
-myannotation <- cpg.annotate("array", 
+
+myannotation <- 
+  tibble(contrast = colnames(contMatrix)) %>%
+  mutate(cpgannotate = map(contrast, 
+                           ~ cpg.annotate(
+                             "array", 
                              mvals_filt, 
                              analysis.type="differential", 
                              what  = "M",
                              design=design,
                              contrasts = T, cont.matrix = contMatrix,
                              fdr = 0.05,
-                             coef = colnames(contMatrix)[1])
-dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2)
+                             coef = .) ))
 
-results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
-results.ranges %>% tidy()
+myannotation
 
+dmrcoutput <- myannotation %>%
+  mutate(out = map(cpgannotate, ~dmrcate(., lambda=1000, C=2)))
+
+results.ranges <- dmrcoutput %>%
+  mutate(out_tibble = map(out, ~extractRanges(., genome = "hg19") %>% tidy()))
+
+results.ranges <- results.ranges %>%
+  mutate(contrast = gsub('_cs.*', '', contrast)) %>%
+  separate(contrast, into = c('Trimester', 'Celltype')) %>%
+  select(-cpgannotate, -out)  %>%
+  unnest(out_tibble)
+
+# sumarize
+results.ranges
+results.ranges %>%
+  group_by(Trimester, Celltype) %>%
+  summarize(sum(min_smoothed_fdr<0.01))
 ```
 
 I skip DMRs for now
@@ -591,9 +611,9 @@ dmcs_sig %>%
 ```{r}
 #GO testing
 gst <- dmcs %>% group_by(Group1) %>%
-  nest(.key = lm_summary) %>%
-  mutate(GO_results = map(lm_summary, . %>% 
-                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+  nest() %>%
+  mutate(GO_results = map(data, . %>% 
+                            slice_min(p.value, n = 10000) %>%
                             pull(gene) %>% 
                             gometh(all.cpg= rownames(betas), 
                                    collection = 'GO',
@@ -602,6 +622,7 @@ gst <- dmcs %>% group_by(Group1) %>%
                             arrange(FDR)),
          # number significnat at FDR < 0.05
          FDR05_signif = map_dbl(GO_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+gst
 
 # process results
 gst <- gst %>%  
@@ -647,9 +668,9 @@ gst %>%
 ```{r}
 #KEGG testing
 kegg <- dmcs %>% group_by(Group1) %>%
-  nest(.key = lm_summary) %>%
-  mutate(KEGG_results = map(lm_summary, . %>% 
-                            filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
+  nest() %>%
+  mutate(KEGG_results  = map(data, . %>% 
+                            slice_min(p.value, n = 10000) %>%
                             pull(gene) %>% 
                             gometh(all.cpg= rownames(betas), 
                                    collection = 'KEGG',
@@ -658,6 +679,7 @@ kegg <- dmcs %>% group_by(Group1) %>%
                             arrange(FDR)),
          # number significnat at FDR < 0.05
          FDR05_signif = map_dbl(KEGG_results, . %>% filter(FDR < 0.05) %>% nrow())) 
+kegg
 
 # process results
 kegg <- kegg %>%  
@@ -778,7 +800,7 @@ g_top
 
 Here I look at the correlation between first and third trimester cell types
 
-```{r}
+```{r, eval = F}
 # calculate means
 cell_mean <- pDat_filt %>% 
   select(Tissue, Trimester, Sample_Name) %>%
@@ -854,8 +876,21 @@ saveRDS(dmcs_sig, here(base_path, '2_4_dmcs_summary.rds'))
 saveRDS(list(kegg = kegg, GO = gst), here(base_path, '2_4_enrich.rds'))
 saveRDS(list(cell_mean_cor, cell_mean), here(base_path, '2_4_cell_means.rds'))
 
+kegg %>% 
+  select(Trimester, Celltype, Description:Order) %>%
+  mutate(Celltype = gsub(' cs', '', Celltype),
+         Trimester = ifelse(Trimester == 'Third', 'Term', Trimester)) %>%
+  dplyr::rename(Group = Trimester) %>%
+  write_csv(here('data', 'main', 'processed', '2_4_kegg.csv'))
+gst %>% 
+  select(Trimester, Celltype, ONTOLOGY:Order) %>%
+  mutate(Celltype = gsub(' cs', '', Celltype),
+         Trimester = ifelse(Trimester == 'Third', 'Term', Trimester)) %>%
+  dplyr::rename(Group = Trimester) %>%
+  write_csv(here('data', 'main', 'processed', '2_4_go.csv'))
+
 dmcs2 <- dmcs %>% 
-  filter(bonferroni < 0.01, delta_b > 0.25) %>%
+  filter(bonferroni < 0.01, abs(delta_b) > 0.25) %>%
   separate(Group1, into = c('Trimester', 'Celltype'), sep = '\\.') %>%
   mutate(Celltype = case_when(
     Celltype == 'Endo_cs' ~ 'Endothelial',
@@ -871,25 +906,63 @@ dmcs2 <- dmcs %>%
          contains('mean'), p_value, fdr, bonferroni, statistic, lod,
          everything())
 
-# one file for each trimester
-dmcs2 %>%
+# one file for each trimester / celltype
+dmcs_third <- dmcs2 %>%
   select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
   filter(Trimester == 'Third') %>%
-  write_csv(here('outs', '2_4_cell_dmcs_third.csv'))
+  select(-Trimester, -contains('genes')) %>%
+  mutate(location = paste0(chr, ':', start))  %>%
+  split(.$Celltype) %>%
+  map(~select(., -Celltype, -chr, -start, -location, -bonferroni))
 
+dmcs_third %>%
+  names(.) %>%
+  walk(~write_csv(dmcs_third[[.]], na = '', 
+                 here('outs', paste0('2_4_cell_dmcs_third_', ., '.csv' ))))
+ 
 
-dmcs2 %>%
+dmcs_first <- dmcs2 %>%
   select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
   filter(Trimester == 'First') %>%
-  write_csv(here('outs', '2_4_cell_dmcs_first.csv'))
+  select(-Trimester, -contains('genes')) %>%
+  mutate(location = paste0(chr, ':', start))  %>%
+  split(.$Celltype) %>%
+  map(~select(., -Celltype, -chr, -start, -location, -bonferroni)) 
 
-dmcs_3 <- read_csv(here('outs', '2_4_cell_dmcs_third.csv'))
-dmcs_1 <- read_csv(here('outs', '2_4_cell_dmcs_first.csv'))
+dmcs_first %>%
+  names(.) %>%
+  walk(~write_csv(dmcs_first[[.]], na = '', 
+                 here('outs', paste0('2_4_cell_dmcs_first_', ., '.csv' ))))
 
-dmcs <- bind_rows(dmcs_1, dmcs_3) %>%
-  filter(mean_difference_bval > 0.25, bonferroni < 0.01)
+# verify counts are correct
+library(readxl)
+first_troph <- read_xlsx(sheet = 'S1 - Trophoblasts', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+first_strom <- read_xlsx(sheet = 'S1 - Stromal', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+first_endo <- read_xlsx(sheet = 'S1 - Endothelial', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+first_hofb <- read_xlsx(sheet = 'S1 - Hofbauer', here::here('Manuscript', 'tables', 'Additional File 3.xlsx'))
+nrow(first_troph);nrow(first_strom);nrow(first_endo);nrow(first_hofb)
 
-dmcs %>% write_csv(here('outs', '2_4_dmcs.csv'))
+term_troph <- read_xlsx(sheet = 'S2 - Trophoblasts', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+term_strom <- read_xlsx(sheet = 'S2 - Stromal', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+term_endo <- read_xlsx(sheet = 'S2 - Endothelial', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+term_hofb <- read_xlsx(sheet = 'S2 - Hofbauer', here::here('Manuscript', 'tables', 'Additional File 4.xlsx'))
+nrow(term_troph);nrow(term_strom);nrow(term_endo);nrow(term_hofb)
+
+# File for all dmcs
+dmcs2 %>% 
+  select(-fdr, -lod, -statistic, -mean_difference_mval) %>%
+  write_csv(here('outs', '2_4_dmcs.csv'))
+
+results.ranges %>%
+  filter(min_smoothed_fdr < 0.01, Trimester == 'First') %>%
+  select(-strand, -Trimester, -Stouffer, -(min_smoothed_fdr:overlapping.genes)) %>%
+  write_csv(na = 'NA',
+            path = here::here('outs', '2_4_dmrs_first.csv'))
+results.ranges %>%
+  filter(min_smoothed_fdr < 0.01, Trimester == 'Third') %>%
+  select(-strand, -Trimester, -Stouffer, -(min_smoothed_fdr:overlapping.genes)) %>%
+  write_csv(na = 'NA',
+            path = here::here('outs', '2_4_dmrs_term.csv'))
 ```
 
 # SessionInfo
