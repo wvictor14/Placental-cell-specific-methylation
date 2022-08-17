@@ -21,7 +21,6 @@ editor_options:
 
 ```{r, message = FALSE, warning = FALSE}
 # libraries and data
-library(tidyverse)
 library(minfi)
 library(limma)
 library(biobroom)
@@ -32,6 +31,7 @@ library(missMethyl)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 library(ggridges)
 library(ggbeeswarm)
+library(tidyverse)
 theme_set(theme_bw())
 ```
 
@@ -450,10 +450,10 @@ annotation <- anno %>%
          
          enhancer = !is.na(enhancers_id),
          pmd = !is.na(pmd_id),
-         imprinted_gene_placenta = !is.na(imprinted_gene_placenta),
-         imprinted_gene_general = !is.na(imprinted_gene_general),
-         imprinted_dmr_general = !is.na(imprinted_dmr_general),
-         imprinted_dmr_placenta = !is.na(imprinted_dmr_placenta))
+         imprinted_dmr_placenta = ifelse(grepl('placental-specific', imprint_tissue_specificity), 
+                                         1, 0),
+         imprinted_dmr_general = ifelse(grepl('other', imprint_tissue_specificity), 
+                                        1, 0))
 
 # add gene annotation to dmcs
 dmcs <- dmcs %>% left_join(annotation, by = c('gene' = 'cpg'))
@@ -464,7 +464,7 @@ annotation <- annotation %>%
   
 # tabulate the background frequency per genomic element
 expected <-  annotation %>%
-  dplyr::select(cpg, island:pmd, contains('imprint')) %>%
+  dplyr::select(cpg, island:pmd, imprinted_dmr_placenta, imprinted_dmr_general) %>%
   gather(key = genomic_feature, value = present, -cpg) %>%
   
   group_by(genomic_feature) %>%
@@ -486,7 +486,7 @@ observed <- dmcs %>%
   
   # filter to just dmcs
   filter(bonferroni < p_thresh, abs(delta_b) > b_thresh) %>%
-  select(Group1, gene, island:pmd, contains('imprint'), n_total) %>%
+  select(Group1, gene, island:pmd, imprinted_dmr_placenta, imprinted_dmr_general, n_total) %>%
 
   # calculated the number of dmcs in each feature, and then the number out
   gather(key = genomic_feature, value = present, -gene, -Group1, -n_total) %>%
@@ -667,7 +667,7 @@ plot_bar <- function(x){
 
     labs(color = '', x = '', y = '', shape = '', linetype = '', size = '',
          title = 'Percentage of trimester-specific DMCs', subtitle = 'located in various genomic features') +
-    scale_color_manual(values = colors,
+    scale_color_manual(values = color_code_tissue,
                        guide = guide_legend(override.aes = list(size = 0.75),
                                             order = 3)) +
     scale_linetype(guide =guide_legend(order = 2,
@@ -691,8 +691,7 @@ p1 <- tests %>%
   plot_bar();p1
 
 p2 <- tests %>% 
-  filter(Trimester == 'First',
-         genomic_feature_category %in% c('pmd', 'gene', 'enhancer', 'cpg_island')) %>%
+  filter(genomic_feature_category %in% c('pmd', 'gene', 'enhancer', 'cpg_island')) %>%
   arrange(genomic_feature_category, genomic_feature) %>%
   mutate(genomic_feature = as_factor(genomic_feature)) %>%
   plot_bar()
