@@ -14,11 +14,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r, echo = F, message = F, warning = F}
-library(dplyr)
-library(plyr)
-library(kableExtra)
-```
+
 
 # README
 
