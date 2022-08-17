@@ -204,24 +204,186 @@ res <- rbind(counts_third, counts_first) %>%
 ```
 
 ```
-## # A tibble: 44 x 25
-##    Sample_Name Trophoblasts Stromal Hofbauer Endothelial Chip_number   Row Well 
-##    <chr>              <dbl>   <dbl>    <dbl>       <dbl>       <dbl> <dbl> <chr>
-##  1 PM376_vc          0.919  0.0280   0.0277       0.0482          25     6 F1   
-##  2 PM368_vc          0.872  0.0606   0.0328       0.0677          26     1 A2   
-##  3 Mixture 7         0.0366 0.688    0.0403       0.163           26     6 F2   
-##  4 PM378_vc          0.866  0.0652   0.0211       0.0640          27     1 A3   
-##  5 PM364_vc          0.909  0.0303   0.0238       0.0670          28     3 C4   
-##  6 PM365_vc          0.837  0.0743   0.0454       0.0820          29     1 A5   
-##  7 PM362_vc          0.964  0.0363   0.0174       0.0361          29     8 H5   
-##  8 PM371_vc          0.763  0.122    0.0764       0.0736          30     2 B6   
-##  9 Mixture 11        0.426  0.387    0.0463       0.0469          30     5 E6   
-## 10 PM324_V1          0.949  0.00559  0.00259      0.0689          31     5 E7   
-## # ... with 34 more rows, and 17 more variables: Case_ID <chr>, Sex <chr>,
-## #   GA <dbl>, Trimester <chr>, DNA_QP <chr>, Week <dbl>, Sample_Plate <chr>,
-## #   Tissue <chr>, Sentrix_ID <dbl>, Sentrix_Position <chr>, Scratches <chr>,
-## #   Batch_BSC <chr>, DNA_conc_BSC_adjusted <dbl>, DNA_conc_before_load <dbl>,
-## #   DNA_loaded <dbl>, Sentrix <chr>, CellType <chr>
+##    Sample_Name Trophoblasts      Stromal    Hofbauer Endothelial Chip_number
+## 1     PM376_vc   0.91898550 2.799734e-02 0.027716038  0.04822980          25
+## 2     PM368_vc   0.87179085 6.058860e-02 0.032828154  0.06766962          26
+## 3    Mixture 7   0.03657594 6.883150e-01 0.040308815  0.16265603          26
+## 4     PM378_vc   0.86628791 6.516424e-02 0.021089717  0.06398130          27
+## 5     PM364_vc   0.90875323 3.030651e-02 0.023808334  0.06695470          28
+## 6     PM365_vc   0.83679048 7.429442e-02 0.045364086  0.08199404          29
+## 7     PM362_vc   0.96394349 3.630820e-02 0.017409475  0.03608503          29
+## 8     PM371_vc   0.76304964 1.222862e-01 0.076421048  0.07362329          30
+## 9   Mixture 11   0.42639283 3.873348e-01 0.046348015  0.04685752          30
+## 10    PM324_V1   0.94895001 5.594233e-03 0.002585087  0.06893579          31
+## 11   Mixture 1   0.08179434 6.620907e-01 0.005047137  0.17141782          31
+## 12    PM379_vc   0.89081829 6.706790e-02 0.030236147  0.03957125          32
+## 13    PM139_vc   0.93214824 8.673617e-19 0.002052590  0.08006455          33
+## 14   Mixture 9   0.10905301 6.284505e-01 0.063858459  0.10901726          33
+## 15    PM324_V4   0.91299993 2.891876e-02 0.007936173  0.08353584          34
+## 16  Mixture 14   0.69674020 7.505516e-03 0.024084730  0.24396500          35
+## 17    PM370_vc   0.78104453 1.332050e-01 0.035925203  0.07447703          36
+## 18    PM369_vc   0.92655822 5.074537e-02 0.023914850  0.03704933          37
+## 19    PM367_vc   0.88947635 4.889253e-02 0.025075074  0.05148355          38
+## 20    PM373_vc   0.77969352 1.474665e-01 0.039856974  0.05556435          39
+## 21  Mixture 10   0.36197981 4.848873e-01 0.016441254  0.00000000          39
+## 22    PM372_vc   0.83025325 1.047411e-01 0.036205204  0.06263540          40
+## 23    PM359_vc   0.91183665 5.314697e-02 0.024077557  0.05218598          40
+## 24    PM381_vc   0.90193769 7.996318e-02 0.029008880  0.01691608          41
+## 25   Mixture 6   0.38356088 2.585059e-01 0.127741683  0.06346041          41
+## 26   Mixture 8   0.14932535 5.773169e-01 0.000000000  0.16707690          42
+## 27    PM377_vc   0.89982428 6.487529e-02 0.032505446  0.02942294          43
+## 28  Mixture 13   0.47404358 5.118478e-01 0.008098884  0.00000000          44
+## 29     PM77_vc   1.00519861 0.000000e+00 0.000000000  0.02996973          44
+## 30   Mixture 3   0.25713496 1.682099e-01 0.432121177  0.15845754          45
+## 31    PM375_vc   0.80717246 1.115836e-01 0.059585471  0.06109076          45
+## 32   Mixture 2   0.04570272 5.158763e-01 0.209182255  0.23108708          46
+## 33 PM366_vc_R1   0.78371449 1.403134e-01 0.032933491  0.05299281          46
+## 34  Mixture 12   0.24247263 4.526419e-01 0.144052136  0.03236086          47
+## 35    PM374_vc   0.94052447 2.320682e-02 0.015868804  0.04210504          47
+## 36 PM366_vc_R2   0.79751474 1.344906e-01 0.029481323  0.04429916          48
+## 37     PL290_v   0.25440124 5.675812e-01 0.082630229  0.10474558          27
+## 38     PL296_v   0.46382351 3.696750e-01 0.068020385  0.14101894          28
+## 39     PL292_v   0.76925462 1.970351e-01 0.058209999  0.00000000          31
+## 40     PL289_v   0.67302085 2.459188e-01 0.065061746  0.08872473          32
+## 41  PL293_v_R2   0.52965706 3.449103e-01 0.083817134  0.10422396          33
+## 42     PL294_v   0.39685916 4.318164e-01 0.043361373  0.15144440          37
+## 43  PL293_v_R1   0.49678158 3.532349e-01 0.076776289  0.11050460          40
+## 44     PL295_v   0.48666655 3.695904e-01 0.060180709  0.13334343          48
+##    Row Well      Case_ID Sex   GA Trimester DNA_QP Week   Sample_Plate  Tissue
+## 1    6   F1        PM376   F   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 2    1   A2        PM368   M   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 3    6   F2        PM372   M   NA     Third    400    1 WG6980707-MSA4 Mixture
+## 4    1   A3        PM378   M   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 5    3   C4        PM364   M   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 6    1   A5        PM365   F   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 7    8   H5        PM362   M   NA     Third     NA    1 WG6980707-MSA4   Villi
+## 8    2   B6        PM371   F   NA     Third     NA    1 WG6980707-MSA4   Villi
+## 9    5   E6        PM375   F   NA     Third    400    1 WG6980707-MSA4 Mixture
+## 10   5   E7        PM324   M   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 11   7   G7        PM366   F   NA     Third    400    1 WG6980707-MSA4 Mixture
+## 12   2   B8        PM379   F   NA     Third     NA    1 WG6980707-MSA4   Villi
+## 13   4   D9        PM139   M   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 14   7   G9        PM372   M   NA     Third    400    1 WG6980707-MSA4 Mixture
+## 15   7  G10        PM324   M   NA     Third   <NA>    1 WG6980707-MSA4   Villi
+## 16   1  A11        PM374   M   NA     Third    200    1 WG6980707-MSA4 Mixture
+## 17   2  B12        PM370   F   NA     Third     NA    1 WG6980707-MSA4   Villi
+## 18   8   H1        PM369   F   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 19   4   D2        PM367   F   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 20   3   C3        PM373   M   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 21   4   D3        PM376   F   NA     Third    400    2 WG6980638-MSA4 Mixture
+## 22   6   F4        PM372   M   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 23   7   G4        PM359   M   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 24   3   C5        PM381   M   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 25   6   F5  Tech Ctrl 1   M   NA     Third    400    2 WG6980638-MSA4 Mixture
+## 26   8   H6        PM375   F   NA     Third    400    2 WG6980638-MSA4 Mixture
+## 27   7   G7        PM377   F   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 28   2   B8        PM373   M   NA     Third    200    2 WG6980638-MSA4 Mixture
+## 29   8   H8         PM77   M   NA     Third   <NA>    2 WG6980638-MSA4   Villi
+## 30   1   A9 PM358 (tech)   M   NA     Third    400    2 WG6980638-MSA4 Mixture
+## 31   4   D9        PM375   F   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 32   4  D10    Tech Ctrl   M   NA     Third    400    2 WG6980638-MSA4 Mixture
+## 33   5  E10        PM366   F   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 34   3  C11        PM372   M   NA     Third    400    2 WG6980638-MSA4 Mixture
+## 35   6  F11        PM374   M   NA     Third     NA    2 WG6980638-MSA4   Villi
+## 36   5  E12        PM366   F   NA     Third   <NA>    2 WG6980638-MSA4   Villi
+## 37   7   G3        PL290   F 10.5     First   <NA>    1 WG6980707-MSA4   Villi
+## 38   1   A4        PL296   M 11.5     First   <NA>    1 WG6980707-MSA4   Villi
+## 39   3   C7        PL292   M  7.1     First     NA    1 WG6980707-MSA4   Villi
+## 40   6   F8        PL289   M  6.4     First     NA    1 WG6980707-MSA4   Villi
+## 41   8   H9        PL293   M   NA     First   <NA>    1 WG6980707-MSA4   Villi
+## 42   4   D1        PL294   F 11.6     First     NA    2 WG6980638-MSA4   Villi
+## 43   2   B4        PL293   M  9.6     First     NA    2 WG6980638-MSA4   Villi
+## 44   6  F12        PL295   F 11.6     First     NA    2 WG6980638-MSA4   Villi
+##      Sentrix_ID Sentrix_Position Scratches Batch_BSC DNA_conc_BSC_adjusted
+## 1  203067920143           R06C01      <NA>      BSC1               63.2200
+## 2  203067920144           R01C01      <NA>  BSC_TEST               57.7800
+## 3  203067920144           R06C01      <NA>      BSC0               12.9800
+## 4  203068760084           R01C01      <NA>      BSC1               49.5700
+## 5  203068760095           R03C01      <NA>      BSC1               64.7100
+## 6  203068760191           R01C01      <NA>      BSC1               61.1700
+## 7  203068760191           R08C01      <NA>      BSC2               51.3700
+## 8  203068760192           R02C01      <NA>      BSC2               43.1200
+## 9  203068760192           R05C01      <NA>      BSC0               17.3900
+## 10 203068760202           R05C01      <NA>      BSC1               69.7900
+## 11 203068760202           R07C01      <NA>      BSC0               15.0600
+## 12 203068760204           R02C01      <NA>      BSC1               54.7000
+## 13 203072530027           R04C01      <NA>      BSC1               54.9700
+## 14 203072530027           R07C01      <NA>      BSC0               14.0900
+## 15 203072530046           R07C01      <NA>      BSC2               78.1600
+## 16 203072530098           R01C01      <NA>      BSC2                4.5600
+## 17 203072530157           R02C01      <NA>      BSC2               62.0700
+## 18 203072530204           R08C01      <NA>      BSC2               56.7750
+## 19 203072530227           R04C01      <NA>      BSC2               56.2500
+## 20 203077630004           R03C01      <NA>      BSC2               58.2525
+## 21 203077630004           R04C01      <NA>      BSC0                9.2400
+## 22 203077630012           R06C01      <NA>      BSC2               62.3175
+## 23 203077630012           R07C01      <NA>      BSC2               51.2625
+## 24 203077630052           R03C01      <NA>      BSC2               69.5475
+## 25 203077630052           R06C01      <NA>      BSC0               10.8700
+## 26 203077630080           R08C01      <NA>      BSC0               15.2100
+## 27 203077630103           R07C01      <NA>      BSC3               45.9375
+## 28 203077630104           R02C01      <NA>      BSC3                0.0000
+## 29 203077630104           R08C01      <NA>      BSC3               70.2900
+## 30 203077630172           R01C01      <NA>      BSC3                0.0000
+## 31 203077630172           R04C01      <NA>      BSC3               55.1700
+## 32 203077630181           R04C01      <NA>      BSC3                0.0000
+## 33 203077630181           R05C01      <NA>      BSC3               47.0000
+## 34 203077630199           R03C01      <NA>      BSC0                9.3900
+## 35 203077630199           R06C01      <NA>      BSC3               61.2375
+## 36 203077630206           R05C01      <NA>      BSC3               47.0000
+## 37 203068760084           R07C01       Yes      BSC1               46.6900
+## 38 203068760095           R01C01      <NA>  BSC_TEST               60.5500
+## 39 203068760202           R03C01      <NA>      BSC2               58.7800
+## 40 203068760204           R06C01      <NA>  BSC_TEST               46.0300
+## 41 203072530027           R08C01      <NA>      BSC2               34.6350
+## 42 203072530204           R04C01      <NA>  BSC_TEST               59.0800
+## 43 203077630012           R02C01      <NA>      BSC2               42.0525
+## 44 203077630206           R06C01      <NA>  BSC_TEST               54.5400
+##    DNA_conc_before_load DNA_loaded             Sentrix CellType
+## 1               50.0000     200.00 203067920143_R06C01    Villi
+## 2               50.0000     200.00 203067920144_R01C01    Villi
+## 3               32.4500     129.80 203067920144_R06C01  Mixture
+## 4               49.5700     198.28 203068760084_R01C01    Villi
+## 5               50.0000     200.00 203068760095_R03C01    Villi
+## 6               50.0000     200.00 203068760191_R01C01    Villi
+## 7               50.0000     200.00 203068760191_R08C01    Villi
+## 8               43.1200     172.48 203068760192_R02C01    Villi
+## 9               43.4750     173.90 203068760192_R05C01  Mixture
+## 10              50.0000     200.00 203068760202_R05C01    Villi
+## 11              37.6500     150.60 203068760202_R07C01  Mixture
+## 12              50.0000     200.00 203068760204_R02C01    Villi
+## 13              50.0000     200.00 203072530027_R04C01    Villi
+## 14              35.2250     140.90 203072530027_R07C01  Mixture
+## 15              50.0000     200.00 203072530046_R07C01    Villi
+## 16              11.4000      45.60 203072530098_R01C01  Mixture
+## 17              50.0000     200.00 203072530157_R02C01    Villi
+## 18              50.0000     200.00 203072530204_R08C01    Villi
+## 19              50.0000     200.00 203072530227_R04C01    Villi
+## 20              50.0000     200.00 203077630004_R03C01    Villi
+## 21              23.1000      92.40 203077630004_R04C01  Mixture
+## 22              50.0000     200.00 203077630012_R06C01    Villi
+## 23              50.0000     200.00 203077630012_R07C01    Villi
+## 24              50.0000     200.00 203077630052_R03C01    Villi
+## 25              27.1750     108.70 203077630052_R06C01  Mixture
+## 26              38.0250     152.10 203077630080_R08C01  Mixture
+## 27              45.9375     183.75 203077630103_R07C01    Villi
+## 28               0.0000       0.00 203077630104_R02C01  Mixture
+## 29              50.0000     200.00 203077630104_R08C01    Villi
+## 30               0.0000       0.00 203077630172_R01C01  Mixture
+## 31              50.0000     200.00 203077630172_R04C01    Villi
+## 32               0.0000       0.00 203077630181_R04C01  Mixture
+## 33              47.0000     188.00 203077630181_R05C01    Villi
+## 34              23.4750      93.90 203077630199_R03C01  Mixture
+## 35              50.0000     200.00 203077630199_R06C01    Villi
+## 36              47.0000     188.00 203077630206_R05C01    Villi
+## 37              46.6900     186.76 203068760084_R07C01    Villi
+## 38              50.0000     200.00 203068760095_R01C01    Villi
+## 39              50.0000     200.00 203068760202_R03C01    Villi
+## 40              46.0300     184.12 203068760204_R06C01    Villi
+## 41              57.7250     230.90 203072530027_R08C01    Villi
+## 42              50.0000     200.00 203072530204_R04C01    Villi
+## 43              42.0525     168.21 203077630012_R02C01    Villi
+## 44              50.0000     200.00 203077630206_R06C01    Villi
 ```
 
 ```r
@@ -773,6 +935,10 @@ stats %>%
 ```
 
 ```
+## `summarise()` ungrouping output (override with `.groups` argument)
+```
+
+```
 ## # A tibble: 4 x 2
 ##   algorithm     mean_r2
 ##   <chr>           <dbl>
@@ -894,9 +1060,13 @@ facs_prop <- facs_prop %>%
   mutate(FACS = ifelse(FACS == 'percent', 'FACS',
                        ifelse(FACS == 'percent_constrained', 'FACS - constrained',
                               FACS)))
+```
 
+```
+## `summarise()` regrouping output by 'Case_ID' (override with `.groups` argument)
+```
 
-
+```r
 facs_results <-mixture_results_all %>%
   filter(!grepl('Mix', Sample_Name),
          algorithm != 'actual') %>%
@@ -947,6 +1117,9 @@ facs_results %>%
 ```
 ## Scale for 'y' is already present. Adding another scale for 'y', which will
 ## replace the existing scale.
+```
+
+```
 ## `geom_smooth()` using formula 'y ~ x'
 ```
 
@@ -981,7 +1154,7 @@ facs_stats <- facs_results %>%
 
 ```
 ## # A tibble: 12 x 14
-## # Groups:   algorithm [5]
+## # Groups:   algorithm [4]
 ##    component algorithm r.squared adj.r.squared sigma statistic p.value    df
 ##    <chr>     <fct>         <dbl>         <dbl> <dbl>     <dbl>   <dbl> <int>
 ##  1 Stromal   minfi (C~   0.0660        0.0142  10.7      1.27   0.274      2
@@ -1060,24 +1233,25 @@ facs_stats %>%
 ```
 
 ```
-## # A tibble: 15 x 4
-##    component   algorithm            r2 overall_r2
-##    <chr>       <fct>             <dbl>      <dbl>
-##  1 Endothelial actual        NaN         NaN     
-##  2 Hofbauer    actual        NaN         NaN     
-##  3 Stromal     actual        NaN         NaN     
-##  4 Endothelial epidish (RPC)   0.0144      0.0278
-##  5 Hofbauer    epidish (RPC)   0.00928     0.0278
-##  6 Stromal     epidish (RPC)   0.0597      0.0278
-##  7 Endothelial epidish (CBS)   0.0232      0.0406
-##  8 Hofbauer    epidish (CBS)   0.0547      0.0406
-##  9 Stromal     epidish (CBS)   0.0439      0.0406
-## 10 Endothelial epidish (CP)    0.0176      0.0750
-## 11 Hofbauer    epidish (CP)    0.113       0.0750
-## 12 Stromal     epidish (CP)    0.0945      0.0750
-## 13 Endothelial minfi (CP)      0.0143      0.0776
-## 14 Hofbauer    minfi (CP)      0.152       0.0776
-## 15 Stromal     minfi (CP)      0.0660      0.0776
+## `summarise()` regrouping output by 'component' (override with `.groups` argument)
+```
+
+```
+## # A tibble: 12 x 4
+##    component   algorithm          r2 overall_r2
+##    <chr>       <fct>           <dbl>      <dbl>
+##  1 Endothelial epidish (RPC) 0.0144      0.0278
+##  2 Hofbauer    epidish (RPC) 0.00928     0.0278
+##  3 Stromal     epidish (RPC) 0.0597      0.0278
+##  4 Endothelial epidish (CBS) 0.0232      0.0406
+##  5 Hofbauer    epidish (CBS) 0.0547      0.0406
+##  6 Stromal     epidish (CBS) 0.0439      0.0406
+##  7 Endothelial epidish (CP)  0.0176      0.0750
+##  8 Hofbauer    epidish (CP)  0.113       0.0750
+##  9 Stromal     epidish (CP)  0.0945      0.0750
+## 10 Endothelial minfi (CP)    0.0143      0.0776
+## 11 Hofbauer    minfi (CP)    0.152       0.0776
+## 12 Stromal     minfi (CP)    0.0660      0.0776
 ```
 
 # Villi
@@ -1134,6 +1308,10 @@ mixture_results_all %>%
 
 ```
 ## Joining, by = "Sample_Name"
+```
+
+```
+## `summarise()` regrouping output by 'Trimester', 'algorithm' (override with `.groups` argument)
 ```
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-10-2.png)<!-- -->
@@ -13669,7 +13847,7 @@ stats %>%
 ```
 
 ```
-## Warning: Grouping rowwise data frame strips rowwise nature
+## `summarise()` ungrouping output (override with `.groups` argument)
 ```
 
 ```
@@ -13713,6 +13891,14 @@ epidish_results %>%
   theme(panel.grid = element_blank(),
         strip.background = element_blank()) +
   labs(x = '(estimated percentage) - (actual)')
+```
+
+```
+## `summarise()` regrouping output by 'algorithm' (override with `.groups` argument)
+```
+
+```
+## `summarise()` regrouping output by 'algorithm' (override with `.groups` argument)
 ```
 
 ```
@@ -13833,7 +14019,7 @@ epidish_rpc %>%
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
 
 ```r
-# analyze
+# houseman
 epidish_rpc %>%
   filter(Tissue == 'Villi',
          algorithm == 'Houseman') %>%
@@ -13892,6 +14078,10 @@ epidish_rpc %>%
   mutate(diff = mean_Third-mean_First) %>%
   arrange(desc(component)) %>%
   select(component, contains('First'), contains('Third'), diff)
+```
+
+```
+## `summarise()` regrouping output by 'Trimester' (override with `.groups` argument)
 ```
 
 ```
@@ -14300,6 +14490,263 @@ houseman_estimates %>%
 
 ![](2_14_deconvolution_files/figure-html/unnamed-chunk-20-1.png)<!-- -->
 
+# no STB,
+
+just troph, endo, strom, hc, and nRBC
+
+
+```r
+# subset to reference
+mset_combined_ref_nostb <- mset_combined[,pData(mset_combined)$CellType %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC')]
+
+# pick probes
+probes_third_nostb <- minfi:::pickCompProbes(
+  mset_combined_ref_nostb[, pData(mset_combined_ref_nostb)$Trimester == 'Third'], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+probes_first_nostb <- minfi:::pickCompProbes(
+  mset_combined_ref_nostb[, pData(mset_combined_ref_nostb)$Trimester == 'First' |
+             pData(mset_combined_ref_nostb)$CellType %in% c('nRBC')], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+# extract coefficients
+coefs_combined_third_nostb <- probes_third_nostb$coefEsts
+coefs_combined_first_nostb <- probes_first_nostb$coefEsts
+
+
+
+epidish_nostb_third <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_third_nostb)
+                                ,pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_combined_third_nostb,
+  method = 'RPC')
+
+epidish_nostb_first <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_first_nostb)
+                                ,pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_combined_first_nostb,
+  method = 'RPC')
+
+epidish_nostb_third <- epidish_nostb_third$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_nostb_first <- epidish_nostb_first$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_nostb <- bind_rows(epidish_nostb_first, epidish_nostb_third) %>%
+  dplyr::rename(Sample_Name = Sample_Names) %>%
+  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue, GA))  %>%
+  distinct() 
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+## Stats
+
+
+```r
+# between trimester
+epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Trimester, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p))
+```
+
+```
+## # A tibble: 5 x 5
+##   component    r.squared    p.value      adj_p p_value
+##   <chr>            <dbl>      <dbl>      <dbl> <chr>  
+## 1 Trophoblasts     0.796   9.36e-10   3.75e- 9 <0.001 
+## 2 Stromal          0.845   3.23e-11   1.29e-10 <0.001 
+## 3 Hofbauer         0.639   9.71e- 7   3.88e- 6 <0.001 
+## 4 Endothelial      0.125   7.61e- 2   3.04e- 1 0.304  
+## 5 nRBC           NaN     NaN        NaN        <NA>
+```
+
+```r
+# between sex
+stats_by_sex_nostb <- epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', component != 'nRBC') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Sex, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p),
+         testing_variable = 'Sex');stats_by_sex_nostb
+```
+
+```
+## # A tibble: 4 x 6
+##   component    r.squared p.value adj_p p_value testing_variable
+##   <chr>            <dbl>   <dbl> <dbl> <chr>   <chr>           
+## 1 Trophoblasts    0.125   0.137  0.548 0.548   Sex             
+## 2 Stromal         0.0595  0.314  1     >0.999  Sex             
+## 3 Hofbauer        0.236   0.0349 0.140 0.140   Sex             
+## 4 Endothelial     0.0770  0.250  1.00  >0.999  Sex
+```
+
+```r
+epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', component !='nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Sex)) +
+  geom_beeswarm(dodge.width = 0.75, cex = 1.5) +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = function(x)percent(x,accuracy = 1)) +
+  scale_color_manual(values = c('#af8dc3', '#7fbf7b')) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '') 
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-22-1.png)<!-- -->
+
+```r
+epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third') %>%
+  select(Sample_Name, Sex) %>%
+  distinct() %>%
+  dplyr::count(Sex)
+```
+
+```
+## # A tibble: 2 x 2
+##   Sex       n
+##   <chr> <int>
+## 1 F        10
+## 2 M         9
+```
+
+```r
+# between ancestry
+epidish_nostb  %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third') %>%
+  left_join(ancestry) %>%
+  ggplot(aes(x = PC1_geno, y = PC2_geno, color = Predicted_ethnicity)) +
+  geom_point()
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-22-2.png)<!-- -->
+
+```r
+epidish_nostb %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Predicted_ethnicity)) +
+  geom_beeswarm(dodge.width = 0.75,size = 0.9) +
+  #geom_boxplot() +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = percent) +
+  scale_color_manual(values = c('#d8b365', '#5ab4ac')) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '')  
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+![](2_14_deconvolution_files/figure-html/unnamed-chunk-22-3.png)<!-- -->
+
+```r
+stats_by_ancestry_nostb <- epidish_nostb %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Predicted_ethnicity, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p),
+         testing_variable = 'ancestry'); stats_by_ancestry_nostb
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+```
+## # A tibble: 4 x 6
+##   component    r.squared p.value adj_p p_value testing_variable
+##   <chr>            <dbl>   <dbl> <dbl> <chr>   <chr>           
+## 1 Trophoblasts   0.0122    0.673     1 >0.999  ancestry        
+## 2 Stromal        0.0102    0.699     1 >0.999  ancestry        
+## 3 Hofbauer       0.00125   0.893     1 >0.999  ancestry        
+## 4 Endothelial    0.0363    0.464     1 >0.999  ancestry
+```
+
+```r
+epidish_nostb %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  select(Sample_Name, Predicted_ethnicity) %>%
+  distinct() %>%
+  dplyr::count(Predicted_ethnicity)
+```
+
+```
+## Joining, by = "Sample_Name"
+```
+
+```
+## # A tibble: 4 x 2
+##   Predicted_ethnicity     n
+##   <chr>               <int>
+## 1 Ambiguous               2
+## 2 Asian                   6
+## 3 Caucasian              11
+## 4 <NA>                    7
+```
+
 # Save
 
 Join to pDat_filt and save
@@ -14314,21 +14761,27 @@ pDat_filt %>%
 ```r
 # 3rd and 1st trimester reference cpgs
 coefs_combined_third %>%
-  as.data.frame() %>%
-  bind_cols(cpg = rownames(.), .) %>%
   write_csv( na = 'NA',
              path = here('outs', '2_14_deconvolution_reference_cpgs_third.csv'))
 
 coefs_combined_first %>%
-  as.data.frame() %>%
-  bind_cols(cpg = rownames(.), .) %>%
   write_csv(na = 'NA',
             path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
+
+# 3rd and 1st trimester reference cpgs
+coefs_combined_third_nostb %>%
+  saveRDS(here::here('data', 'main', 'processed', '2_14_coefs_combined_third_nostb.rds'))
+
+coefs_combined_first_nostb %>%
+  saveRDS(here::here('data', 'main', 'processed', '2_14_coefs_combined_first_nostb.rds'))
 
 # save deconvolution (nrbc included) estimates on villi
 epidish_rpc %>%
   left_join(ancestry) %>%
   saveRDS(here(base_path, '2_14_deconvolution_results.rds'))
+epidish_nostb %>%
+  left_join(ancestry) %>%
+  saveRDS(here(base_path, '2_14_deconvolution_results_nostb.rds'))
 
 # save statistical testing
 stats_by_ga %>%
@@ -14337,11 +14790,14 @@ stats_by_ga %>%
   select(-Trimester, -ga)  %>%
   bind_rows(., stats_by_sex, stats_by_ancestry) %>%
   write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry.csv'))
+bind_rows(stats_by_sex_nostb, stats_by_ancestry_nostb) %>%
+  write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry_nostb.csv'))
 
 # in silico stuff
 epidish_results %>%
   saveRDS(here(base_path, '2_14_in_silico_deconvolution_results.rds'))
 stats %>%
+  select(-label) %>%
   write_csv(here('outs', '2_14_in_silico_deconvolution_stats.csv'))
 ```
 

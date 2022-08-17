@@ -1463,15 +1463,179 @@ houseman_estimates %>%
   
 ```
 
+# no STB,
+
+just troph, endo, strom, hc, and nRBC
+
+```{r}
+# subset to reference
+mset_combined_ref_nostb <- mset_combined[,pData(mset_combined)$CellType %in% c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC')]
+
+# pick probes
+probes_third_nostb <- minfi:::pickCompProbes(
+  mset_combined_ref_nostb[, pData(mset_combined_ref_nostb)$Trimester == 'Third'], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+probes_first_nostb <- minfi:::pickCompProbes(
+  mset_combined_ref_nostb[, pData(mset_combined_ref_nostb)$Trimester == 'First' |
+             pData(mset_combined_ref_nostb)$CellType %in% c('nRBC')], 
+  cellTypes = c('Trophoblasts', 'Stromal', 'Hofbauer', 'Endothelial', 'nRBC'),
+  compositeCellType = 'Placenta',
+  probeSelect = "both")
+
+# extract coefficients
+coefs_combined_third_nostb <- probes_third_nostb$coefEsts
+coefs_combined_first_nostb <- probes_first_nostb$coefEsts
+
+
+
+epidish_nostb_third <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_third_nostb)
+                                ,pData(mset_test)$Trimester == 'Third'],
+  ref.m = coefs_combined_third_nostb,
+  method = 'RPC')
+
+epidish_nostb_first <- epidish(
+  beta.m = getBeta(mset_test)[rownames(coefs_combined_first_nostb)
+                                ,pData(mset_test)$Trimester == 'First'],
+  ref.m = coefs_combined_first_nostb,
+  method = 'RPC')
+
+epidish_nostb_third <- epidish_nostb_third$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_nostb_first <- epidish_nostb_first$estF %>%
+  as.data.frame() %>%
+  bind_cols(Sample_Names = rownames(.), .) %>%
+  pivot_longer(
+    cols = -Sample_Names,
+    names_to = 'component',
+    values_to = 'percent'
+  ) %>%
+  mutate(algorithm = 'epidish (RPC)')
+
+epidish_nostb <- bind_rows(epidish_nostb_first, epidish_nostb_third) %>%
+  dplyr::rename(Sample_Name = Sample_Names) %>%
+  left_join(pDat_filt %>% select(Sample_Name, Sex, Trimester, Tissue, GA))  %>%
+  distinct() 
+```
+
+## Stats
+
+```{r}
+# between trimester
+epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Trimester, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p))
+
+# between sex
+stats_by_sex_nostb <- epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', component != 'nRBC') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Sex, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p),
+         testing_variable = 'Sex');stats_by_sex_nostb
+  
+epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', component !='nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Sex)) +
+  geom_beeswarm(dodge.width = 0.75, cex = 1.5) +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = function(x)percent(x,accuracy = 1)) +
+  scale_color_manual(values = c('#af8dc3', '#7fbf7b')) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '') 
+
+epidish_nostb %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third') %>%
+  select(Sample_Name, Sex) %>%
+  distinct() %>%
+  dplyr::count(Sex)
+
+# between ancestry
+epidish_nostb  %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third') %>%
+  left_join(ancestry) %>%
+  ggplot(aes(x = PC1_geno, y = PC2_geno, color = Predicted_ethnicity)) +
+  geom_point()
+
+epidish_nostb %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  ggplot(aes(x = component, y = percent, color = Predicted_ethnicity)) +
+  geom_beeswarm(dodge.width = 0.75,size = 0.9) +
+  #geom_boxplot() +
+  #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
+  scale_y_continuous(labels = percent) +
+  scale_color_manual(values = c('#d8b365', '#5ab4ac')) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = 0)) +
+  labs(x = '', color = '', y = '')  
+
+stats_by_ancestry_nostb <- epidish_nostb %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  nest(data = -component) %>%
+  mutate(lm = map(data, ~lm(percent ~ Predicted_ethnicity, .)),
+         glanced = map(lm, glance)) %>%
+  select(-data, -lm)  %>%
+  unnest(cols = c(glanced)) %>%
+  select(component, r.squared, p.value) %>%
+  mutate(adj_p = p.adjust(p.value, method = 'bonferroni'),
+         p_value = pvalue(adj_p),
+         testing_variable = 'ancestry'); stats_by_ancestry_nostb
+
+epidish_nostb %>%
+  left_join(ancestry) %>%
+  filter(Tissue == 'Villi', algorithm == 'epidish (RPC)') %>%
+  select(Sample_Name, Predicted_ethnicity) %>%
+  distinct() %>%
+  dplyr::count(Predicted_ethnicity)
+```
+
 # Save
 
 Join to pDat_filt and save
 
 ```{r eval = F}
-
 pDat_filt %>%
   saveRDS(here(base_path, '2_14_pDat_filt.rds'))
-
 ```
 
 ```{r eval = F}
@@ -1484,10 +1648,32 @@ coefs_combined_first %>%
   write_csv(na = 'NA',
             path = here('outs', '2_14_deconvolution_reference_cpgs_first.csv'))
 
+# 3rd and 1st trimester reference cpgs
+coefs_combined_third_nostb %>%
+  saveRDS(here::here('data', 'main', 'processed', '2_14_coefs_combined_third_nostb.rds'))
+coefs_combined_third_nostb %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'cpg') %>%
+  write_csv( na = 'NA',
+             path = here::here('outs', '2_14_deconvolution_reference_cpgs_third_nostb.csv'))
+
+
+coefs_combined_first_nostb %>%
+  saveRDS(here::here('data', 'main', 'processed', '2_14_coefs_combined_first_nostb.rds'))
+
+coefs_combined_first_nostb %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'cpg') %>%
+  write_csv(na = 'NA',
+            path = here::here('outs', '2_14_deconvolution_reference_cpgs_first_nostb.csv'))
+
 # save deconvolution (nrbc included) estimates on villi
 epidish_rpc %>%
   left_join(ancestry) %>%
   saveRDS(here(base_path, '2_14_deconvolution_results.rds'))
+epidish_nostb %>%
+  left_join(ancestry) %>%
+  saveRDS(here(base_path, '2_14_deconvolution_results_nostb.rds'))
 
 # save statistical testing
 stats_by_ga %>%
@@ -1496,6 +1682,8 @@ stats_by_ga %>%
   select(-Trimester, -ga)  %>%
   bind_rows(., stats_by_sex, stats_by_ancestry) %>%
   write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry.csv'))
+bind_rows(stats_by_sex_nostb, stats_by_ancestry_nostb) %>%
+  write_csv(na = '', path = here('outs', '2_14_stats_by_sex_ancestry_nostb.csv'))
 
 # in silico stuff
 epidish_results %>%
