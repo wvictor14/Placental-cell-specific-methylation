@@ -22,7 +22,7 @@ library(forcats)
 library(GGally)
 library(irlba)
 library(tidyverse)
-font_size <- 8
+font_size <- 10
 ```
 
 ## Data
@@ -68,6 +68,11 @@ pDat_filt <- pDat %>%
                         'Dead Cells and Lymphocytes cs'),)
 # filter to first trimester
 betas_filt <- betas[,pDat_filt$Sample_Name]
+
+
+enrich <- readRDS(file.path(base_path, '2_4_enrich.rds'))
+kegg <- enrich$kegg
+go <- enrich$GO
 ```
 # Figure 2 gene plot
 
@@ -143,7 +148,7 @@ stat_plot <- function(cpg_name = NULL, gene_name = NULL, trimester = 'Third'){
     filter(Trimester == trimester)
   
   ##### GENERATE INDIVIDUAL PLOT TRACKS #####
-  font_size <- 7
+  font_size <- font_size+0.6
   point_size <- 0.5
   
   # Generate  methylation track
@@ -168,7 +173,7 @@ stat_plot <- function(cpg_name = NULL, gene_name = NULL, trimester = 'Third'){
     # cosmetics
     theme_bw(base_size = font_size) +
     theme(axis.text.x = element_blank(), 
-          axis.text.y = element_text(size = font_size-2),
+          axis.text.y = element_text(size = 6),
           axis.ticks = element_blank(),
           axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0, size = font_size),
           
@@ -242,7 +247,7 @@ stat_plot <- function(cpg_name = NULL, gene_name = NULL, trimester = 'Third'){
     theme_bw(base_size = font_size) +
     theme(axis.text.x = element_blank(),
           axis.ticks = element_blank(),
-          axis.text.y = element_text(vjust = 0.5),
+          axis.text.y = element_text(vjust = 0.5, size = 6),
           
           legend.text = element_text(),
           legend.key.height = unit(0.25, 'cm'),
@@ -339,8 +344,8 @@ stat_plot <- function(cpg_name = NULL, gene_name = NULL, trimester = 'Third'){
     guides(fill=guide_legend(ncol=2, override.aes = list(alpha=0.7, 
                                                          color = 'black'))) +
     theme_bw(base_size = font_size) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), 
-          axis.text.y = element_text(vjust = 0.5),
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6), 
+          axis.text.y = element_text(vjust = 0.5, size = 6),
           axis.ticks = element_blank(),
           
           plot.margin = margin(l=-0.1,unit="cm"),
@@ -374,13 +379,13 @@ stat_plot <- function(cpg_name = NULL, gene_name = NULL, trimester = 'Third'){
   n_trans <- betas_gene$genes_tx_id %>% str_split(', ') %>% unlist() %>% unique %>% length()
   
   # size of p1
-  p1_h <- 20
+  p1_h <- 18
   
   # combine tracks plot
   ggarrange(p1, p2, p3, ncol = 1, heights = c(p1_h-(n_trans-7), 5, n_trans))
 }
 
-p <- stat_plot(gene_name = 'DNMT1', trimester = 'Third');p #h: 4.5, w:6.2
+p <- stat_plot(gene_name = 'DNMT1', trimester = 'Third');p #h: 5, w:6.5
 
 ```
 
@@ -479,7 +484,7 @@ plot_bar <- function(x){
                                             order = 3)) +
     scale_linetype(guide =guide_legend(order = 2,
                                        override.aes = list(size = 1))) +
-    scale_size_manual(values = c('TRUE' = 1), 
+    scale_size_manual(values = c('TRUE' = 1.5), 
                       na.translate = F, 
                       labels = c('Enriched\n(bonferroni p < 0.001)'), 
                       guide = guide_legend(override.aes = list(size = 4),
@@ -541,15 +546,13 @@ plot_object <- dmcs_sig %>%
   separate(Group1_label, into = c('Trimester', 'Celltype'), sep = ' - ') %>% {
     
     ggplot(data = ., aes(x = Celltype)) +
-      geom_bar(stat = 'identity', aes(y = n, fill = direction),
-               color = 'black') +
+      geom_bar(stat = 'identity', aes(y = n, fill = direction)) +
       geom_text(data = select(., Trimester:all) %>%
                   distinct(),
                 aes(label = scales::comma(all), y = all),
-                direction = 'y',
-                size = 2.5,
-                nudge_y = 30000,
-                hjust = 'inward') +
+                size = 3,
+                hjust = 0,
+                nudge_y = 15000) +
       facet_wrap(~Trimester, ncol = 1, labeller = 'label_both') +
       scale_x_discrete(labels = function(x)gsub(' cs', '', x)) +
       scale_y_continuous(labels = scales::number_format(), 
@@ -570,7 +573,8 @@ plot_object <- dmcs_sig %>%
             legend.position = 'top',
             legend.box.margin=margin(-5,-5,-5,-5),
             legend.margin=margin(0,0,0,0),
-            legend.key.size = unit('0.4', 'cm')) +
+            legend.key.size = unit('0.4', 'cm'),
+            legend.text = element_text(vjust = 0.5)) +
       coord_flip() +
       labs(x = '', y = '', fill = '') };plot_object #h: 2.75, w: 3
 
@@ -613,7 +617,7 @@ library(forcats)
 library(GGally)
 library(irlba)
 library(tidyverse)
-font_size <- 8
+font_size <- 10
 
 # parent directory
 base_path <- here("data", "main", "interim")
@@ -767,7 +771,7 @@ igv <- function(gene_name = NULL,
     
     theme_bw(base_size = font_size) +
     theme(strip.background = element_blank(),
-          strip.text.y = element_text(angle = 180, hjust = 1),
+          strip.text.y.left = element_text(angle = 0, hjust = 1),
           strip.placement = 'outside',
           axis.ticks = element_blank(),
           axis.text.x = element_blank(),
@@ -794,7 +798,7 @@ igv <- function(gene_name = NULL,
     geom_segment(y= 0.5, yend = 0.5, aes(size = type, color = type)) +
     theme_bw(base_size = font_size)+
     theme(strip.background = element_blank(),
-          strip.text.y  = element_text(angle = 180),
+          strip.text.y.left  = element_text(angle = 0),
           strip.placement = 'outside',
           legend.position = 'bottom',
           plot.title =  element_blank(),
@@ -921,7 +925,7 @@ p1 <- b %>%
              labeller = labeller(Tissue = function(x)gsub(' cs', '', x))) +
   theme_bw(base_size = font_size) +
   theme(strip.background = element_blank(),
-        strip.text.y = element_text(angle = 180, hjust = 1),
+        strip.text.y.left = element_text(angle = 0, hjust = 1),
         strip.placement = 'outside',
         axis.ticks = element_blank(),
         axis.text.x = element_blank(),
@@ -962,7 +966,7 @@ p2 <- annotations %>%
   facet_wrap(~tx_id, ncol = 1, strip.position = 'left') +
   theme_bw(base_size = font_size)+
   theme(strip.background = element_blank(),
-        strip.text.y  = element_text(angle = 180),
+        strip.text.y.left  = element_text(angle = 0),
         strip.placement = 'outside',
         legend.position = 'bottom',
         plot.title =  element_blank(),
@@ -1002,6 +1006,9 @@ p2 <- annotations %>%
   scale_y_continuous(expand = c(0,0)) +
   labs(x = 'position', size = '', color = '');p2
 egg::ggarrange(p1,p2, ncol = 1, heights = c(3, 1)) #H:4.25, #w: 3.25
+
+
+igv(gene_name = 'INHBA')
 ```
 
 ## TFAP2C
@@ -1009,7 +1016,7 @@ egg::ggarrange(p1,p2, ncol = 1, heights = c(3, 1)) #H:4.25, #w: 3.25
 ```{r}
 igv(gene_name = 'TFAP2C', show_transcript_gene = FALSE, breaks_width = 10000,
     highlight_region = tibble(start = c(55200000-600),
-                              end = c(55200000 + 4000)))#H:4.25, #w: 3.25
+                              end = c(55200000 + 4000)))#H:3.25, #w: 3.25
 ```
 
 ## MMP2
@@ -1199,7 +1206,7 @@ p <- pDat %>%
   select(Sample_Name, Case_ID, Trimester, Tissue, contains('PC')) %>%
   ggplot(aes(x = PC1_raw, y = PC2_raw, color = Tissue, shape = Trimester)) +
   geom_point(alpha = 0.9, size = 0.75) +
-  theme_bw(base_size = font_size) +
+  theme_bw(base_size = font_size+1) +
   theme(panel.grid.minor = element_blank(),
         strip.background = element_blank(),
         axis.ticks = element_blank(),
@@ -1374,6 +1381,8 @@ dnmt <- anno %>%
          
 dnmt %>%
   
+  filter(grepl('promoter', genes_id) |
+           grepl('1to5kb', genes_id)) %>%
 
   # boolean vector indicating if cpg is a differentially methylated for 1 or more cell type
   mutate(sig = (bonferroni < 0.01 & abs(delta_b > 0.1))) %>%
@@ -1423,6 +1432,9 @@ all_genes <- anno %>%
          genes_symbol = ifelse(is.na(genes_symbol), 'NA', genes_symbol)) %>%
   inner_join(dmcs, by = c('cpg' = 'gene')) %>%
   
+  filter(grepl('promoter', genes_id) |
+           grepl('1to5kb', genes_id)) %>%
+  
   # boolean vector indicating if cpg is a differentially methylated for 1 or more cell type
   mutate(sig = (bonferroni < 0.01 & abs(delta_b > 0.1))) %>%
         # bonferroni = scales::pvalue(bonferroni, accuracy = 0.01), 
@@ -1431,7 +1443,7 @@ all_genes <- anno %>%
   
   group_by(cpg) %>%
   summarize(genes_symbol = dplyr::first(genes_symbol), sig = any(sig)) %>%
-  select(cpg, genes_symbol, sig) %>%
+  dplyr::select(cpg, genes_symbol, sig) %>%
   
   # put gene symbol on rows
   separate_rows(genes_symbol, sep = ', ') %>%
@@ -1450,24 +1462,25 @@ all_genes %>%
 
 p3 <- all_genes %>% 
   mutate(n_interval = cut(n, c(0, 10, 25, 50, 100, 250, Inf))) %>%
-  filter(n > 10, n < 250) %>%
+  filter(n > 5, n < 200,
+         n_dm > 4) %>%
   {
     ggplot(data = ., aes(x = n, y = n_dm)) +
-      geom_point(alpha = 0.1, size = 0.1) +
+      geom_point(alpha = 0.1, size = 0.5) +
       stat_smooth(se = FALSE, color = '#1b9e77', 
                   alpha = 0.25, size = 0.25, method = 'loess') +
       geom_abline(intercept = 0, slope = 1, color = '#7570b3', alpha = 1, size = 0.25) +
       
       # highlight genes
       geom_text_repel(data = . %>% 
-                        filter(genes_symbol %in% c('DNMT1', 'DNMT3A', 'DNMT3B', 'DNMT3L', 'TET1')),
+                        filter(genes_symbol %in% c('DNMT1', 'DNMT3L')),
                       aes(label = genes_symbol),
                       segment.color = '#d95f02',
-                      size = 1.5,
+                      size = 3,
                       segment.size = 0.1,
                       nudge_y = 150) +
       geom_point(data = . %>% 
-                        filter(genes_symbol %in% c('DNMT1', 'DNMT3A', 'DNMT3B', 'DNMT3L', 'TET1')),
+                        filter(genes_symbol %in% c('DNMT1', 'DNMT3L')),
                  color = '#c95353', size = 0.5) +
       
       theme_bw(base_size = font_size) +
@@ -1477,12 +1490,12 @@ p3 <- all_genes %>%
             axis.ticks = element_blank(),
             axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 0),
             plot.margin = margin(0.1, 0.5, 0.1, 0.1, "cm")) +
-      scale_x_continuous(expand = c(0,0)) +
-      scale_y_continuous(expand = c(0,0)) +
-      coord_cartesian(xlim = c(10, 250),
-                      ylim = c(0, 250)) +
+      scale_x_continuous(expand = c(0,0), limits = c(5, 200)) +
+      scale_y_continuous(expand = c(0,0), limits = c(5,200)) +
+      #coord_cartesian(xlim = c(5, 200),
+      #                ylim = c(5, 200)) +
       labs(x = 'CpGs per gene\n(n)', y = 'Differentially\nmethylated\n(n)')
-    }; p3 # h: 1.25, w: 2.5
+    }; p3 # h: 1.75, w: 3
 
 p4 <- all_genes %>%
   filter(n > 10) %>%
@@ -1503,7 +1516,7 @@ p4 <- all_genes %>%
         axis.line = element_line()) +
   scale_x_continuous(expand = c(0,0), labels = scales::percent) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x = 'Gene-wise percentage of CpGs\nthat are differentially methylated', y = 'Count');p4 #h: 2.25, w:2.5
+  labs(x = 'Gene-wise percentage of CpGs\nthat are differentially methylated', y = 'Count');p4 #h: 1.75, w:2.75
 
 
 
@@ -1908,7 +1921,7 @@ p <- pDat %>%
 
 ```{r}
 pheatmap <- readRDS(here::here('data', 'main', 'interim', '2_15_pheatmap_stb_troph.rds'))
-pheatmap #1400 h, 1000 w
+pheatmap #800 h, 1000 w
 ```
 
 ## Density plots
@@ -1930,22 +1943,122 @@ p_std <- stb_troph_dens %>%
         panel.grid.major.y = element_blank(),
         panel.grid.minor.x = element_blank(),
         axis.ticks = element_blank(),
-        axis.text.y = element_text(size = font_size-2),
+        axis.text.y = element_text(size = font_size-4),
         strip.placement = 'outside',
         strip.background = element_blank(),
-        strip.text.y.left = element_text(angle = 0),
+        strip.text.y.left = element_text(angle = 0, hjust = 1),
         legend.position = 'top',
         legend.key.size = unit(0.35, 'cm'),
         legend.spacing = unit(0, 'cm'),
         plot.title = element_blank(),
         plot.subtitle = element_blank()) +
-  guides(fill = guide_legend(direction = 'vertical')) +
-  labs(x = '', y = '', fill = '');p_std ###fig_height <- 3;fig_width <- 3.75
+#  guides(fill = guide_legend(direction = 'vertical')) ++
+  guides(fill = 'none') +
+  labs(x = '', y = '', fill = '');p_std ###fig_height <- 2.5;fig_width <- 4
 ```
 
 ## Hofb
 
 ```{r}
 pheatmap <- readRDS(here::here('data', 'main', 'interim', '2_15_pheatmap_450k_cord_hofb.rds'))
-pheatmap #1400h, 1200w
+pheatmap #1000h, 1000w
 ```
+
+# missMethyl enrichment
+
+```{r}
+# plot results
+go %>%
+  filter(Trimester == 'First') %>%
+  # take top n significant
+  group_by(Celltype) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Celltype), scales = 'free_y') +
+  scale_x_continuous(breaks = go$Order,
+                     labels = go$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+
+# plot results
+go %>%
+  filter(Trimester == 'Third') %>%
+  # take top n significant
+  group_by(Celltype) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Celltype), scales = 'free_y') +
+  scale_x_continuous(breaks = go$Order,
+                     labels = go$TERM) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+
+# plot results
+kegg %>%
+  # take top n significant
+  group_by(Label) %>%
+  dplyr::slice(1:10) %>%
+  
+  ggplot(aes(x = Order, y = Generatio, fill = neg_log_P)) +
+  geom_segment(aes(x = Order, xend = Order, y = 0, yend = Generatio)) +
+  geom_point(stat = 'identity', shape = 21, color = 'black', size = 3) +
+  theme_bw() +
+  facet_wrap(vars(Label), scales = 'free_y') +
+  scale_x_continuous(breaks = kegg$Order,
+                     labels = kegg$Description) +
+  coord_flip() +
+  scale_y_continuous(expand = c(0,0), limits = c(0,1)) +
+  scale_fill_viridis_c(option = 'B', begin = 0, limits = c(0, NA)) +
+  labs(fill = '-log10(P)', x = '', 
+       y = '(# of genes with DMCs) / (# of genes associated with GO term)')
+```
+
+# contamination levels
+
+```{r}
+#Before contamination
+p <- pDat %>%
+  filter(!Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 'Dead Cells and Lymphocytes cs'),
+         maternal_contamination_norm_flip < 0.35) %>%
+  arrange(Tissue, maternal_contamination_norm_flip) %>% 
+  mutate(Sample_Name = factor(as.character(Sample_Name), levels = Sample_Name),
+         Trimester = gsub('Third', 'Term', Trimester)) %>%
+  ggplot(aes(x = Sample_Name, y = maternal_contamination_norm_flip, color = Tissue)) +
+  geom_point(size = 0.9) + 
+  geom_segment(aes(y = 0, yend = maternal_contamination_norm_flip, 
+                   x = Sample_Name, xend = Sample_Name),
+               size = 0.5)+
+  scale_color_manual(values = color_code_tissue,
+                     labels = function(x)gsub(' cs', '', x),
+                     guide = guide_legend(override.aes = list(size = 1))) +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0), breaks = c(0,0.5,1), 
+                     labels = scales::percent) +
+  scale_x_discrete(expand = c(0.05, 0.05)) +
+  facet_grid(~Trimester, scales = 'free_x', space = 'free_x') +
+  theme_bw(base_size = font_size-2) +
+  theme(axis.text.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.key.size = unit(0.2, 'cm'),
+        axis.title.y = element_text(angle = 0, vjust = 0.5),
+        strip.background = element_blank())  +
+  labs(x = 'Samples', y = 'Maternal\ncontamination', color = '');p
+```
+
