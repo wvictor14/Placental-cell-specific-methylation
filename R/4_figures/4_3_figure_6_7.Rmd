@@ -18,7 +18,7 @@ library(scales)
 library(kableExtra)
 library(ggbeeswarm)
 library(readxl)
-fontsize <- 8
+fontsize <- 12
 theme_set(theme_bw(base_size=fontsize))
 
 base_path <- file.path('data', 'main', 'interim')
@@ -195,22 +195,143 @@ p3 <- kegg %>%
        y = '% of CpGs that are DMCs\nin KEGG pathway-associated genes') #h: 3.25, w:3.75
 ```
 
+# enrichment
+
+```{r}
+base_path <- file.path('data', 'main','interim')
+
+# sample data
+pDat <- readRDS(file.path(base_path, '3_1_pDat_filt.rds'))
+tests <- readRDS(here('data', 'main', 'interim', '2_8_genomic_enrichment_results.rds'))
+
+colors <- color_code_tissue[unique(pDat$Tissue)]
+plot_bar <- function(x){
+  x %>%
+    # ordering in plot
+    mutate(# linerange ymin ymax values
+           ymin = pmin(Observed_p_in, Expected_p_in),
+           ymax = pmax(Observed_p_in, Expected_p_in)) %>%
+    
+    ggplot() +
+    
+    # for cell type dmc enrichment lines and points
+    geom_linerange(aes(x = genomic_feature, 
+                        ymin = ymin, ymax = ymax, 
+                        color = Celltype),
+             stat = 'identity', 
+             position = position_dodge(width = 0.75),
+             #fatten = 0.01, 
+             size = 1) +
+    #geom_point(aes(x = genomic_feature,  y = Observed_p_in,
+    #               color = Celltype, alpha = bonferroni001),
+    #         stat = 'identity',
+    #         position = position_dodge(width = 0.75),
+             #fatten = 0.01, 
+    #         size = 0.03) +
+    
+    # for expected frequency in legend
+    geom_linerange(aes(x = genomic_feature, 
+                      ymin = Expected_p_in, 
+                      ymax = Expected_p_in, 
+                      linetype = 'Expected frequency'),
+                   size = 0.5) +
+    
+    # for generating the expected frequency bars
+    geom_errorbar(aes(x = genomic_feature, 
+                      ymin = Expected_p_in, 
+                      ymax = Expected_p_in, 
+                      linetype = 'Expected frequency'),
+                  show.legend = FALSE) +
+
+    # add significance asterisks
+    geom_text(data = . %>%
+                filter(bonferroni < 0.01),
+              aes(x = genomic_feature,
+                  y = ymax + 0.035, 
+                  group = Celltype, 
+                  size = bonferroni < 0.01),
+              position = position_dodge(0.85), 
+              label = '*') +
+    
+    facet_grid(genomic_feature_category~ Direction , 
+               labeller = labeller(Direction = c('Hyper' = 'More methylated',
+                                                 'Hypo' = 'Less methylated')),
+               scales = 'free', space = 'free', drop = TRUE) +
+    coord_flip() +
+    theme_bw(base_size = fontsize+2) + 
+    
+    theme(legend.position = 'top', 
+          legend.spacing.x = unit(-0.2, 'cm'),
+          strip.background = element_blank(),
+          strip.text.x = element_text(face = 'bold'),
+          strip.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.text = element_text(fontsize*2),
+          panel.grid.major.y = element_blank(),
+          panel.border = element_rect(color = 'grey'),
+          panel.spacing.y = unit(0.15, 'cm')) +
+    
+
+    labs(color = '', x = '', y = '', shape = '', linetype = '', size = '') +
+    scale_color_manual(values = colors,
+                       breaks = '',
+                       guide = guide_legend(override.aes = list(size = 0.75),
+                                            order = 3)) +
+    scale_linetype(guide =guide_legend(order = 2,
+                                       override.aes = list(size = 1))) +
+    scale_size_manual(values = c('TRUE' = 1.5), 
+                      na.translate = F, 
+                      labels = c('Enriched\n(bonferroni p < 0.001)'), 
+                      guide = guide_legend(override.aes = list(size = 4),
+                                            order = 1)) +
+    scale_y_continuous(limits = c(0,1), expand = c(0.075,0),
+                       breaks = c(0, 0.5, 1),
+                       labels = function(x)scales::percent(x, accuracy = 1)) 
+    #scale_alpha_discrete(range = c(0.6,1), breaks = c('TRUE', 'FALSE'), guide = FALSE)
+}
+
+p1 <- tests %>% 
+  filter(genomic_feature_category %in% c('pmd', 'enhancer', 'cpg_island')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar();p1 #h:4.25, w: 3.25
+
+p2 <- tests %>% 
+  filter(genomic_feature_category %in% c('gene')) %>%
+  arrange(genomic_feature_category, genomic_feature) %>%
+  mutate(genomic_feature = as_factor(genomic_feature)) %>%
+  plot_bar();p2 #h:4.25, w: 3.25
+
+```
+
 # Figure deconvolution
 
 ```{r}
 # pData
 # 3rd and 1st trimester reference cpgs
-coefs_combined_third <- read_csv(here('outs','2_14_deconvolution_reference_cpgs_third.csv'))
-coefs_combined_first <- read_csv(here('outs','2_14_deconvolution_reference_cpgs_first.csv'))
+coefs_combined_third <- read_csv(here('outs','2_14_deconvolution_reference_cpgs_third.csv')) %>%
+  select(Syncytiotrophoblast, everything(), -cpg) %>%
+  as.matrix()
+coefs_combined_first <- read_csv(here('outs','2_14_deconvolution_reference_cpgs_first.csv')) %>%
+  select(Syncytiotrophoblast, everything(), -cpg) %>%
+  as.matrix()
+
+coefs_combined_third_nostb <- 
+  readRDS(here::here('data', 'main', 'processed', '2_14_coefs_combined_third_nostb.rds'))
+
+coefs_combined_first_nostb <- 
+  readRDS(here::here('data', 'main', 'processed', '2_14_coefs_combined_first_nostb.rds'))
 
 # save deconvolution (nrbc included) estimates on villi
 epidish_rpc <- readRDS(here(base_path, '2_14_deconvolution_results.rds'))
+
+epidish_nostb <- readRDS(here(base_path, '2_14_deconvolution_results_nostb.rds'))
 
 # save statistical testing
 stats_by_pdat <- read_csv(here('outs', '2_14_stats_by_sex_ancestry.csv'))
 
 # in silico stuff
-epidish_results <- readRDS(here(base_path, '2_14_in_silico_deconvolution_results.rds'))
+epidish_results <- readRDS(here(base_path, '2_14_in_silico_deconvolution_results.rds')) 
 stats <- read_csv(here('outs', '2_14_in_silico_deconvolution_stats.csv'))
 
 # color key
@@ -218,6 +339,7 @@ color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
 color_code_tissue <- setNames(color_code$Colors_Tissue, gsub(' cs', '',color_code$label))
 
 color_code_tissue <- c(color_code_tissue, 'nRBC' = 'grey')
+color_code_tissue <- c(color_code_tissue, 'Syncytiotrophoblast' = '#f4702e')
 ```
 
 ```{r}
@@ -229,24 +351,89 @@ pheat <- pheatmap(coefs_combined_third*100, cluster_cols = FALSE,
          breaks = seq(0, 100, by = 1),
          color = rev(magma(100)),
          angle_col = 90,
-         fontsize = 8) ;pheat # h: 3, w: 2
+         fontsize = 7) ;pheat # h: 3, 1200; w: 2, 700
 
+pheat1 <- pheatmap(coefs_combined_first[,]*100, cluster_cols = FALSE, 
+         cluster_rows = TRUE,
+         show_rownames = FALSE,
+         breaks = seq(0, 100, by = 1),
+         color = rev(magma(100)),
+         angle_col = 90,
+         fontsize = 7) ;pheat1  # h: 3, 1050; w: 2, 700
+
+# for my paper now:
 p_composition_v <- epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+  
+  # take no stb for first
+  filter(Tissue == 'Villi', 
+         algorithm == 'epidish (RPC)') %>%  
+  select(Sample_Name:GA) %>%
+  
+  
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name_ga = paste0(Sample_Name, '-', GA) %>%
+           fct_reorder2(Trophoblasts, Stromal),
+         Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  mutate(component = fct_relevel(component, rev(c('Syncytiotrophoblast',
+                                                  'Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC'))),
+         Trimester = ifelse(Trimester == 'Third', 'Term', 'First Trimester')) %>%
+  arrange(Trimester, Sample_Name) %>%
+  {
+    ggplot(data = ., aes(x = Sample_Name, y = percent, fill = component)) +
+      geom_bar(stat = 'identity') +
+      scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                        na.value = '#636363',
+                        breaks = c('Syncytiotrophoblast',
+                                   'Trophoblasts', 'Stromal',
+                                   'Hofbauer', 'Endothelial', 'nRBC'),
+                        guide = guide_legend(nrow = 2)) +
+      theme(#axis.text.x = element_text(size = 6),
+        axis.text.x = element_blank(),
+        #axis.text.x = element_text(angle = 90),
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_blank(),
+            panel.grid.major.y = element_line(color = 'grey'),
+            panel.border= element_blank(),
+            legend.key.size = unit(0.5,"line"),
+            strip.background = element_blank(),
+            strip.text = element_text(hjust =0),
+            legend.position = 'bottom') +
+      facet_grid(~Trimester, scales = 'free', space = 'free') +
+      scale_y_continuous(expand = c(0,0), labels = percent) +
+      labs(x = '', y = '', fill = '')
+    };p_composition_v #h: 3, w:4
+
+#houseman composition
+p_composition_vh <- epidish_rpc %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'Houseman') %>%
   pivot_wider(id_cols = -c(component, percent),
               names_from = 'component',
               values_from = 'percent') %>%
   mutate(Sample_Name = fct_reorder2(Sample_Name, Trophoblasts, Stromal)) %>%
-  pivot_longer(cols = Trophoblasts:nRBC,
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
                names_to = 'component',
                values_to = 'percent') %>%
+  mutate(component = fct_relevel(component, rev(c('Syncytiotrophoblast', 'Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC'))),
+         Trimester = ifelse(Trimester == 'Third', 'Term', 'First Trimester')) %>%
   ggplot(aes(x = Sample_Name, y = percent, fill = component)) +
   geom_bar(stat = 'identity') +
   scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
-                    na.value = '#636363') +
+                    na.value = '#636363',
+                    breaks = c('Syncytiotrophoblast', 'Trophoblasts', 'Stromal',
+                               'Hofbauer', 'Endothelial', 'nRBC')) +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         axis.ticks.y = element_blank(),
+        axis.title.x = element_blank(),
         panel.grid.major.y = element_line(color = 'grey'),
         panel.border= element_blank(),
         legend.key.size = unit(0.5,"line"),
@@ -255,12 +442,15 @@ p_composition_v <- epidish_rpc %>%
         legend.position = 'bottom') +
   scale_y_continuous(expand = c(0,0), labels = percent) +
   labs(x = '', y = '', fill = '') +
-  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free');p_composition_v
+  facet_grid(cols = vars(Trimester), scales = 'free', space = 'free');p_composition_vh #h: 3, w:3.5
 
   
-p_decon_sex <- epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+p_decon_sex <- epidish_nostb %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third', component !='nRBC') %>%
+  mutate(component = fct_relevel(component, rev(c('Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC')))) %>%
   ggplot(aes(x = component, y = percent, color = Sex)) +
   geom_beeswarm(dodge.width = 0.75, cex = 1.75, size = 0.25) +
   #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
@@ -268,38 +458,52 @@ p_decon_sex <- epidish_rpc %>%
   scale_color_manual(values = c('#af8dc3', '#7fbf7b'),
                      guide = guide_legend(override.aes = list(size = 2.5))) +
   theme(panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
         panel.border = element_blank(),
         legend.key.size = unit(0.4, 'cm'),
         axis.line = element_line(),
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        axis.ticks = element_blank(),
         strip.background = element_blank(),
         strip.text = element_text(hjust = 0)) +
-  labs(x = '', color = '', y = '') ;p_decon_sex #h: 2.5, w:2.5
+  labs(x = '', color = '', y = '') ;p_decon_sex #h: 3, w:2.5
 
 
 
-p_decon_ancestry <- epidish_rpc %>%
-  filter(Tissue == 'Villi') %>%
+p_decon_ancestry <- epidish_nostb %>%
+  filter(Tissue == 'Villi',
+         algorithm == 'epidish (RPC)') %>%
   filter(Trimester == 'Third', Predicted_ethnicity != 'Ambiguous', component != 'nRBC') %>%
+  mutate(component = fct_relevel(component, rev(c('Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC')))) %>%
   ggplot(aes(x = component, y = percent, color = Predicted_ethnicity)) +
   geom_beeswarm(dodge.width = 0.75, cex = 1.75, size = 0.25) +
   #geom_boxplot() +
   #geom_jitter(position = position_jitterdodge(dodge.width = 0.75)) +
   scale_y_continuous(labels = percent) +
   scale_color_manual(values = c('#d8b365', '#5ab4ac'),
+                     labels = c('A' ,'C'),
                      guide = guide_legend(override.aes = list(size = 2.5))) +
   theme(panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
         panel.border = element_blank(),
         legend.key.size = unit(0.4, 'cm'),
         axis.line = element_line(),
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        axis.ticks = element_blank(),
         strip.background = element_blank(),
         strip.text = element_text(hjust = 0)) +
-  labs(x = '', color = '', y = '');p_decon_ancestry #h: 2.5, w: 3
+  labs(x = '', color = '', y = '');p_decon_ancestry #h: 3, w: 3
 
-epidish_rpc %>%
+# summarize
+
+epidish_nostb %>% 
   
-  filter(Tissue == 'Villi')  %>%
+  filter(Tissue == 'Villi', 
+         algorithm == 'epidish (RPC)') %>%  
+  select(Sample_Name:GA) %>%
+  
+  # summarize 
   group_by(Trimester, component) %>%
   summarize(mean = mean(percent),
             sd = sd(percent),
@@ -308,10 +512,123 @@ epidish_rpc %>%
   pivot_wider(id_cols = component,
               names_from = 'Trimester',
               values_from = c('mean', 'sd')) %>%
-  mutate(First = paste0(percent(mean_First), ' (', percent(sd_First), ')'),
-         Third = paste0(percent(mean_Third), ' (', percent(sd_Third), ')')) %>%
-  select(component, Third, First)
+  mutate(First = paste0(percent(mean_First, accuracy = 0.01), ' (', percent(sd_First, accuracy = 0.01), ')'),
+         Third = paste0(percent(mean_Third, accuracy = 0.01), ' (', percent(sd_Third, accuracy = 0.01), ')'),
+         component = fct_relevel(component, (c('Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC')))) %>%
+  arrange(component) %>%
+  select(component, First, Third)
+```
+
+## For giulia pm324
+#epidish composition, for giulia
+
+```{r}
+p_composition_v_g <- epidish_rpc %>%
   
+  # take no stb for first
+  filter(Tissue == 'Villi'| grepl('PM324', Sample_Name), 
+         algorithm == 'epidish (RPC)') %>%  
+  select(Sample_Name:GA) %>%
+  
+  
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name_ga = paste0(Sample_Name, '-', GA) %>%
+           fct_reorder2(Trophoblasts, Stromal),
+         Sample_Name = fct_reorder(Sample_Name, Syncytiotrophoblast)) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  mutate(component = fct_relevel(component, rev(c('Syncytiotrophoblast',
+                                                  'Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC'))),
+         Trimester = ifelse(Trimester == 'Third', 'Term', 'First Trimester')) %>%
+  arrange(Trimester, Sample_Name) %>%
+  
+  # get pm324 and term
+  filter(Trimester == 'Term' | grepl('PM324', Sample_Name)) %>%
+  mutate(Trimester = 'Term') %>%
+  {
+    ggplot(data = ., aes(x = Sample_Name, y = percent, fill = component)) +
+      geom_bar(stat = 'identity') +
+      scale_fill_manual(values = color_code_tissue[unique(epidish_rpc$component)], 
+                        na.value = '#636363',
+                        breaks = c('Syncytiotrophoblast',
+                                   'Trophoblasts', 'Stromal',
+                                   'Hofbauer', 'Endothelial', 'nRBC'),
+                        guide = guide_legend(nrow = 2)) +
+      theme(#axis.text.x = element_text(size = 6),
+        #axis.text.x = element_blank(),
+        axis.text.x = element_text(angle = 90),
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_blank(),
+            panel.grid.major.y = element_line(color = 'grey'),
+            panel.border= element_blank(),
+            legend.key.size = unit(0.5,"line"),
+            strip.background = element_blank(),
+            strip.text = element_text(hjust =0),
+            legend.position = 'bottom') +
+      scale_y_continuous(expand = c(0,0), labels = percent) +
+      
+      scale_x_discrete(breaks = c('PM324_V1', 'PM324_V4'))+
+      labs(x = '', y = '', fill = '')
+    };p_composition_v_g #h: 3, w:4
+
+epidish_rpc %>%
+  
+  # take no stb for first
+  filter(Tissue == 'Villi'| grepl('PM324', Sample_Name), 
+         algorithm == 'epidish (RPC)') %>%  
+  select(Sample_Name:GA) %>%
+  
+  
+  pivot_wider(id_cols = -c(component, percent),
+              names_from = 'component',
+              values_from = 'percent') %>%
+  mutate(Sample_Name_ga = paste0(Sample_Name, '-', GA) %>%
+           fct_reorder2(Trophoblasts, Stromal),
+         Sample_Name = fct_reorder(Sample_Name, Syncytiotrophoblast)) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'percent') %>%
+  mutate(component = fct_relevel(component, rev(c('Syncytiotrophoblast',
+                                                  'Trophoblasts', 'Stromal',
+                                              'Hofbauer', 'Endothelial', 'nRBC'))),
+         Trimester = ifelse(Trimester == 'Third', 'Term', 'First Trimester')) %>%
+  arrange(Trimester, Sample_Name) %>%
+  
+  # get pm324 and term
+  filter(Trimester == 'Term' | grepl('PM324', Sample_Name)) %>%
+  mutate(Trimester = 'Term',
+         highlight = str_extract(as.character(Sample_Name), 'PM324.*')) %>%
+  
+  arrange(percent) %>%
+  mutate(sample = paste0(Sample_Name, percent) %>% forcats::as_factor()) %>%
+  
+  ggplot(aes(x = sample, y = percent)) +
+  geom_bar(stat = 'identity', aes(fill = highlight)) +
+  labs(fill = '', x = '', y = '') +
+  scale_fill_discrete(breaks = c('PM324_V1', 'PM324_V4')) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~component, scales = 'free') +
+   theme(#axis.text.x = element_text(size = 6),
+        axis.text.x = element_blank(),
+        #axis.text.x = element_text(angle = 90),
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_blank(),
+            #panel.grid.major.y = element_line(color = 'grey'),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+            panel.border= element_blank(),
+            legend.key.size = unit(0.5,"line"),
+            strip.background = element_blank(),
+            strip.text = element_text(hjust =0),
+            legend.position = 'bottom') 
+
 ```
 
 # insilico 
@@ -326,14 +643,15 @@ p_sil_scatter <- epidish_results %>%
              hjust = 0, vjust = 1,
             size = 2) +
   facet_grid(cols = vars(algorithm), rows = vars(component)) +
-  scale_color_manual(values = color_code_tissue[unique(epidish_results$component)], 
+  scale_color_manual(values = color_code_tissue[as.character(unique(epidish_results$component))], 
                     na.value = '#636363',
                     guide = 'none') +
   scale_x_continuous( limits = c(0,1), breaks = c(0,0.5, 1), labels = scales::percent) +
   scale_y_continuous(breaks = c(0,0.5,1), labels = scales::percent) +
   theme(panel.grid = element_blank(),
         panel.spacing = unit(0.25, "cm"),
-        strip.background = element_blank()) +
+        strip.background = element_blank(),
+        strip.text.y = element_text(size = 4)) +
   labs(x = 'Actual', y = 'Estimated');p_sil_scatter #h: 4, w:5.5
 
 
@@ -352,16 +670,213 @@ p_sil_dev <- epidish_results %>%
                group_by(algorithm, component) %>%
                summarize(mean_diff = percent(mean(deviation), accuracy = 0.01)),
              aes(label = mean_diff),
-            x = -0.05, y = 39, hjust = 0, vjust =1,color = 'black',
-            size = 2.5) +
+            x = -0.05, y = 50, hjust = 0, vjust =1,color = 'black',
+            size = 2.75) +
   geom_vline(xintercept = 0) +
   facet_grid(cols = vars(algorithm), rows = vars(component)) +
-  scale_color_manual(values = color_code_tissue[unique(epidish_results$component)], 
+  scale_color_manual(values = color_code_tissue[as.character(unique(epidish_results$component))], 
                     na.value = '#636363',
                     guide = 'none') +
-  scale_x_continuous(limits = c(-0.05, 0.05), breaks = c(-0.04, 0, 0.04), labels = percent) +
-  scale_y_continuous(expand = c(0,0), breaks = c(0, 20, 40))+
+  scale_x_continuous(limits = c(-0.05, 0.05), breaks = c(-0.05, 0, 0.05), labels = percent) +
+  scale_y_continuous(expand = c(0,0), breaks = c(0, 25, 50))+
   theme(panel.grid = element_blank(),
-        strip.background = element_blank()) +
+        strip.background = element_blank(),
+        strip.text.y = element_text(size = 4)) +
   labs(x = '(estimated percentage) - (actual)');p_sil_dev #h:4 ,w:5.5
 ```
+
+# deconvolution validation on other samples
+
+```{r}
+epidish_RPC_other <- readRDS(here::here('data', 'main', 'interim',
+                                        '2_19_epidish_RPC_other.rds'))
+
+epidish_RPC_other_first <-  readRDS(here::here('data', 'main', 'interim', '2_19_epidish_RPC_other_first.rds'))
+
+epidish_RPC_vessel <- readRDS(here::here('data', 'main', 'interim', 
+                                '2_19_epidish_vessel.rds'))
+
+color_code_tissue <- setNames(color_code$Colors_Tissue,
+                              gsub(' cs', '', color_code$label))
+
+color_code_tissue <- c(color_code_tissue, 'nRBC' = 'grey')
+color_code_tissue <- c(color_code_tissue, 'Syncytiotrophoblast' = '#f4702e')
+
+# yuen 2013
+p3<- epidish_RPC_other %>%
+   pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  mutate(component = fct_relevel(component, 
+                                 rev(c('Syncytiotrophoblast', 'Trophoblasts',
+                                       'Stromal',
+                                       'Hofbauer', 'Endothelial', 'nRBC')))) %>% 
+  filter(Tissue %in% c('Cytotrophoblast Cells', 'Syncytiotrophoblast Cells'),
+         !grepl('_cyto', Sample_Name)) %>%
+  mutate(Tissue = case_when(Tissue == 'Cytotrophoblast Cells' ~ 'CTB',
+                            Tissue == 'Syncytiotrophoblast Cells' ~ 'STB'),
+         
+         Oxygen = str_extract(Sample_Name, '(?<=_)\\d+') %>%
+           fct_relevel(c('1', '8', '20')),
+         last_digits = str_extract(Sample_Name, '\\d+$'),
+         Case_ID = as.factor(str_extract(Sample_Name, '^[^_cs]+')) %>%
+           fct_recode(A = '65', B = '91', C = '92',
+                      D = '93', E = '95')) %>%
+  ggplot(aes(x = Oxygen, y = proportion/3, fill = component)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = color_code_tissue, na.value = 'grey') +
+  theme(axis.text.y = element_text(angle = 0, hjust = 0, vjust = 0.5),
+        axis.text.x = element_text(angle = 0),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(),
+        strip.background = element_blank(),
+        strip.placement = 'outside',
+        strip.text.y.right= element_text(angle = 0, hjust = 1),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank()) +
+  scale_y_continuous(expand = c(0,0), breaks = c(0,0.5,1),
+                     labels = scales::percent) +
+  facet_grid(Tissue~Case_ID, scales = 'free') +
+  labs(x = 'Oxygen (%)', y = '', fill = '', title = '');p3 #h:3, w:6
+
+## summarize percentages
+epidish_RPC_other %>%
+   pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  mutate(component = fct_relevel(component, 
+                                 rev(c('Syncytiotrophoblast', 'Trophoblasts',
+                                       'Stromal',
+                                       'Hofbauer', 'Endothelial', 'nRBC')))) %>% 
+  filter(Tissue %in% c('Cytotrophoblast Cells', 'Syncytiotrophoblast Cells'),
+         !grepl('_cyto', Sample_Name)) %>%
+  mutate(Tissue = case_when(Tissue == 'Cytotrophoblast Cells' ~ 'CTB',
+                            Tissue == 'Syncytiotrophoblast Cells' ~ 'STB'),
+         
+         Oxygen = str_extract(Sample_Name, '(?<=_)\\d+') %>%
+           fct_relevel(c('1', '8', '20')),
+         last_digits = str_extract(Sample_Name, '\\d+$'),
+         Case_ID = as.factor(str_extract(Sample_Name, '^[^_cs]+')) %>%
+           fct_recode(A = '65', B = '91', C = '92',
+                      D = '93', E = '95')) %>%
+  group_by(Case_ID, Tissue, component) %>%
+  summarize(proportion = mean(proportion)) %>%
+  
+  pivot_wider(id_cols = c(Case_ID, component),
+              names_from = c('Tissue'),
+              values_from = 'proportion') %>%
+  group_by(component) %>%
+  summarize(mean(STB-CTB))
+
+x <- epidish_RPC_other_first %>%
+  filter(!Tissue %in% c('Cytotrophoblast Cells', 'Syncytiotrophoblast Cells',
+                        'Extravillous Trophoblast Cells'),
+         !grepl('stro', Sample_Name)) %>% 
+  select(-Case_ID, -Sentrix) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  mutate(reference = 'first')
+y <- epidish_RPC_other %>%
+  filter(!Tissue %in% c('Cytotrophoblast Cells', 'Syncytiotrophoblast Cells',
+                        'Extravillous Trophoblast Cells'),
+         !grepl('stro', Sample_Name)) %>% 
+  select(-Case_ID, -Sentrix) %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  mutate(reference = 'term')
+
+
+
+p4<-bind_rows(x %>%
+            filter(grepl('1|2', Sample_Name)),
+          y %>%
+            filter(grepl('2|3', Sample_Name))) %>%
+  group_by(Sample_Name,component) %>%
+  summarize(proportion = mean(proportion),
+            Tissue = unique(Tissue)) %>%
+  ungroup() %>%
+  mutate(Trimester = case_when(
+              grepl('1', Sample_Name) ~ 'First',
+              grepl('2', Sample_Name) ~ 'Second',
+              grepl('3', Sample_Name) ~ 'Term'
+            ),
+         component = fct_relevel(component, 
+                                 rev(c('Syncytiotrophoblast', 'Trophoblasts',
+                                       'Stromal',
+                                       'Hofbauer', 'Endothelial', 'nRBC'))),
+         
+         Tissue = gsub('Trophoblast Cells', 'Trophoblasts', Tissue),
+         Trimester = case_when(
+           grepl('1', Sample_Name) ~ 'First',
+           grepl('2', Sample_Name) ~ 'Second',
+           grepl('3', Sample_Name) ~ 'Term'
+         )) %>%
+  ggplot(aes(x = Trimester, y = proportion, fill = component)) +
+  geom_bar(stat = 'identity') +
+  facet_grid(~Tissue, scales = 'free_x', space = 'free') +
+  scale_fill_manual(values = color_code_tissue, na.value = 'grey') +
+  theme(axis.text.y = element_text(angle = 0, hjust = 0, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(),
+        strip.background = element_blank(),
+        strip.placement = 'outside',
+        strip.text.y.left = element_text(angle = 0, hjust = 1),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        legend.position = '') +
+  scale_y_continuous(expand = c(0,0), labels = scales::percent) +
+  labs(x = 'Trimester', y = '', fill = '', title = '');p4 #h:4, w: 2.5
+
+vessel <- epidish_RPC_vessel %>%
+  dplyr::select(Sample_Name, Case_ID, Tissue, Trophoblasts:Syncytiotrophoblast)  %>%
+  pivot_longer(cols = Trophoblasts:Syncytiotrophoblast,
+               names_to = 'component',
+               values_to = 'proportion') %>%
+  group_by(Case_ID, Tissue, component) %>%
+  summarize(proportion = mean(proportion)) 
+
+p_vessel <- vessel %>%
+  filter(Tissue != 'Villi_dirty') %>%
+  mutate(Tissue = ifelse(Tissue == 'Villi_vessel', 'Stem villi', Tissue)) %>%
+  mutate(Tissue = fct_rev(Tissue),
+         component = fct_reorder(component,
+                                 rev(c('Syncytiotrophoblast', 'Trophoblasts',
+                                       'Stromal', 'Hofbauer', 
+                                       'Endothelial', 'nRBC')))) %>%
+  ggplot(aes(x = Case_ID, y = proportion, fill = component)) +
+  geom_bar(stat = 'identity') +
+  facet_grid(Tissue~., scales= 'free') +
+  scale_fill_manual(values = color_code_tissue, na.value = 'grey') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        axis.title.x = element_blank(),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(),
+        strip.background = element_blank(),
+        strip.placement = 'outside',
+        strip.text.y.right = element_text(hjust = 0.5, angle = 0),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        legend.position = '') +
+  coord_cartesian(ylim = c(0,1)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = '', y = '', fill = '', title = '');p_vessel #h:4 w: 3
+
+vessel %>%
+  filter(Tissue != 'Villi_dirty') %>%
+  mutate(Tissue = ifelse(Tissue == 'Villi_vessel', 'Dissected vessel', Tissue)) %>%
+  mutate(Tissue = fct_rev(Tissue)) %>%
+  group_by(Tissue, component) %>%
+  summarize(mean(proportion),
+            sd(proportion))
+```
+
