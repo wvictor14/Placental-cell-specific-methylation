@@ -1,0 +1,519 @@
+---
+title: "2_18_ACE2_mqtls"
+author: "Victor Yuan"
+date: "06/05/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Setup
+
+## Libraries
+
+```{r, message = FALSE, warning = FALSE}
+# libraries and data
+library(tidyverse)
+library(scales)
+library(here)
+library(readxl)
+library(janitor)
+theme_set(theme_bw())
+```
+
+## Data
+
+```{r eval = TRUE}
+base_path <- file.path('data', 'main', 'interim')
+
+# pData
+pDat <- readRDS(here(base_path, '2_3_pDat_contam.rds'))
+pDat <- pDat %>%
+  mutate(Tissue = case_when(
+    !(Tissue %in% c('Villi', 'Villi maternal', 'Syncytiotrophoblast')) ~ paste(Tissue, 'cs'),
+    Tissue == 'Syncytiotrophoblast' ~ 'Trophoblasts enz',
+    TRUE ~ Tissue
+  )) 
+
+# raw methylation data
+betas <- readRDS(here(base_path, '1_4_betas_noob_filt.rds'))
+
+# annotation
+anno <- readRDS('Z:/Victor/Repositories/EPIC_annotation/hg19_epic_annotation.rds')
+anno <- anno %>%
+  as_tibble() %>%
+  filter(cpg %in% rownames(betas)) # filter to filtered betas cpgs
+
+# probe filtered
+probe_anno <- readRDS(here(base_path, '1_1_probe_anno.rds'))
+
+# color key
+color_code <- readRDS(here(base_path, '2_3_color_code.rds'))
+color_code_tissue <- setNames(color_code$Colors_Tissue, color_code$label)
+```
+
+## Remove samples
+
+```{r}
+pDat_filt <- pDat %>% 
+  filter(maternal_contamination_norm_flip < 0.35,
+         !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2', 'P131_hofb_cs', 
+                             'PM324_V4', 'PM324_V1', 'PM139_vc', 'PM77_vc'),
+         !Tissue %in% c('Villi maternal', 'Trophoblasts enz', 'Mixture cs', 
+                        'Dead Cells and Lymphocytes cs'),)
+
+betas_filt <- betas[,pDat_filt$Sentrix]
+colnames(betas_filt) <- pDat_filt$Sample_Name
+```
+
+## Load genotype data
+
+```{r}
+master_ss <- read_xlsx('Z:/ROBLAB6 InfiniumSequenom/ILLUMINA SNP ARRAYS/MASTER_SAMPLE_SHEET.xlsx',
+                       skip = 8)
+
+locus_summary <- read_csv(here('data', 'main', 'raw', 
+                               'genome_studio_genotyping',
+                               'GS_Batch4_Omni25_LocusSummary.csv'), 
+                          skip = 2)
+
+# Only third trimester samples have omni
+pDat_filt %>%
+  mutate(omni = Case_ID %in% master_ss$Sample_Name) %>%
+  group_by(Trimester, Tissue, omni) %>%
+  count() 
+
+# subset to just those with omni
+pDat_filt <- pDat_filt %>%
+  filter(Case_ID %in% master_ss$Sample_Name)
+
+betas_filt <- betas[,pDat_filt$Sentrix]
+colnames(betas_filt) <- pDat_filt$Sample_Name
+
+# filter master ss
+ss <- master_ss %>% 
+  filter(Sample_Name %in% pDat_filt$Case_ID)
+ss %>% 
+  group_by(Project) %>% 
+  summarize(n = n(), samples = paste(Sample_ID, collapse = ', '))
+
+ss %>% group_by(SentrixBarcode_A) %>% count
+```
+
+read genomestudio exported data  from Giulia's project folder
+
+GDG did some QC already, looked at call rates and all looks good. Will verify this in this script.
+
+```{r}
+geno <- read_tsv('Z:/Giulia/Projects/Placental_CNVs/BATCH4_Omni25/GS_Batch4_Omni25/GS_Batch4Omni25_FinalReport.txt', skip = 9) %>%
+  janitor::clean_names()
+```
+
+# Process SNP data
+
+## Filter out SNPs
+
+Here I use the locus summary report exported from genome studio. It contains information on the # of calls, MAF per SNP and HWE.
+
+```{r}
+locus_summary <- locus_summary %>%
+  janitor::clean_names() %>%
+  select(locus_name, number_no_calls:cluster_sep)
+
+locus_summary_plot_data <- locus_summary %>%
+  summarize(`MAF < 0.05` = sum(minor_freq < 0.05),
+            `Call rate < 0.95` = sum(call_freq < 0.95),
+            `HWE p < 0.001` = sum(chi_test_p100 < 0.001)) %>%
+  pivot_longer(cols = everything(),
+               names_to = 'step',
+               values_to = 'n')
+
+locus_summary_plot_data %>%
+  ggplot(aes(x = step, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = scales::number(n)), nudge_y = 150000) +
+  theme(panel.border = element_blank(),
+        panel.grid.major.x = element_blank(),
+        axis.ticks = element_blank()) +
+  scale_y_continuous(labels = scales::number) +
+  labs(x = '', title = 'Number of SNPs removed', y = '')
+
+# filter to snps that pass thresolds
+snps_keep <- locus_summary %>%
+  filter(minor_freq > 0.05,
+         call_freq > 0.95,
+         chi_test_p100 > 0.001)
+
+geno <- geno %>%
+  filter(snp_name %in% snps_keep$locus_name)
+
+nrow(snps_keep) # 1 211 961
+
+```
+
+There are `r nrow(snps_keep)` remaining after processing.
+
+## Reshape
+
+It is necessary to reshape the the genotype matrix to apply PCA to obtain ancestry calls
+
+```{r}
+geno_df <- geno %>%
+  mutate(genotype = paste0(allele1_ab, allele2_ab),
+         genotype = ifelse(genotype == '--', NA, genotype)) %>%
+  pivot_wider(id_cols = snp_name,
+              names_from = sample_id,
+              values_from = genotype)
+
+# change encoding to 0/1/2
+geno_df[geno_df == 'AA'] <- 0
+geno_df[geno_df == 'AB'] <- 1
+geno_df[geno_df == 'BB'] <- 2
+
+
+# coerce to df format for matrixEQTL
+geno_df <- geno_df %>%
+  mutate_at(vars(-snp_name), as.numeric)
+
+# set rownames and remove snp column
+geno_df <- geno_df %>%
+  as.data.frame() %>%
+  magrittr::set_rownames(.$snp_name) %>%
+  select(-snp_name) 
+```
+
+## Ancestry coordinates
+
+Now we can apply PCA to the genotype matrix
+
+```{r}
+pca <- prcomp(t(na.omit(geno_df)))
+pcs <- pca$x[,1:20] %>%
+  as.data.frame() %>%
+  mutate(sample_id = rownames(.),
+         case_id = gsub('_.*', '', sample_id),
+         cells_project = case_id %in% pDat_filt$Case_ID) %>%
+  as_tibble %>%
+  select(sample_id:cells_project, everything())
+
+prop_var <- 
+  tibble(PC = gsub('PC', '', colnames(pca$rotation)) %>% as.numeric,
+         sd = pca$sdev) %>%
+  mutate(p_variance = sd^2 / sum(sd^2)) 
+
+prop_var %>%
+  ggplot(aes(x = PC, y = p_variance)) +
+  geom_bar(stat = 'identity')   
+
+# get methylation-based ethnicity calls
+meth_eth <- readRDS(here(base_path, '1_6_pDat.rds'))
+
+pcs_eth <- pcs %>%
+  left_join(meth_eth %>% select(Case_ID, Predicted_ethnicity) %>% distinct(),
+            by = c('case_id' = 'Case_ID')) 
+
+pcs_eth %>%
+  ggplot(aes(x = PC1, y = PC2, color = Predicted_ethnicity)) +
+  geom_point() +
+  theme_classic() +
+  labs(x = paste0('PC1 (', prop_var$p_variance[1] %>% scales::percent(accuracy = 0.1),')'),
+       y = paste0('PC2 (', prop_var$p_variance[2] %>% scales::percent(accuracy = 0.1),')'),
+       color = 'PLANET-predicted\nethnicity') +
+  coord_equal()
+
+pcs_eth %>%
+  ggplot(aes(x = PC3, y = PC4, color = Predicted_ethnicity)) +
+  geom_point() +
+  theme_classic() +
+  labs(x = paste0('PC3 (', prop_var$p_variance[3] %>% scales::percent(accuracy = 0.1),')'),
+       y = paste0('PC4 (', prop_var$p_variance[4] %>% scales::percent(accuracy = 0.1),')'),
+       color = 'PLANET-predicted\nethnicity')+
+  coord_equal()
+
+```
+
+`NA` are non-cell samples. Many of these likely have methylation data that can also be used to infer ethnicity though.
+
+Let's add this ancestry coordinates to the phenotype data
+
+```{r}
+pDat_filt <- pDat_filt %>% 
+  
+  # add methylation determined ancestry
+  left_join(meth_eth %>% 
+              select(Case_ID, Predicted_ethnicity_nothresh:Prob_Caucasian) %>%
+              distinct(), 
+            by = "Case_ID") %>%
+  
+  # add genotype PCs
+  left_join(pcs %>% 
+              select(case_id, contains('PC')) %>%
+              dplyr::rename_at(vars(contains('PC')), function(x)paste0(x, '_geno')),
+            by = c('Case_ID' = 'case_id'))
+```
+
+## Subset to mqtl snps
+
+Note that not all mqtl snps are present in any of the omni manifests. I'm not sure why. There are about 150 snps missing from any given manifest.
+
+```{r}
+v1_4 <- read_csv('Z:/ROBLAB6 InfiniumSequenom/ILLUMINA SNP ARRAYS/ILLUMINA GS files/HumanOmni2-5-8-v1-4-a1/InfiniumOmni2-5-8v1-4_A1.csv', skip = 7)
+
+length(unique(mqtls$SNPID)) # 3022
+
+geno_filt <- geno %>% 
+  filter(snp_name %in% mqtls$SNPID)
+
+geno_filt %>%
+  select(snp_name) %>%
+  distinct() %>%
+  nrow() #2668
+```
+
+## Subset to samples
+
+Subset to samples of my cells project
+
+```{r}
+geno_filt <- geno_filt %>%
+  mutate(case_id = gsub('_.*', '', sample_id)) %>%
+  filter(case_id %in% pDat_filt$Case_ID)
+```
+
+## Filter to minimum 3 observations per genotype group
+
+It is difficult to trust our stats with so few observations. Therefore, we should explore filtering to SNPs with a high enough B allele frequency. How much is enough?
+
+
+```{r}
+# calculate counts per genotype, and BAF
+geno_stats <- geno_filt %>%
+  mutate(genotype = paste0(allele1_ab, allele2_ab),
+         genotype = ifelse(genotype == '--', NA, genotype),
+         a1 = ifelse(allele1_ab == 'B', 1, 0) %>% as.numeric,
+         a2 = ifelse(allele2_ab == 'B', 1, 0) %>% as.numeric) %>%
+  group_by(snp_name, genotype) %>%
+  summarize(B_alleles = sum(a1 + a2, na.rm = T),
+            n = n()) %>%
+  
+  # calculate BAF
+  group_by(snp_name) %>%
+  mutate(BAF = sum(B_alleles, na.rm = T) / sum(n*2, na.rm = T)) %>%
+  
+  ungroup() %>%
+  mutate(snp_name = fct_reorder(snp_name, BAF)) %>%
+  arrange(BAF, snp_name)
+
+
+# visualize b allele frequency distribution
+geno_stats %>%  
+  ggplot(aes(x = snp_name, y = n, fill = genotype)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x = paste0('snps (n=', geno_stats %>% select(snp_name) %>% distinct() %>% nrow(), ')'), 
+       y = 'count')
+
+geno_stats %>%
+  mutate(MAF = ifelse(BAF > 0.5, 1-BAF, BAF)) %>%
+  select(snp_name,MAF) %>%
+  distinct() %>%
+  ggplot(aes(x = MAF)) +
+  geom_histogram(binwidth = 0.05) +
+  scale_x_continuous(limits = c(0,1))
+```
+
+There are many SNPs with low MAF, and no AB or BB genotypes represented. We need to remove these as these cannot be validated.
+
+We need to decide on how to filter for those snps that have enough boservations in each genotype per snp.
+
+I think filtering to a MAF > 0.25 is reasonable.
+
+```{r}
+geno_stats_wide <- geno_stats %>% 
+  
+  # 1 row per snp
+  pivot_wider(id_cols = c(snp_name, BAF),
+              names_from = genotype,
+              values_from = n) %>%
+  
+  # process columns
+  mutate_at(vars(AA:BB), function(x)ifelse(is.na(x), 0, x)) %>%
+  mutate(n = AA + AB + BB) %>%
+  select(snp_name:AA, AB, BB, `NA`, n) %>%
+  dplyr::rename(missing = `NA`) %>%
+  
+  # to get MAF, If BAF is greater than 0.5, then reverse
+  mutate(MAF = ifelse(BAF > 0.5, 1-BAF, BAF)) %>%
+  arrange(MAF) %>%
+  filter(MAF > 0.25)
+
+
+nrow(geno_stats_wide) #1902 SNPs remain
+2668-nrow(geno_stats_wide) #766 SNPs removed
+
+geno_stats_wide %>%
+  pivot_longer(cols = AA:missing,
+               names_to = 'genotype',
+               values_to = 'count') %>%
+  mutate(genotype = ifelse(genotype == 'missing', NA, genotype)) %>%
+  ggplot(aes(x = snp_name, y = count, fill = genotype)) +
+  geom_bar(stat = 'identity') +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x = paste0('snps', ' (n=', nrow(geno_stats_wide), ')'), y = 'count')
+
+geno_stats_wide %>%
+  ggplot(aes(x = MAF)) +
+  geom_histogram(binwidth = 0.025) +
+  scale_x_continuous(limits = c(0,1))
+```
+
+Note that the final report is exported allele calls with the TOP/BOTTOM specification. This means that the A corresponds to the first letter in the SNP column, and B is the second letter.
+
+e.g.
+
+if SNP = [T/C], then
+
+A = T
+B = C
+
+This will be helpful to know later on
+
+# CpGs
+
+## filter
+
+Subset down to CpGs that are associated with SNPs
+
+```{r}
+# filter mqtls to those in our processed SNPs
+mqtls_filt <- mqtls %>%
+  filter(SNPID %in% rownames(geno_df))
+
+nrow(mqtls_filt) #3848
+length(unique(mqtls_filt$SNPID)) # 2668
+length(unique(mqtls_filt$cpgID)) # 3848
+
+# how many CpGs do we have?
+sum(mqtls_filt$cpgID %in% rownames(betas_filt)) #2956 out of 3848
+```
+
+We have 2956 cpgs out of 3848 cpgs in our data. Why the discrepancy? Likely because 450k data was used for mqtls and some were removed in processing. 
+
+Let's see if any were removed during processing
+
+```{r}
+# How many mQTL CpGs are in 850k data?
+sum(mqtls_filt$cpgID %in% probe_anno$probe_ID) # 3577 / 3848
+
+nrow(mqtls_filt)-sum(mqtls_filt$cpgID %in% probe_anno$probe_ID) # 271 are exclusive to 450k
+# Out of those that are in 850k data, how many were removed during processing?
+
+## failed det p or bc
+sum(mqtls_filt$cpgID %in% 
+      (probe_anno %>%
+         filter(remove_failed) %>%
+         pull(probe_ID))) # 69
+
+sum(mqtls_filt$cpgID %in% 
+      (probe_anno %>%
+         filter(remove_CH_SNP) %>%
+         pull(probe_ID))) # 574
+
+sum(mqtls_filt$cpgID %in% 
+      (probe_anno %>%
+         filter(remove_XY) %>%
+         pull(probe_ID))) # 0
+```
+
+Actually a high number of these probes were filtered because they are cross hybridizing or have SNPs nearby (n=574). A small number were removed due to quality (n=0).
+
+Filter to cpgs in our data
+
+```{r}
+nrow(mqtls_filt)
+mqtls_filt <- mqtls_filt %>%
+  filter(cpgID %in% rownames(betas_filt))
+nrow(mqtls_filt) # 2956 associations to test
+
+nrow(geno_df) # 1211961
+geno_df <- geno_df[intersect(mqtls_filt$SNPID, rownames(geno_df)),]
+nrow(geno_df) # 1999 snps remain
+1211961 - 1999 # 1209962 snps removed
+
+```
+
+# Merge
+
+Now I will merge the betas and genotype data frames
+
+```{r}
+#make genotype df long for merging
+geno_df_long <- geno_df %>%
+  bind_cols(snp_name = rownames(.), .) %>%
+  pivot_longer(cols = -snp_name,
+               names_to = 'sample_id',
+               values_to = 'genotype') %>%
+  mutate(case_id = gsub('_.*', '', sample_id))
+
+# filter to cpgs in mqtls
+data <- betas_filt[intersect(mqtls$cpgID, rownames(betas_filt)), ] %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'cpg') %>%
+  as_tibble %>%
+  
+  pivot_longer(cols = -cpg,
+               names_to = 'sample_id',
+               values_to = 'betas') %>%
+  
+  # add case id column which matches to genotype df
+  left_join(pDat_filt %>% select(Sample_Name, Case_ID, Tissue, Sex,
+                                 PC1_geno, PC2_geno),
+            by = c('sample_id' = 'Sample_Name'))  %>%
+  
+  # pair cpg with the snp id for each specific mqtl
+  inner_join(mqtls_filt %>% select(SNPID, cpgID), by = c('cpg' = 'cpgID'))  %>%
+  
+  # merge to genotype df
+  inner_join(geno_df_long %>% select(-sample_id), 
+             by = c('Case_ID' = 'case_id', 'SNPID' = 'snp_name'))
+
+data
+```
+
+# Analysis
+
+## Apply linear modelling
+
+Test associations between each genotype and each cpg
+
+* correct for sex, first two pcs of genotype data
+
+```{r}
+# apply linear models to each cpg and snp, grouped by tissue
+results <- data %>%
+  group_by(Tissue, cpg, SNPID) %>%
+  nest() %>%
+  
+  # apply model
+  mutate(model = map(data, ~lm(betas ~ genotype + Sex + PC1_geno + PC2_geno, data = .)),
+         
+         # extract p values and stats
+         results = map(model, broom::glance)) %>%
+  
+  unnest(results) %>%
+  select(-model, -data, -(df:df.residual)) %>%
+  clean_names() %>%
+  
+  # mult test correct
+  ungroup() %>%
+  mutate(fdr = p.adjust(p_value, method = 'fdr')) 
+
+results
+```

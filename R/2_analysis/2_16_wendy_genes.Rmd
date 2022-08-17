@@ -834,10 +834,14 @@ betas_in <- betas_filt[,pDat_filt %>%
 p <- annoPlot_with_tracks(gene_name = 'OGT');p
 p <- annoPlot_with_tracks(gene_name = 'ZNF300')
 
+annoPlot_with_tracks(gene_name = 'DUSP9')
+
 # Third trimester
 betas_in <- betas_filt[,pDat_filt %>% 
                          filter(Trimester == 'Third') %>%
                          pull(Sample_Name)]
 p <- annoPlot_with_tracks(gene_name = 'OGT')
 p <- annoPlot_with_tracks(gene_name = 'ZNF300')
+
+annoPlot_with_tracks(gene_name = 'DUSP9')
 ```

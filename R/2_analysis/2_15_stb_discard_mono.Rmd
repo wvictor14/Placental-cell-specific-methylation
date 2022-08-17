@@ -395,6 +395,7 @@ annotation_colors <-
                   'WBC' = '#D4C2BE'))
 
 out <- pheatmap(betas_hofb_cord_450k[mostvar1000,]*100,
+                treeheight_row = 0,
          show_rownames = FALSE,
          show_colnames = FALSE,
          annotation_col = annotation,
@@ -442,9 +443,11 @@ out <- pheatmap(
                        pDat_hofb_cord_450k %>%
                          filter(maternal_contamination_norm_flip < 0.35 |
                                   is.na(maternal_contamination_norm_flip),
-                                !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2', 'PM366_vc_R2',
+                                !Sample_Name %in% c('PM364_hofb_cs', 'PL293_v_R2',
+                                                    'PM366_vc_R2',
                                                     'P131_hofb_cs')) %>%
                          pull(rownames)]*100,
+  fontsize = 8,
          show_rownames = FALSE,
          show_colnames = FALSE,
          annotation_col = annotation,
@@ -732,7 +735,7 @@ dmrs
 
 ```{r}
 betas_stb_troph <- betas[,pDat %>% 
-             filter(Tissue %in% c('Villi', 'Trophoblasts cs', 'Trophoblasts enz'),
+             filter(Tissue %in% c('Villi', 'Trophoblasts', 'Syncytiotrophoblast'),
                     !Sample_Name %in% c('PL293_v_R2', 'PM366_vc_R2'),
                     Trimester == 'Third') %>%
              pull(Sample_Name)
@@ -746,19 +749,13 @@ mostvar1000_3 <- var3 %>% arrange(desc(sd)) %>%
   pull(cpg)
 
 annotation <- pDat %>% 
-  filter(Tissue %in% c('Villi', 'Trophoblasts cs', 'Trophoblasts enz'),
+  filter(Tissue %in% c('Villi', 'Trophoblasts', 'Syncytiotrophoblast'),
          !Sample_Name %in% c('PL293_v_R2', 'PM366_vc_R2'),
          Trimester == 'Third') %>%
-  
-  mutate(Tissue = case_when(
-    Tissue == 'Villi' ~ 'Villi',
-    Tissue == 'Trophoblasts cs' ~ 'Trophoblasts',
-    Tissue == 'Trophoblasts enz' ~ 'Syncytiotrophoblasts'
-  )) %>%
   select(Tissue) %>% 
   as.data.frame()
 rownames(annotation) <- pDat %>% 
-  filter(Tissue %in% c('Villi', 'Trophoblasts cs', 'Trophoblasts enz'),
+  filter(Tissue %in% c('Villi', 'Trophoblasts', 'Syncytiotrophoblast'),
          !Sample_Name %in% c('PL293_v_R2', 'PM366_vc_R2'),
          Trimester == 'Third') %>%
   pull(Sample_Name)
@@ -767,14 +764,16 @@ annotation_colors <-
   list(
     Tissue = c('Villi' = '#721111',
                'Trophoblasts' = '#FBC02D',
-               'Syncytiotrophoblasts' = '#f4702e')
+               'Syncytiotrophoblast' = '#f4702e')
   )
 
 out2 <- pheatmap(betas_stb_troph[mostvar1000_3,]*100,
          show_rownames = FALSE,
          show_colnames = FALSE,
+         annotation_legend = FALSE,
          annotation_col = annotation,
          annotation_colors = annotation_colors,
+         fontsize = 8,
          color = inferno(100),
          breaks = seq(0,100, 1),
          annotation_names_col = FALSE)
