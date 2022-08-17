@@ -11,7 +11,7 @@ editor_options:
 
 ```{r, message = FALSE, warning = FALSE}
 # libraries and data
-fontsize <- 8
+fontsize <- 10
 library(annotatr)
 library(tidyverse); theme_set(theme_bw(base_size = fontsize))
 library(glue)
@@ -200,6 +200,7 @@ p1 <- densities_high_res %>%
             legend.spacing.y = unit(0.1, 'mm'),
             legend.key.size = unit(0.5, 'lines'),
             axis.ticks.x = element_blank(),
+            axis.text.x = element_text(size = 8),
             strip.background = element_blank(),
             strip.text = element_text(face = 'bold', size = fontsize, hjust = 0),
             panel.grid = element_blank(),
@@ -465,7 +466,7 @@ p_i1 <- imprint_density %>%
                          na.value = '#636363',
                          labels = function(x)gsub(' cs', '', x),
                         guide = 'none') +
-      scale_y_continuous(expand = c(0,0)) +
+      scale_y_continuous(expand = c(0,0), breaks = c(0, 3, 6)) +
       scale_x_continuous(limits = c(0,1), 
                          expand = c(0,0), 
                          breaks = c(0, 0.25, 0.5, 0.75, 1), 
@@ -476,12 +477,12 @@ p_i1 <- imprint_density %>%
             panel.spacing.x = unit(2, "mm"),
             strip.background = element_blank(),
             strip.placement = 'outside',
-            strip.text.y = element_text(angle = 180),
+            strip.text.y.left = element_text(angle = 0),
             axis.line = element_line(),
             axis.title.y = element_text(angle = 0, vjust = 0.5)) +
       labs(x = 'DNA methylation', y = '', fill = '')+
       annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)
-  };p_i1## h: 2, w: 6
+  };p_i1## h: 1.75, w: 6.25
 
 p_i1b <- imprint_density %>%
   filter(Trimester == 'First') %>%
@@ -559,7 +560,7 @@ annotations <- annotations %>%
 anno <- anno %>%
   filter(cpg %in% rownames(betas_filt))
 
-font_size <- 12
+font_size <- fontsize
 igv <- function(gene_name = NULL, 
                 
                 chr = NULL,
@@ -819,7 +820,7 @@ betas_gene <- t(betas_filt[anno_subset$cpg,,drop = FALSE]*100) %>% as_tibble %>%
   
   ##### GENERATE INDIVIDUAL PLOT TRACKS #####
   point_size <- 0.5
-  font_size <- 8
+  font_size <- fontsize
   
   # Generate  methylation track
   p1 <- betas_gene %>%
@@ -1014,7 +1015,7 @@ betas_gene <- t(betas_filt[anno_subset$cpg,,drop = FALSE]*100) %>% as_tibble %>%
     facet_wrap(vars(group), ncol = 1) +
     guides(fill=guide_legend(ncol=2, override.aes = list(alpha=0.7, 
                                                          color = 'black'))) +
-    theme_bw(base_size = font_size) +
+    theme_bw(base_size = font_size+1) +
     theme(
       axis.text.x = element_blank(),
           axis.text.y = element_text(vjust = 0.5),
@@ -1061,7 +1062,8 @@ egg::ggarrange(p1, p2, p3, heights = plot_heights)
 ```{r}
 #C19MC
 p_c19 <- plot_cpgs(c ='chr19', s = 54150515, e = 54155608+15000,
-                   title = 'C19MC imprinted DMR') 
+                   title = 'C19MC imprinted DMR',
+                   plot_heights = c(2, 1, 1)) 
 #fig_height <- 3.75
 #fig_width <- 4.25
 
@@ -1075,7 +1077,8 @@ p_ras <- plot_cpgs(c = 'chr15', s = 79382548-45000, e = 79383980,
           title = 'RASGRF1')
 
 #DCAF10
-p_dcaf10 <- plot_cpgs(gene_name = 'DCAF10')
+p_dcaf10 <- plot_cpgs(gene_name = 'DCAF10',
+                      plot_heights = c(2, 1, 1))
 
 #JMJD1C
 p_jmjd1c <- plot_cpgs(c = 'chr10', s = 65224441-25000, e = 65225999+25000,
